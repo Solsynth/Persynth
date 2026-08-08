@@ -1,0 +1,42 @@
+# synth_pet
+
+An Island-style Flutter desktop pet companion.
+
+## Current scaffold
+
+- Material 3 configuration dashboard with responsive desktop rail and mobile navigation.
+- AutoRoute-powered home and floating-pet routes.
+- Configurable ASCII face parts (`0.0`, `0-0`, `0^0`, `0.o`, and similar combinations), persisted locally.
+- Personality Core chat integration using the OpenAI-compatible `/v1/chat/completions` endpoint.
+- Solar Network OAuth with PKCE, secure token storage, refresh, and sign-out.
+- Desktop-only multi-window support through `desktop_multi_window`.
+- Desktop window chrome from `island_ui_foundation` and `window_manager`.
+
+Mobile builds use the regular single-window Flutter app shell.
+
+Sign in from the main configuration window. The app passes the refreshed Solar
+Network user access token to Personality Core; it never asks for a separate
+Personality Core token.
+
+Register both `synthpet://oauth/callback` and
+`http://127.0.0.1:42872/oauth/callback` with the Solar Network OAuth client.
+Windows and Linux use the fixed loopback callback through the system browser;
+mobile and macOS use the `synthpet` callback scheme.
+
+If the registered OAuth client or Personality Core agent differs from the
+defaults, configure them at build/run time:
+
+```sh
+flutter run \
+  --dart-define=SOLAR_OAUTH_CLIENT_ID=synthpet \
+  --dart-define=PERSONALITY_CORE_AGENT=agent
+```
+
+## Development
+
+```sh
+flutter pub get
+dart run build_runner build
+flutter analyze
+flutter test
+```
