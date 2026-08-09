@@ -26,8 +26,8 @@ Future<void> main(List<String> args) async {
     }
 
     final windowOptions = WindowOptions(
-      size: isPetWindow ? const Size(340, 420) : const Size(1180, 760),
-      minimumSize: isPetWindow ? const Size(280, 340) : const Size(760, 520),
+      size: isPetWindow ? const Size(340, 420) : const Size(960, 640),
+      minimumSize: isPetWindow ? const Size(280, 340) : const Size(720, 500),
       center: true,
       backgroundColor: Colors.transparent,
       skipTaskbar: isPetWindow,

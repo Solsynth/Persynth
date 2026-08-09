@@ -151,7 +151,7 @@ class PersonalityCoreConfig {
     return const PersonalityCoreConfig(
       agentId: String.fromEnvironment(
         'PERSONALITY_CORE_AGENT',
-        defaultValue: 'agent',
+        defaultValue: 'michan',
       ),
     );
   }

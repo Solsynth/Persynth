@@ -8,6 +8,9 @@ An Island-style Flutter desktop pet companion.
 - AutoRoute-powered home and floating-pet routes.
 - Configurable ASCII face parts (`0.0`, `0-0`, `0^0`, `0.o`, and similar combinations), persisted locally.
 - Personality Core chat integration using the OpenAI-compatible `/v1/chat/completions` endpoint.
+- AI behavior harness lets Personality Core change mood, face, status, and animation through a validated JSON directive.
+- Programmatic simulation owns energy, affection, idle decay, and feed/play/rest reactions.
+- Pet chat accepts typed messages on every target and speech-to-text on Android, iOS, and web when available.
 - Solar Network OAuth with PKCE, secure token storage, refresh, and sign-out.
 - Desktop-only multi-window support through `desktop_multi_window`.
 - Desktop window chrome from `island_ui_foundation` and `window_manager`.

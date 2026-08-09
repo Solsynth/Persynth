@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
@@ -70,7 +71,7 @@ class SolarAuthService {
     return user;
   }
 
-  Future<void> signOut() => _storage.delete(key: sessionKey);
+  Future<void> signOut() => _deleteSession();
 
   Future<SolarUser?> _currentUser(_SolarSession session) async {
     final response = await _client.get(
@@ -157,7 +158,11 @@ class SolarAuthService {
       await _saveSession(refreshed);
       return refreshed;
     } on SolarAuthException {
-      await _storage.delete(key: sessionKey);
+      try {
+        await _deleteSession();
+      } on SolarAuthException {
+        // The expired session is already unusable.
+      }
       return null;
     }
   }
@@ -209,20 +214,50 @@ class SolarAuthService {
   }
 
   Future<_SolarSession?> _readSession() async {
-    final raw = await _storage.read(key: sessionKey);
+    late final String? raw;
+    try {
+      raw = await _storage.read(key: sessionKey);
+    } on PlatformException catch (error) {
+      throw _secureStorageException(error);
+    }
     if (raw == null) return null;
     try {
       return _SolarSession.fromJson(
         Map<String, dynamic>.from(jsonDecode(raw) as Map),
       );
     } catch (_) {
-      await _storage.delete(key: sessionKey);
+      try {
+        await _deleteSession();
+      } on SolarAuthException {
+        // The malformed session will be replaced on the next successful sign-in.
+      }
       return null;
     }
   }
 
-  Future<void> _saveSession(_SolarSession session) {
-    return _storage.write(key: sessionKey, value: jsonEncode(session.toJson()));
+  Future<void> _saveSession(_SolarSession session) async {
+    try {
+      await _storage.write(
+        key: sessionKey,
+        value: jsonEncode(session.toJson()),
+      );
+    } on PlatformException catch (error) {
+      throw _secureStorageException(error);
+    }
+  }
+
+  Future<void> _deleteSession() async {
+    try {
+      await _storage.delete(key: sessionKey);
+    } on PlatformException catch (error) {
+      throw _secureStorageException(error);
+    }
+  }
+
+  SolarAuthException _secureStorageException(PlatformException _) {
+    return const SolarAuthException(
+      'Secure session storage is unavailable. Please restart the app and try again.',
+    );
   }
 
   Map<String, String> _authHeaders(String accessToken) => {

@@ -35,6 +35,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Synth Pet uses the microphone when you ask Mochi by voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Synth Pet converts your voice into messages for Mochi.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

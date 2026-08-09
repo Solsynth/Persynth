@@ -4,13 +4,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:synth_pet/main.dart';
 
 void main() {
-  testWidgets('renders the companion dashboard', (tester) async {
+  testWidgets('renders the configuration window', (tester) async {
     await tester.pumpWidget(MyApp(useDesktopFrame: false));
     await tester.pumpAndSettle();
 
-    expect(find.text('Configure your companion.'), findsOneWidget);
-    expect(find.text('Mochi'), findsOneWidget);
-    expect(find.text('Open floating pet'), findsOneWidget);
+    expect(find.text('Configuration'), findsWidgets);
+    expect(find.text('Mochi'), findsNothing);
+    expect(find.text('Appearance'), findsNothing);
+    expect(find.text('Show pet'), findsOneWidget);
+    expect(find.text('synth.pet'), findsNothing);
     expect(find.text('Sign in'), findsOneWidget);
   });
 
@@ -21,7 +23,9 @@ void main() {
     expect(find.text('Mochi is here'), findsOneWidget);
   });
 
-  testWidgets('uses compact navigation on mobile', (tester) async {
+  testWidgets('uses the simplified mobile configuration layout', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MyApp(
         useDesktopFrame: false,
@@ -30,6 +34,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('Configuration'), findsOneWidget);
   });
 }
