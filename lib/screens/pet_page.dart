@@ -3,13 +3,92 @@ import 'dart:async';
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:synth_pet/auth/solar_auth_service.dart';
 import 'package:synth_pet/personality/personality_service.dart';
 import 'package:synth_pet/pet/pet_appearance_settings.dart';
 import 'package:synth_pet/pet/pet_behavior.dart';
+import 'package:synth_pet/theme/app_theme.dart';
 import 'package:synth_pet/widgets/pet_avatar.dart';
+import 'package:window_manager/window_manager.dart';
 
+// ---------------------------------------------------------------------------
+// Breathing aura — the ember glow behind the face. Slow when idle, faster
+// while thinking. The one accent color in the whole app: it marks "alive".
+// ---------------------------------------------------------------------------
+class _BreathingAura extends StatefulWidget {
+  const _BreathingAura({required this.active, required this.diameter});
+
+  final bool active;
+  final double diameter;
+
+  @override
+  State<_BreathingAura> createState() => _BreathingAuraState();
+}
+
+class _BreathingAuraState extends State<_BreathingAura>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: widget.active
+        ? const Duration(milliseconds: 1200)
+        : const Duration(milliseconds: 2600),
+  )..repeat(reverse: true);
+
+  late final Animation<double> _breath = CurvedAnimation(
+    parent: _c,
+    curve: Curves.easeInOutSine,
+  );
+
+  @override
+  void didUpdateWidget(covariant _BreathingAura old) {
+    super.didUpdateWidget(old);
+    if (old.active != widget.active) {
+      _c.duration = widget.active
+          ? const Duration(milliseconds: 1200)
+          : const Duration(milliseconds: 2600);
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  Widget _disc(double alpha) {
+    return Container(
+      width: widget.diameter,
+      height: widget.diameter,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            SynthPetColors.ember.withValues(alpha: alpha),
+            SynthPetColors.ember.withValues(alpha: 0),
+          ],
+          stops: const [0.0, 1.0],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.of(context).disableAnimations) {
+      return _disc(0.18);
+    }
+    return AnimatedBuilder(
+      animation: _breath,
+      builder: (context, _) => _disc(0.14 + 0.12 * _breath.value),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The island — the floating window as a soft rounded card.
+// ---------------------------------------------------------------------------
 @RoutePage()
 class PetPage extends StatefulWidget {
   const PetPage({super.key});
@@ -213,114 +292,209 @@ Recent conversation:
 $transcript''';
   }
 
+  Widget _wrapIsland(BuildContext context, Widget child) {
+    final island = Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: SynthPetColors.canvas,
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x2E20252C),
+            blurRadius: 26,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 26, 20, 18),
+          child: child,
+        ),
+      ),
+    );
+    if (!DesktopWindowFrame.isPlatformDesktop) return island;
+    // The island itself is the drag handle; controls inside still receive taps.
+    return DragToMoveArea(child: island);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
     final state = _behavior.state;
     final avatarScale =
         state.animation == 'pulse' || state.animation == 'bounce' ? 1.04 : 1.0;
+    final awake = state.isThinking ||
+        state.animation == 'pulse' ||
+        state.animation == 'bounce';
+
     return Scaffold(
-      backgroundColor: colors.surface,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            AnimatedScale(
-              scale: avatarScale,
-              duration: const Duration(milliseconds: 220),
-              child: PetAvatar(size: 170, face: state.face),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Mochi',
-              textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 180),
-              child: Text(
-                state.status,
-                key: ValueKey(state.status),
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${state.mood.name} · ${state.source}',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              alignment: WrapAlignment.center,
+      backgroundColor: Colors.transparent,
+      body: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Center(
+          child: _wrapIsland(
+            context,
+            Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton.filledTonal(
-                  tooltip: 'Feed Mochi',
-                  onPressed: () => _interact(PetInteraction.feed),
-                  icon: const Icon(Icons.restaurant_rounded),
-                ),
-                IconButton.filledTonal(
-                  tooltip: 'Play with Mochi',
-                  onPressed: () => _interact(PetInteraction.play),
-                  icon: const Icon(Icons.sports_esports_rounded),
-                ),
-                IconButton.filledTonal(
-                  tooltip: 'Rest with Mochi',
-                  onPressed: () => _interact(PetInteraction.rest),
-                  icon: const Icon(Icons.nightlight_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 4, 6, 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                Stack(
+                  alignment: Alignment.center,
                   children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _messageController,
-                        minLines: 1,
-                        maxLines: 3,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _sendMessage(),
-                        decoration: const InputDecoration(
-                          hintText: 'Talk to Mochi...',
-                          border: InputBorder.none,
-                        ),
-                      ),
-                    ),
-                    if (_speechAvailable)
-                      IconButton(
-                        tooltip: _isListening ? 'Stop listening' : 'Use voice',
-                        onPressed: _toggleListening,
-                        icon: Icon(
-                          _isListening ? Icons.stop_circle : Icons.mic_none,
-                        ),
-                      ),
-                    IconButton.filledTonal(
-                      tooltip: 'Send message',
-                      onPressed: _sendMessage,
-                      icon: const Icon(Icons.arrow_upward_rounded),
+                    _BreathingAura(active: awake, diameter: 196),
+                    AnimatedScale(
+                      scale: avatarScale,
+                      duration: const Duration(milliseconds: 220),
+                      child: PetAvatar(size: 170, face: state.face),
                     ),
                   ],
                 ),
-              ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Mochi',
+                  style: TextStyle(
+                    fontFamily: SynthPetFonts.display,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.2,
+                    color: SynthPetColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  child: Text(
+                    state.status,
+                    key: ValueKey(state.status),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      height: 1.35,
+                      color: SynthPetColors.inkSoft,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${state.mood.name} · ${state.source}',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.labelSmall,
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 10,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    IconButton(
+                      tooltip: 'Feed Mochi',
+                      onPressed: () => _interact(PetInteraction.feed),
+                      icon: const Icon(Icons.restaurant_rounded, size: 19),
+                      style: IconButton.styleFrom(
+                        backgroundColor: SynthPetColors.panel,
+                        foregroundColor: SynthPetColors.inkSoft,
+                        shape: const CircleBorder(),
+                        padding: const EdgeInsets.all(10),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Play with Mochi',
+                      onPressed: () => _interact(PetInteraction.play),
+                      icon: const Icon(Icons.sports_esports_rounded, size: 19),
+                      style: IconButton.styleFrom(
+                        backgroundColor: SynthPetColors.panel,
+                        foregroundColor: SynthPetColors.inkSoft,
+                        shape: const CircleBorder(),
+                        padding: const EdgeInsets.all(10),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Rest with Mochi',
+                      onPressed: () => _interact(PetInteraction.rest),
+                      icon: const Icon(Icons.nightlight_rounded, size: 19),
+                      style: IconButton.styleFrom(
+                        backgroundColor: SynthPetColors.panel,
+                        foregroundColor: SynthPetColors.inkSoft,
+                        shape: const CircleBorder(),
+                        padding: const EdgeInsets.all(10),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    color: SynthPetColors.panel,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  padding: const EdgeInsets.only(left: 14, right: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _messageController,
+                          minLines: 1,
+                          maxLines: 3,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _sendMessage(),
+                          decoration: const InputDecoration(
+                            hintText: 'Talk to Mochi…',
+                            border: InputBorder.none,
+                            filled: false,
+                            contentPadding: EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                      if (_speechAvailable)
+                        IconButton(
+                          tooltip: _isListening
+                              ? 'Stop listening'
+                              : 'Use voice',
+                          onPressed: _toggleListening,
+                          color: _isListening
+                              ? SynthPetColors.ember
+                              : SynthPetColors.inkSoft,
+                          icon: Icon(
+                            _isListening
+                                ? Icons.stop_circle
+                                : Icons.mic_none,
+                            size: 20,
+                          ),
+                        ),
+                      IconButton(
+                        tooltip: 'Send message',
+                        onPressed: _sendMessage,
+                        style: IconButton.styleFrom(
+                          backgroundColor: SynthPetColors.ember,
+                          foregroundColor: SynthPetColors.ink,
+                          disabledBackgroundColor: SynthPetColors.hairline,
+                          disabledForegroundColor: SynthPetColors.inkSoft,
+                          shape: const CircleBorder(),
+                          padding: const EdgeInsets.all(9),
+                        ),
+                        icon: const Icon(Icons.arrow_upward_rounded, size: 19),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TextButton.icon(
+                  onPressed: () => setState(
+                    () => _behavior.setStatus('See you soon.', face: '-.-'),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: SynthPetColors.inkSoft,
+                    textStyle: const TextStyle(
+                      fontFamily: SynthPetFonts.display,
+                      fontSize: 11,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                  icon: const Icon(Icons.visibility_off_outlined, size: 15),
+                  label: const Text('Hide for now'),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            TextButton.icon(
-              onPressed: () => setState(
-                () => _behavior.setStatus('See you soon.', face: '-.-'),
-              ),
-              icon: const Icon(Icons.visibility_off_outlined),
-              label: const Text('Hide for now'),
-            ),
-          ],
+          ),
         ),
       ),
     );

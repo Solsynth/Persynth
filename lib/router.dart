@@ -1,5 +1,6 @@
 import 'package:auto_route/auto_route.dart';
 
+import 'package:synth_pet/screens/conversation_page.dart';
 import 'package:synth_pet/screens/home_page.dart';
 import 'package:synth_pet/screens/pet_page.dart';
 
@@ -20,6 +21,7 @@ class AppRouter extends RootStackRouter {
     return [
       AutoRoute(page: HomeRoute.page, path: '/', initial: true),
       AutoRoute(page: PetRoute.page, path: '/pet'),
+      AutoRoute(page: ConversationRoute.page, path: '/conversation'),
     ];
   }
 }

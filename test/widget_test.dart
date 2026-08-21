@@ -18,7 +18,10 @@ void main() {
 
   testWidgets('renders the pet window route', (tester) async {
     await tester.pumpWidget(MyApp(isPetWindow: true, useDesktopFrame: false));
-    await tester.pumpAndSettle();
+    // The island aura breathes continuously, so bounded pumps replace
+    // pumpAndSettle here.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Mochi'), findsOneWidget);
     expect(find.text('Mochi is here'), findsOneWidget);
   });
@@ -34,7 +37,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(NavigationBar), findsNothing);
-    expect(find.text('Configuration'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('Configuration'), findsWidgets);
   });
 }

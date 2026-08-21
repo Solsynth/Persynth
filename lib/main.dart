@@ -7,6 +7,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'package:synth_pet/router.dart';
 import 'package:synth_pet/shared/desktop_window_service.dart';
+import 'package:synth_pet/theme/app_theme.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +33,7 @@ Future<void> main(List<String> args) async {
       backgroundColor: Colors.transparent,
       skipTaskbar: isPetWindow,
       alwaysOnTop: isPetWindow,
-      title: isPetWindow ? 'Mochi' : 'synth.pet',
+      title: isPetWindow ? 'Mochi' : 'SynthPet',
       titleBarStyle: TitleBarStyle.hidden,
       windowButtonVisibility: true,
     );
@@ -61,18 +62,9 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF667A5A),
-      brightness: Brightness.light,
-    );
-
     return MaterialApp.router(
-      title: isPetWindow ? 'Mochi' : 'synth.pet',
-      theme: ThemeData(
-        colorScheme: colorScheme,
-        useMaterial3: true,
-        fontFamily: 'Avenir Next',
-      ),
+      title: isPetWindow ? 'Mochi' : 'SynthPet',
+      theme: buildSynthPetTheme(),
       routerConfig: _router.config(),
       builder: (context, child) {
         Widget content = child ?? const SizedBox.shrink();
@@ -82,11 +74,20 @@ class MyApp extends StatelessWidget {
         }
         if (!useDesktopFrame) return content;
 
+        // The pet window draws itself as a floating island, so it needs no
+        // chrome. Everything else gets the quiet desktop frame.
+        if (isPetWindow && DesktopWindowFrame.isPlatformDesktop) return content;
+
         return DesktopWindowFrame(
           isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
           title: Text(
-            isPetWindow ? 'Mochi' : 'synth.pet',
-            style: Theme.of(context).textTheme.labelLarge,
+            isPetWindow ? 'Mochi' : 'SynthPet',
+            style: const TextStyle(
+              fontFamily: SynthPetFonts.display,
+              fontSize: 11,
+              letterSpacing: 1.1,
+              color: SynthPetColors.inkSoft,
+            ),
           ),
           child: content,
         );

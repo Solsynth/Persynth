@@ -2,34 +2,91 @@ import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 
 import 'package:synth_pet/auth/solar_auth_service.dart';
+import 'package:synth_pet/screens/conversation_page.dart';
 import 'package:synth_pet/shared/desktop_window_service.dart';
 
 @RoutePage()
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
   @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  int _selected = 0;
+
+  @override
   Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 760;
+    final content = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 180),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeOut,
+      transitionBuilder: (child, animation) =>
+          FadeTransition(opacity: animation, child: child),
+      child: _selected == 0
+          ? KeyedSubtree(
+              key: const ValueKey('configuration'),
+              child: _ConfigurationContent(wide: wide),
+            )
+          : const KeyedSubtree(
+              key: ValueKey('conversation'),
+              child: ConversationPage(),
+            ),
+    );
+
+    if (!wide) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(child: content),
+              NavigationBar(
+                selectedIndex: _selected,
+                onDestinationSelected: (i) => setState(() => _selected = i),
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.tune_outlined),
+                    selectedIcon: Icon(Icons.tune_rounded),
+                    label: 'Configuration',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.chat_bubble_outline),
+                    selectedIcon: Icon(Icons.chat_bubble),
+                    label: 'Conversation',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final wide =
-                constraints.maxWidth >= 760 &&
-                MediaQuery.sizeOf(context).width >= 760;
-            final content = _ConfigurationContent(wide: wide);
-
-            if (!wide) return content;
-
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const _SideNavigation(),
-                Expanded(child: content),
-              ],
-            );
-          },
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _SideNavigation(
+              selected: _selected,
+              onSelect: (i) => setState(() => _selected = i),
+            ),
+            Expanded(
+              child: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(14),
+                ),
+                child: ColoredBox(
+                  color: Theme.of(context).colorScheme.surface,
+                  child: content,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -37,25 +94,34 @@ class HomePage extends StatelessWidget {
 }
 
 class _SideNavigation extends StatelessWidget {
-  const _SideNavigation();
+  const _SideNavigation({required this.selected, required this.onSelect});
+
+  final int selected;
+  final ValueChanged<int> onSelect;
 
   @override
   Widget build(BuildContext context) {
+    // Icon-only dock on the recessed shell tier; the content sheet's rounded
+    // shoulder does the separating, so the rail paints no edge of its own.
     return SizedBox(
-      width: 112,
+      width: 72,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(4, 20, 4, 16),
         child: NavigationRail(
           backgroundColor: Colors.transparent,
-          groupAlignment: -1,
-          labelType: NavigationRailLabelType.all,
-          selectedIndex: 0,
-          onDestinationSelected: (_) {},
+          minWidth: 64,
+          selectedIndex: selected,
+          onDestinationSelected: onSelect,
           destinations: const [
             NavigationRailDestination(
               icon: Icon(Icons.tune_outlined),
               selectedIcon: Icon(Icons.tune_rounded),
               label: Text('Configuration'),
+            ),
+            NavigationRailDestination(
+              icon: Icon(Icons.chat_bubble_outline),
+              selectedIcon: Icon(Icons.chat_bubble),
+              label: Text('Conversation'),
             ),
           ],
         ),
@@ -72,7 +138,6 @@ class _ConfigurationContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 28, wide ? 40 : 20, 32),
       child: Center(
