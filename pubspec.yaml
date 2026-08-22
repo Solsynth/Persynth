@@ -42,12 +42,18 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/island_ui_foundation
+  solar_network_foundation:
+    git:
+      url: https://src.solsynth.dev/SoSYS/Solian.git
+      path: packages/solar_network_foundation
   hooks_riverpod: ^3.3.1
   window_manager:
     git:
       url: https://github.com/boyan01/window_manager.git
       path: packages/window_manager
       ref: 6fae92d21b4c80ce1b8f71c1190d7970cf722bd4
+  file_picker: ^12.0.0
+  http_parser: ^4.1.2
 
 dev_dependencies:
   auto_route_generator: ^10.3.1

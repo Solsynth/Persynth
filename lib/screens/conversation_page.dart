@@ -1,14 +1,18 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:auto_route/auto_route.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:island_ui_foundation/island_ui_foundation.dart';
 
 import 'package:synth_pet/auth/solar_auth_service.dart';
 import 'package:synth_pet/conversation/conversation_controller.dart';
 import 'package:synth_pet/conversation/conversation_event.dart';
+import 'package:synth_pet/conversation/conversation_message.dart';
 import 'package:synth_pet/conversation/personality_backend.dart';
 import 'package:synth_pet/personality/personality_service.dart';
-import 'package:synth_pet/theme/app_theme.dart';
+import 'package:synth_pet/widgets/message_markdown.dart';
 
 // ---------------------------------------------------------------------------
 // Bubble types
@@ -16,10 +20,29 @@ import 'package:synth_pet/theme/app_theme.dart';
 enum _BubbleKind { user, assistant, systemNote }
 
 class _Bubble {
-  _Bubble(this.kind, this.text, {this.streaming = false});
+  _Bubble(
+    this.kind,
+    this.text, {
+    this.streaming = false,
+    this.attachmentIds = const [],
+    this.attachmentPreviews = const [],
+  });
   final _BubbleKind kind;
   String text;
   bool streaming;
+
+  /// Drive file ids persisted with the message (server history).
+  final List<String> attachmentIds;
+
+  /// Local file paths for attachments picked in this session.
+  final List<String> attachmentPreviews;
+}
+
+/// A locally picked file awaiting upload.
+class _PendingAttachment {
+  _PendingAttachment(this.path, this.name);
+  final String path;
+  final String name;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,19 +131,25 @@ class _PresenceOrbState extends State<_PresenceOrb>
 // ---------------------------------------------------------------------------
 @RoutePage()
 class ConversationPage extends StatefulWidget {
-  const ConversationPage({super.key});
+  const ConversationPage({super.key, this.controller});
+
+  /// Test seam: injects a controller with a fake backend.
+  final ConversationController? controller;
 
   @override
   State<ConversationPage> createState() => _ConversationPageState();
 }
 
 class _ConversationPageState extends State<ConversationPage> {
-  final _controller = ConversationController(
-    backend: PersonalityCoreBackend(const PersonalityCoreService()),
-    getAccessToken: () => SolarAuthService().accessToken(),
-    defaultAgentId: PersonalityCoreConfig.fromEnvironment().agentId,
-  );
+  late final _controller =
+      widget.controller ??
+      ConversationController(
+        backend: PersonalityCoreBackend(const PersonalityCoreService()),
+        defaultAgentId: PersonalityCoreConfig.fromEnvironment().agentId,
+      );
 
+  final List<_PendingAttachment> _pending = [];
+  bool _uploading = false;
   final List<_Bubble> _bubbles = [];
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
@@ -192,19 +221,29 @@ class _ConversationPageState extends State<ConversationPage> {
           } else {
             last.text += delta;
           }
+          _splitStreamingBubble();
           _scrollToEnd();
         case MessageCompleted(:final text):
           if (_bubbles.isNotEmpty &&
               _bubbles.last.kind == _BubbleKind.assistant) {
-            _bubbles.last.text = text;
-            _bubbles.last.streaming = false;
-          } else {
-            _bubbles.add(_Bubble(_BubbleKind.assistant, text));
+            _bubbles.removeLast();
+          }
+          // The agent marks message boundaries with a blank line.
+          for (final part in text.split(RegExp(r'\n\s*\n'))) {
+            final trimmed = part.trim();
+            if (trimmed.isEmpty) continue;
+            _bubbles.add(_Bubble(_BubbleKind.assistant, trimmed));
           }
           _scrollToEnd();
         case ToolInvoked(:final name, :final result):
           if (result == 'running') break;
           _bubbles.add(_Bubble(_BubbleKind.systemNote, '$name · $result'));
+        case ConversationOpened():
+          _bubbles
+            ..clear()
+            ..addAll([
+              for (final m in _controller.messages) ..._bubblesFromMessage(m),
+            ]);
           _scrollToEnd();
         case StatusChanged(:final busy):
           _busy = busy;
@@ -214,18 +253,108 @@ class _ConversationPageState extends State<ConversationPage> {
     });
   }
 
-  // ---- actions -------------------------------------------------------------
+  /// The agent marks message boundaries with a blank line; while streaming,
+  /// promote every completed segment into its own bubble.
+  void _splitStreamingBubble() {
+    final last = _bubbles.isNotEmpty ? _bubbles.last : null;
+    if (last == null || last.kind != _BubbleKind.assistant || !last.streaming) {
+      return;
+    }
+    final parts = last.text.split(RegExp(r'\n\s*\n'));
+    if (parts.length < 2) return;
+    last.text = parts.removeLast().trim();
+    _bubbles.addAll([
+      for (final part in parts)
+        if (part.trim().isNotEmpty) _Bubble(_BubbleKind.assistant, part.trim()),
+    ]);
+  }
 
-  void _send() {
+  List<_Bubble> _bubblesFromMessage(ConversationMessage message) {
+    final kind = message.role == ConversationRole.assistant
+        ? _BubbleKind.assistant
+        : _BubbleKind.user;
+    return [
+      for (final part in message.content.split(RegExp(r'\n\s*\n')))
+        if (part.trim().isNotEmpty)
+          _Bubble(
+            kind,
+            part.trim(),
+            attachmentIds: kind == _BubbleKind.user
+                ? message.attachmentIds
+                : const [],
+          ),
+    ];
+  }
+
+  Future<void> _send() async {
     final text = _inputController.text.trim();
-    if (text.isEmpty || _busy || _authError) return;
+    if ((text.isEmpty && _pending.isEmpty) || _busy || _authError) return;
+
+    final pending = List<_PendingAttachment>.of(_pending);
     setState(() {
-      _bubbles.add(_Bubble(_BubbleKind.user, text));
+      _bubbles.add(
+        _Bubble(
+          _BubbleKind.user,
+          text,
+          attachmentPreviews: [for (final a in pending) a.path],
+        ),
+      );
       _error = null;
+      _inputController.clear();
+      _pending.clear();
+      _uploading = true;
     });
-    _inputController.clear();
     _scrollToEnd();
-    _controller.send(text);
+    try {
+      final attachmentIds = <String>[];
+      for (final attachment in pending) {
+        attachmentIds.add(await _controller.uploadAttachment(attachment.path));
+      }
+      await _controller.send(text, attachmentIds: attachmentIds);
+    } on PersonalityCoreException catch (e) {
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Future<void> _pickAttachments() async {
+    final files = await FilePicker.pickFiles(type: FileType.image);
+    if (files.isEmpty) return;
+    setState(() {
+      _pending.addAll([
+        for (final file in files)
+          if (file.path != null) _PendingAttachment(file.path!, file.name),
+      ]);
+    });
+  }
+
+  Future<void> _showConversationPicker() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => SheetScaffold(
+        titleText: 'Conversations',
+        heightFactor: 0.7,
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              _controller.newConversation();
+              Navigator.of(context).pop();
+            },
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New'),
+          ),
+        ],
+        child: _ConversationPickerSheet(controller: _controller),
+      ),
+    );
+  }
+
+  void _startNewConversation() {
+    if (_busy) return;
+    _controller.newConversation();
   }
 
   void _scrollToEnd() {
@@ -287,7 +416,11 @@ class _ConversationPageState extends State<ConversationPage> {
             child: Row(
               children: [
                 Text(
-                  'Conversation',
+                  _agents
+                          .where((a) => a.id == _selectedAgentId)
+                          .firstOrNull
+                          ?.displayName ??
+                      'Conversation',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -322,12 +455,18 @@ class _ConversationPageState extends State<ConversationPage> {
               ],
             ),
           ),
-          if (_busy)
+          if (!_authError) ...[
             IconButton(
-              icon: Icon(Icons.stop_circle_outlined, color: cs.error),
-              tooltip: 'Stop',
-              onPressed: _controller.abort,
+              icon: const Icon(Icons.add_comment_outlined),
+              tooltip: 'New chat',
+              onPressed: _busy ? null : _startNewConversation,
             ),
+            IconButton(
+              icon: const Icon(Icons.forum_outlined),
+              tooltip: 'Conversations',
+              onPressed: _busy ? null : _showConversationPicker,
+            ),
+          ],
           if (_authError && !_busy)
             FilledButton.icon(
               onPressed: _signIn,
@@ -413,43 +552,116 @@ class _ConversationPageState extends State<ConversationPage> {
 
   Widget _buildFooter(ThemeData theme) {
     final cs = theme.colorScheme;
+    final busy = _busy || _uploading;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
       color: cs.surfaceContainer,
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _inputController,
-              onSubmitted: (_) => _send(),
-              enabled: !_busy && !_authError,
-              cursorColor: cs.primary,
-              decoration: InputDecoration(
-                hintText: 'Message the companion…',
-                hintStyle: TextStyle(color: cs.onSurfaceVariant),
-                filled: true,
-                fillColor: cs.surfaceContainerLowest,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  borderSide: BorderSide.none,
+          if (_pending.isNotEmpty) ...[
+            _buildPendingStrip(theme),
+            const SizedBox(height: 8),
+          ],
+          Row(
+            children: [
+              IconButton(
+                icon: Icon(Icons.image_outlined, color: cs.onSurfaceVariant),
+                tooltip: 'Attach images',
+                onPressed: busy || _authError ? null : _pickAttachments,
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _inputController,
+                  onSubmitted: (_) => _send(),
+                  enabled: !_authError,
+                  cursorColor: cs.primary,
+                  decoration: InputDecoration(
+                    hintText: 'Message the companion…',
+                    hintStyle: TextStyle(color: cs.onSurfaceVariant),
+                    filled: true,
+                    fillColor: cs.surfaceContainerLowest,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          FilledButton(
-            onPressed: (_busy || _authError) ? null : _send,
-            style: FilledButton.styleFrom(
-              shape: const CircleBorder(),
-              padding: const EdgeInsets.all(10),
-            ),
-            child: const Icon(Icons.arrow_upward_rounded, size: 20),
+              const SizedBox(width: 10),
+              FilledButton(
+                // The send button doubles as the stop control while a turn
+                // runs or attachments upload.
+                onPressed: _authError
+                    ? null
+                    : busy
+                    ? _controller.abort
+                    : _send,
+                style: FilledButton.styleFrom(
+                  shape: const CircleBorder(),
+                  padding: const EdgeInsets.all(10),
+                ),
+                child: Icon(
+                  busy ? Icons.stop_rounded : Icons.arrow_upward_rounded,
+                  size: 20,
+                ),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPendingStrip(ThemeData theme) {
+    final cs = theme.colorScheme;
+    return SizedBox(
+      height: 64,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _pending.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final attachment = _pending[i];
+          return Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(
+                  File(attachment.path),
+                  width: 64,
+                  height: 64,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    width: 64,
+                    height: 64,
+                    color: cs.surfaceContainerHighest,
+                    child: Icon(Icons.insert_drive_file, color: cs.outline),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 0,
+                right: 0,
+                child: GestureDetector(
+                  onTap: () => setState(() => _pending.removeAt(i)),
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: cs.surface.withValues(alpha: 0.85),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.close, size: 12, color: cs.onSurface),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -475,16 +687,25 @@ class _ConversationPageState extends State<ConversationPage> {
                     maxWidth: MediaQuery.of(context).size.width * 0.72,
                   ),
                   decoration: BoxDecoration(
-                    color: SynthPetColors.ink,
+                    color: cs.inverseSurface,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Text(
-                    bubble.text,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      height: 1.35,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildBubbleAttachments(bubble, theme),
+                      if (bubble.text.isNotEmpty) ...[
+                        Text(
+                          bubble.text,
+                          style: TextStyle(
+                            color: cs.onInverseSurface,
+                            fontSize: 14,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
@@ -511,9 +732,9 @@ class _ConversationPageState extends State<ConversationPage> {
                     color: cs.surfaceContainerLowest,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Text(
-                    bubble.streaming ? '${bubble.text}▍' : bubble.text,
-                    style: const TextStyle(fontSize: 14, height: 1.35),
+                  child: MessageMarkdown(
+                    text: bubble.streaming ? '${bubble.text}▍' : bubble.text,
+                    textStyle: const TextStyle(fontSize: 14, height: 1.35),
                   ),
                 ),
               ),
@@ -534,5 +755,142 @@ class _ConversationPageState extends State<ConversationPage> {
           ),
         );
     }
+  }
+
+  Widget _buildBubbleAttachments(_Bubble bubble, ThemeData theme) {
+    final previews = bubble.attachmentPreviews;
+    final ids = bubble.attachmentIds;
+    if (previews.isEmpty && ids.isEmpty) return const SizedBox.shrink();
+    final cs = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final path in previews)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(
+                File(path),
+                width: 88,
+                height: 88,
+                fit: BoxFit.cover,
+              ),
+            ),
+          for (final id in ids)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                '${PersonalityCoreService.productionDriveBaseUrl}/files/$id',
+                width: 88,
+                height: 88,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Container(
+                  width: 88,
+                  height: 88,
+                  color: cs.surfaceContainerHighest,
+                  child: Icon(Icons.attach_file, color: cs.outline, size: 18),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Conversation picker sheet
+// ---------------------------------------------------------------------------
+class _ConversationPickerSheet extends StatefulWidget {
+  const _ConversationPickerSheet({required this.controller});
+
+  final ConversationController controller;
+
+  @override
+  State<_ConversationPickerSheet> createState() =>
+      _ConversationPickerSheetState();
+}
+
+class _ConversationPickerSheetState extends State<_ConversationPickerSheet> {
+  late final Future<List<PersonalityConversation>> _future = widget.controller
+      .listConversations();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: FutureBuilder<List<PersonalityConversation>>(
+            future: _future,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                );
+              }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text(
+                    'Could not load conversations.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                );
+              }
+              final conversations = snapshot.data ?? const [];
+              if (conversations.isEmpty) {
+                return Center(
+                  child: Text(
+                    'No past conversations yet.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                );
+              }
+              return ListView.separated(
+                shrinkWrap: true,
+                itemCount: conversations.length,
+                separatorBuilder: (_, _) =>
+                    Divider(height: 1, color: cs.outlineVariant),
+                itemBuilder: (_, i) {
+                  final conversation = conversations[i];
+                  final subtitle = conversation.lastMessageAt == null
+                      ? conversation.agentId
+                      : MaterialLocalizations.of(
+                          context,
+                        ).formatFullDate(conversation.lastMessageAt!);
+                  return ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                    leading: Icon(
+                      Icons.forum_outlined,
+                      size: 20,
+                      color: cs.onSurfaceVariant,
+                    ),
+                    title: Text(
+                      conversation.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(subtitle, maxLines: 1),
+                    onTap: () async {
+                      Navigator.of(context).pop();
+                      await widget.controller.openConversation(conversation.id);
+                    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 }

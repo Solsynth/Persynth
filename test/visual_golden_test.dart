@@ -8,9 +8,9 @@ import 'package:synth_pet/main.dart';
 void _mockSecureStorage() {
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
-    const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
-    (call) async => null,
-  );
+        const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+        (call) async => null,
+      );
 }
 
 /// Generates goldens for all three app windows. Run once with
@@ -57,9 +57,7 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
-    await tester.pumpWidget(
-      MyApp(isPetWindow: true, useDesktopFrame: false),
-    );
+    await tester.pumpWidget(MyApp(isPetWindow: true, useDesktopFrame: false));
     await tester.pump(const Duration(milliseconds: 300));
 
     await expectLater(

@@ -10,6 +10,7 @@ void main() {
   test('sends an OpenAI-compatible Personality Core chat request', () async {
     late Request request;
     final service = PersonalityCoreService(
+      tokenResolver: () async => 'token-123',
       client: MockClient((incoming) async {
         request = incoming;
         return Response(
@@ -25,11 +26,7 @@ void main() {
       }),
     );
 
-    final reply = await service.chat(
-      accessToken: 'token-123',
-      agentId: 'mochi',
-      prompt: 'Say hello.',
-    );
+    final reply = await service.chat(agentId: 'mochi', prompt: 'Say hello.');
 
     expect(
       request.url.toString(),
@@ -49,6 +46,7 @@ void main() {
   test('creates a persisted conversation and relays run SSE deltas', () async {
     final requests = <Request>[];
     final service = PersonalityCoreService(
+      tokenResolver: () async => 'token-123',
       client: MockClient((incoming) async {
         requests.add(incoming);
         if (incoming.url.path.endsWith('/conversations')) {
@@ -77,13 +75,9 @@ void main() {
       }),
     );
 
-    final conversationId = await service.createConversation(
-      accessToken: 'token-123',
-      agentId: 'mochi',
-    );
+    final conversationId = await service.createConversation(agentId: 'mochi');
     final deltas = <String>[];
     final reply = await service.runConversation(
-      accessToken: 'token-123',
       conversationId: conversationId,
       message: 'Say hello.',
       onChunk: deltas.add,

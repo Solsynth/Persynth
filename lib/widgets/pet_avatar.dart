@@ -24,7 +24,7 @@ class PetAvatar extends StatelessWidget {
             fontWeight: FontWeight.w600,
             height: 1,
             letterSpacing: -size * .02,
-            color: SynthPetColors.ink,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ),

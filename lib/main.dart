@@ -64,7 +64,9 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp.router(
       title: isPetWindow ? 'Mochi' : 'SynthPet',
-      theme: buildSynthPetTheme(),
+      theme: buildSynthPetTheme(Brightness.light),
+      darkTheme: buildSynthPetTheme(Brightness.dark),
+      themeMode: ThemeMode.system,
       routerConfig: _router.config(),
       builder: (context, child) {
         Widget content = child ?? const SizedBox.shrink();
@@ -82,11 +84,11 @@ class MyApp extends StatelessWidget {
           isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
           title: Text(
             isPetWindow ? 'Mochi' : 'SynthPet',
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: SynthPetFonts.display,
               fontSize: 11,
               letterSpacing: 1.1,
-              color: SynthPetColors.inkSoft,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
           child: content,

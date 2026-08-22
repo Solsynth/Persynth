@@ -57,7 +57,8 @@ class _BreathingAuraState extends State<_BreathingAura>
     super.dispose();
   }
 
-  Widget _disc(double alpha) {
+  Widget _disc(BuildContext context, double alpha) {
+    final ember = Theme.of(context).colorScheme.primary;
     return Container(
       width: widget.diameter,
       height: widget.diameter,
@@ -65,8 +66,8 @@ class _BreathingAuraState extends State<_BreathingAura>
         shape: BoxShape.circle,
         gradient: RadialGradient(
           colors: [
-            SynthPetColors.ember.withValues(alpha: alpha),
-            SynthPetColors.ember.withValues(alpha: 0),
+            ember.withValues(alpha: alpha),
+            ember.withValues(alpha: 0),
           ],
           stops: const [0.0, 1.0],
         ),
@@ -77,11 +78,11 @@ class _BreathingAuraState extends State<_BreathingAura>
   @override
   Widget build(BuildContext context) {
     if (MediaQuery.of(context).disableAnimations) {
-      return _disc(0.18);
+      return _disc(context, 0.18);
     }
     return AnimatedBuilder(
       animation: _breath,
-      builder: (context, _) => _disc(0.14 + 0.12 * _breath.value),
+      builder: (context, _) => _disc(context, 0.14 + 0.12 * _breath.value),
     );
   }
 }
@@ -242,7 +243,6 @@ class _PetPageState extends State<PetPage> {
     });
     try {
       final rawReply = await _personality.chat(
-        accessToken: accessToken,
         agentId: _personalityConfig.agentId,
         prompt: prompt,
       );
@@ -293,10 +293,11 @@ $transcript''';
   }
 
   Widget _wrapIsland(BuildContext context, Widget child) {
+    final cs = Theme.of(context).colorScheme;
     final island = Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: SynthPetColors.canvas,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(26),
         boxShadow: const [
           BoxShadow(
@@ -321,10 +322,12 @@ $transcript''';
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final state = _behavior.state;
     final avatarScale =
         state.animation == 'pulse' || state.animation == 'bounce' ? 1.04 : 1.0;
-    final awake = state.isThinking ||
+    final awake =
+        state.isThinking ||
         state.animation == 'pulse' ||
         state.animation == 'bounce';
 
@@ -350,14 +353,14 @@ $transcript''';
                   ],
                 ),
                 const SizedBox(height: 10),
-                const Text(
+                Text(
                   'Mochi',
                   style: TextStyle(
                     fontFamily: SynthPetFonts.display,
                     fontSize: 17,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 1.2,
-                    color: SynthPetColors.ink,
+                    color: cs.onSurface,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -367,10 +370,10 @@ $transcript''';
                     state.status,
                     key: ValueKey(state.status),
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       height: 1.35,
-                      color: SynthPetColors.inkSoft,
+                      color: cs.onSurfaceVariant,
                     ),
                   ),
                 ),
@@ -390,8 +393,8 @@ $transcript''';
                       onPressed: () => _interact(PetInteraction.feed),
                       icon: const Icon(Icons.restaurant_rounded, size: 19),
                       style: IconButton.styleFrom(
-                        backgroundColor: SynthPetColors.panel,
-                        foregroundColor: SynthPetColors.inkSoft,
+                        backgroundColor: cs.surfaceContainerLowest,
+                        foregroundColor: cs.onSurfaceVariant,
                         shape: const CircleBorder(),
                         padding: const EdgeInsets.all(10),
                       ),
@@ -401,8 +404,8 @@ $transcript''';
                       onPressed: () => _interact(PetInteraction.play),
                       icon: const Icon(Icons.sports_esports_rounded, size: 19),
                       style: IconButton.styleFrom(
-                        backgroundColor: SynthPetColors.panel,
-                        foregroundColor: SynthPetColors.inkSoft,
+                        backgroundColor: cs.surfaceContainerLowest,
+                        foregroundColor: cs.onSurfaceVariant,
                         shape: const CircleBorder(),
                         padding: const EdgeInsets.all(10),
                       ),
@@ -412,8 +415,8 @@ $transcript''';
                       onPressed: () => _interact(PetInteraction.rest),
                       icon: const Icon(Icons.nightlight_rounded, size: 19),
                       style: IconButton.styleFrom(
-                        backgroundColor: SynthPetColors.panel,
-                        foregroundColor: SynthPetColors.inkSoft,
+                        backgroundColor: cs.surfaceContainerLowest,
+                        foregroundColor: cs.onSurfaceVariant,
                         shape: const CircleBorder(),
                         padding: const EdgeInsets.all(10),
                       ),
@@ -423,7 +426,7 @@ $transcript''';
                 const SizedBox(height: 12),
                 Container(
                   decoration: BoxDecoration(
-                    color: SynthPetColors.panel,
+                    color: cs.surfaceContainerLowest,
                     borderRadius: BorderRadius.circular(16),
                   ),
                   padding: const EdgeInsets.only(left: 14, right: 6),
@@ -451,12 +454,10 @@ $transcript''';
                               : 'Use voice',
                           onPressed: _toggleListening,
                           color: _isListening
-                              ? SynthPetColors.ember
-                              : SynthPetColors.inkSoft,
+                              ? cs.primary
+                              : cs.onSurfaceVariant,
                           icon: Icon(
-                            _isListening
-                                ? Icons.stop_circle
-                                : Icons.mic_none,
+                            _isListening ? Icons.stop_circle : Icons.mic_none,
                             size: 20,
                           ),
                         ),
@@ -464,10 +465,10 @@ $transcript''';
                         tooltip: 'Send message',
                         onPressed: _sendMessage,
                         style: IconButton.styleFrom(
-                          backgroundColor: SynthPetColors.ember,
-                          foregroundColor: SynthPetColors.ink,
-                          disabledBackgroundColor: SynthPetColors.hairline,
-                          disabledForegroundColor: SynthPetColors.inkSoft,
+                          backgroundColor: cs.primary,
+                          foregroundColor: cs.onPrimary,
+                          disabledBackgroundColor: cs.outline,
+                          disabledForegroundColor: cs.onSurfaceVariant,
                           shape: const CircleBorder(),
                           padding: const EdgeInsets.all(9),
                         ),
@@ -482,7 +483,7 @@ $transcript''';
                     () => _behavior.setStatus('See you soon.', face: '-.-'),
                   ),
                   style: TextButton.styleFrom(
-                    foregroundColor: SynthPetColors.inkSoft,
+                    foregroundColor: cs.onSurfaceVariant,
                     textStyle: const TextStyle(
                       fontFamily: SynthPetFonts.display,
                       fontSize: 11,

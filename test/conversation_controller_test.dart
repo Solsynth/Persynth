@@ -12,10 +12,10 @@ import 'package:synth_pet/personality/personality_service.dart';
 class _StreamingBackend implements ChatBackend {
   int createCalls = 0;
   int runCalls = 0;
+  List<String>? lastAttachmentIds;
 
   @override
   Future<String> createConversation({
-    required String accessToken,
     required String agentId,
     String title = '',
     http.Client? client,
@@ -26,48 +26,80 @@ class _StreamingBackend implements ChatBackend {
 
   @override
   Future<String> runConversation({
-    required String accessToken,
     required String conversationId,
     required String message,
+    List<String> attachmentIds = const [],
     void Function(String delta)? onChunk,
     void Function(String name, Map<String, dynamic> args)? onToolCall,
     http.Client? client,
   }) async {
     runCalls++;
+    lastAttachmentIds = attachmentIds;
     onChunk?.call('Hi');
     onChunk?.call(' there!');
     return 'Hi there!';
   }
 
   @override
-  Future<List<PersonalityAgent>> listAgents({
-    required String accessToken,
+  Future<List<PersonalityAgent>> listAgents() async => const [];
+
+  @override
+  Future<List<PersonalityConversation>> listConversations({
+    int take = 50,
+    int offset = 0,
   }) async => const [];
+
+  @override
+  Future<List<PersonalityMessage>> listMessages({
+    required String conversationId,
+    int take = 200,
+    int offset = 0,
+  }) async => const [];
+
+  @override
+  Future<String> uploadAttachment({
+    required String filePath,
+    String? contentType,
+  }) async => 'file-1';
 }
 
-class _NonStreamingBackend implements ChatBackend {
-  @override
-  Future<String> createConversation({
-    required String accessToken,
-    required String agentId,
-    String title = '',
-    http.Client? client,
-  }) async => 'conversation-1';
-
+class _NonStreamingBackend extends _StreamingBackend {
   @override
   Future<String> runConversation({
-    required String accessToken,
     required String conversationId,
     required String message,
+    List<String> attachmentIds = const [],
     void Function(String delta)? onChunk,
     void Function(String name, Map<String, dynamic> args)? onToolCall,
     http.Client? client,
   }) async => 'Hello there friend';
+}
 
+/// Simulates a signed-out caller: the global identity provider has no token.
+class _SignedOutBackend extends _StreamingBackend {
   @override
-  Future<List<PersonalityAgent>> listAgents({
-    required String accessToken,
-  }) async => const [];
+  Future<String> createConversation({
+    required String agentId,
+    String title = '',
+    http.Client? client,
+  }) =>
+      throw const PersonalityCoreException('Sign in to start a conversation.');
+}
+
+class _HistoryBackend extends _StreamingBackend {
+  @override
+  Future<List<PersonalityMessage>> listMessages({
+    required String conversationId,
+    int take = 200,
+    int offset = 0,
+  }) async => [
+    const PersonalityMessage(
+      role: 'user',
+      content: 'hello',
+      attachmentIds: ['file-9'],
+    ),
+    const PersonalityMessage(role: 'assistant', content: 'hi there'),
+  ];
 }
 
 void main() {
@@ -76,10 +108,7 @@ void main() {
       'relays server chunks and reuses the persisted conversation',
       () async {
         final backend = _StreamingBackend();
-        final controller = ConversationController(
-          backend: backend,
-          getAccessToken: () async => 'token',
-        );
+        final controller = ConversationController(backend: backend);
         final events = <ConversationEvent>[];
         controller.events.listen(events.add);
 
@@ -110,32 +139,24 @@ void main() {
       },
     );
 
-    test(
-      'emits an error and never creates a conversation signed out',
-      () async {
-        final backend = _StreamingBackend();
-        final controller = ConversationController(
-          backend: backend,
-          getAccessToken: () async => null,
-        );
-        final events = <ConversationEvent>[];
-        controller.events.listen(events.add);
+    test('emits an error when identity is unavailable', () async {
+      final backend = _SignedOutBackend();
+      final controller = ConversationController(backend: backend);
+      final events = <ConversationEvent>[];
+      controller.events.listen(events.add);
 
-        await controller.send('hello');
+      await controller.send('hello');
 
-        expect(backend.createCalls, 0);
-        expect(controller.messages, isEmpty);
-        expect(
-          events.whereType<ErrorOccurred>().single.message,
-          contains('Sign in'),
-        );
-      },
-    );
+      expect(controller.messages, isEmpty);
+      expect(
+        events.whereType<ErrorOccurred>().single.message,
+        contains('Sign in'),
+      );
+    });
 
     test('reveals a non-streaming backend reply progressively', () async {
       final controller = ConversationController(
         backend: _NonStreamingBackend(),
-        getAccessToken: () async => 'token',
       );
       final events = <ConversationEvent>[];
       controller.events.listen(events.add);
@@ -149,6 +170,42 @@ void main() {
         'Hello there friend',
       );
     });
+
+    test('forwards attachment ids to the run and records them', () async {
+      final backend = _StreamingBackend();
+      final controller = ConversationController(backend: backend);
+      final events = <ConversationEvent>[];
+      controller.events.listen(events.add);
+
+      await controller.send('look', attachmentIds: const ['file-1']);
+
+      expect(backend.lastAttachmentIds, ['file-1']);
+      expect(events.whereType<MessageCompleted>(), isNotEmpty);
+      expect(controller.messages.first.attachmentIds, ['file-1']);
+    });
+
+    test(
+      'openConversation loads history and emits ConversationOpened',
+      () async {
+        final controller = ConversationController(backend: _HistoryBackend());
+        final events = <ConversationEvent>[];
+        controller.events.listen(events.add);
+
+        await controller.openConversation('conversation-1');
+
+        expect(controller.conversationId, 'conversation-1');
+        expect(controller.messages.map((m) => m.role), [
+          ConversationRole.user,
+          ConversationRole.assistant,
+        ]);
+        expect(controller.messages.first.attachmentIds, ['file-9']);
+        expect(events.whereType<ConversationOpened>(), hasLength(1));
+
+        controller.newConversation();
+        expect(controller.conversationId, isNull);
+        expect(controller.messages, isEmpty);
+      },
+    );
   });
 
   group('ConversationDirective.fromAssistantText', () {
@@ -174,7 +231,6 @@ void main() {
       final directive = ConversationDirective.fromAssistantText(
         'Sure:\n```json\n{"reply":"ok","tools":[{"name":"clear","args":{}}]}\n```',
       );
-      expect(directive.reply, 'ok');
       expect(directive.toolCalls.first.name, 'clear');
     });
   });

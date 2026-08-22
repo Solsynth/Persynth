@@ -32,8 +32,9 @@ class ConversationDirective {
         final name = item['name']?.toString();
         if (name == null || name.isEmpty) continue;
         final args = item['args'];
-        final mapArgs =
-            args is Map ? Map<String, dynamic>.from(args) : <String, dynamic>{};
+        final mapArgs = args is Map
+            ? Map<String, dynamic>.from(args)
+            : <String, dynamic>{};
         toolCalls.add(ConversationToolCall(name, mapArgs));
       }
     }

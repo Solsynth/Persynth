@@ -16,11 +16,15 @@ class ConversationToolContext {
 
   SharedPreferencesAsync get storage => _storageProvider();
 }
+
 abstract class ConversationTool {
   String get name;
   String get description;
 
-  Future<String> execute(Map<String, dynamic> args, ConversationToolContext ctx);
+  Future<String> execute(
+    Map<String, dynamic> args,
+    ConversationToolContext ctx,
+  );
 }
 
 /// Registry of available [ConversationTool]s keyed by name.

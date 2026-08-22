@@ -35,6 +35,12 @@ final class StatusChanged extends ConversationEvent {
   final bool busy;
 }
 
+/// A different conversation is now active (new or opened); the UI should
+/// rebuild its bubbles from [ConversationController.messages].
+final class ConversationOpened extends ConversationEvent {
+  const ConversationOpened();
+}
+
 /// An error occurred during the turn.
 final class ErrorOccurred extends ConversationEvent {
   const ErrorOccurred(this.message);

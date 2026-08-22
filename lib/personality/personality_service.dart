@@ -1,6 +1,8 @@
 import 'dart:convert';
-
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
+
+import 'package:synth_pet/auth/solar_auth_service.dart';
 
 class PersonalityAgent {
   const PersonalityAgent({
@@ -24,22 +26,198 @@ class PersonalityAgent {
   }
 }
 
+/// A persisted conversation thread on Personality Core.
+class PersonalityConversation {
+  const PersonalityConversation({
+    required this.id,
+    required this.agentId,
+    required this.title,
+    this.lastMessageAt,
+  });
+
+  final String id;
+  final String agentId;
+  final String title;
+  final DateTime? lastMessageAt;
+
+  String get displayName => title.trim().isEmpty ? 'Untitled' : title.trim();
+
+  factory PersonalityConversation.fromJson(Map<String, dynamic> json) {
+    final lastMessageAt = json['last_message_at']?.toString();
+    return PersonalityConversation(
+      id: json['id']?.toString() ?? '',
+      agentId: json['agent_id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      lastMessageAt: lastMessageAt == null || lastMessageAt.isEmpty
+          ? null
+          : DateTime.tryParse(lastMessageAt),
+    );
+  }
+}
+
+/// A persisted message loaded from a conversation's history.
+class PersonalityMessage {
+  const PersonalityMessage({
+    required this.role,
+    required this.content,
+    this.attachmentIds = const [],
+  });
+
+  final String role;
+  final String content;
+  final List<String> attachmentIds;
+
+  factory PersonalityMessage.fromJson(Map<String, dynamic> json) {
+    final metadata = json['metadata'];
+    final attachmentIds = <String>[];
+    if (metadata is Map) {
+      final raw = metadata['attachment_ids'];
+      if (raw is List) {
+        attachmentIds.addAll(
+          raw.map((id) => id.toString()).where((id) => id.isNotEmpty),
+        );
+      }
+    }
+    return PersonalityMessage(
+      role: json['role']?.toString() ?? '',
+      content: json['content']?.toString() ?? '',
+      attachmentIds: attachmentIds,
+    );
+  }
+}
+
+typedef PersonalityTokenResolver = Future<String?> Function();
+
 class PersonalityCoreService {
-  const PersonalityCoreService({this.client});
+  const PersonalityCoreService({this.client, this.tokenResolver});
+
+  /// Resolves the caller's access token. Defaults to the global Solar identity
+  /// provider so callers never thread tokens through individual calls.
+  final PersonalityTokenResolver? tokenResolver;
+
+  Future<String> _requireToken() async {
+    final resolve = tokenResolver ?? SolarAuthService().accessToken;
+    final token = await resolve();
+    if (token == null || token.trim().isEmpty) {
+      throw const PersonalityCoreException('Sign in to start a conversation.');
+    }
+    return token.trim();
+  }
 
   static const productionBaseUrl = 'https://api.solian.app/personality';
+
+  static const productionDriveBaseUrl = 'https://api.solian.app/drive';
+
+  /// Lists the account's conversations, newest first.
+  Future<List<PersonalityConversation>> listConversations({
+    String baseUrl = productionBaseUrl,
+    int take = 50,
+    int offset = 0,
+    http.Client? client,
+  }) async {
+    final requestClient = client ?? http.Client();
+    try {
+      final uri = Uri.parse(
+        '${_root(baseUrl)}/conversations',
+      ).replace(queryParameters: {'take': '$take', 'offset': '$offset'});
+      final response = await requestClient.get(
+        uri,
+        headers: _headers(await _requireToken()),
+      );
+      final body = _decode(response.body, 'conversation-list');
+      _checkResponse(response.statusCode, body);
+      if (body is! List) {
+        throw const PersonalityCoreException(
+          'Invalid conversation-list response.',
+        );
+      }
+      return [
+        for (final item in body)
+          if (item is Map<String, dynamic>)
+            PersonalityConversation.fromJson(item)
+          else if (item is Map)
+            PersonalityConversation.fromJson(Map<String, dynamic>.from(item)),
+      ].where((conversation) => conversation.id.isNotEmpty).toList();
+    } finally {
+      if (client == null) requestClient.close();
+    }
+  }
+
+  /// Lists a conversation's messages ordered by sequence ascending.
+  Future<List<PersonalityMessage>> listMessages({
+    required String conversationId,
+    String baseUrl = productionBaseUrl,
+    int take = 200,
+    int offset = 0,
+    http.Client? client,
+  }) async {
+    final requestClient = client ?? http.Client();
+    try {
+      final uri = Uri.parse(
+        '${_root(baseUrl)}/conversations/$conversationId/messages',
+      ).replace(queryParameters: {'take': '$take', 'offset': '$offset'});
+      final response = await requestClient.get(
+        uri,
+        headers: _headers(await _requireToken()),
+      );
+      final body = _decode(response.body, 'message-list');
+      _checkResponse(response.statusCode, body);
+      if (body is! List) {
+        throw const PersonalityCoreException('Invalid message-list response.');
+      }
+      return [
+        for (final item in body)
+          if (item is Map<String, dynamic>)
+            PersonalityMessage.fromJson(item)
+          else if (item is Map)
+            PersonalityMessage.fromJson(Map<String, dynamic>.from(item)),
+      ];
+    } finally {
+      if (client == null) requestClient.close();
+    }
+  }
+
+  /// Uploads a local file to Solar Network drive and returns its id for use
+  /// as a run attachment.
+  Future<String> uploadAttachment({
+    required String filePath,
+    String driveBaseUrl = productionDriveBaseUrl,
+    String? contentType,
+  }) async {
+    final request =
+        http.MultipartRequest(
+            'POST',
+            Uri.parse('${_root(driveBaseUrl)}/files/upload/direct'),
+          )
+          ..headers.addAll(_headers(await _requireToken()))
+          ..files.add(
+            await http.MultipartFile.fromPath(
+              'file',
+              filePath,
+              contentType: contentType == null
+                  ? null
+                  : MediaType.parse(contentType),
+            ),
+          );
+    final response = await request.send();
+    final body = _decode(await response.stream.bytesToString(), 'file-upload');
+    _checkResponse(response.statusCode, body);
+    if (body is! Map || body['id'] is! String) {
+      throw const PersonalityCoreException('Invalid file-upload response.');
+    }
+    return (body['id'] as String).trim();
+  }
 
   final http.Client? client;
 
   Future<List<PersonalityAgent>> listAgents({
-    required String accessToken,
     String baseUrl = productionBaseUrl,
   }) async {
     final requestClient = client ?? http.Client();
     try {
       final response = await requestClient.get(
         Uri.parse('${_root(baseUrl)}/agents'),
-        headers: _headers(accessToken),
+        headers: _headers(await _requireToken()),
       );
       final body = _decode(response.body, 'agent-list');
       _checkResponse(response.statusCode, body);
@@ -59,7 +237,6 @@ class PersonalityCoreService {
   }
 
   Future<String> createConversation({
-    required String accessToken,
     required String agentId,
     String title = '',
     String baseUrl = productionBaseUrl,
@@ -70,7 +247,10 @@ class PersonalityCoreService {
     try {
       final response = await requestClient.post(
         Uri.parse('${_root(baseUrl)}/conversations'),
-        headers: {..._headers(accessToken), 'Content-Type': 'application/json'},
+        headers: {
+          ..._headers(await _requireToken()),
+          'Content-Type': 'application/json',
+        },
         body: jsonEncode({'agent_id': agentId, 'title': title}),
       );
       final body = _decode(response.body, 'conversation-create');
@@ -87,9 +267,9 @@ class PersonalityCoreService {
   }
 
   Future<String> runConversation({
-    required String accessToken,
     required String conversationId,
     required String message,
+    List<String> attachmentIds = const [],
     void Function(String delta)? onChunk,
     void Function(String name, Map<String, dynamic> args)? onToolCall,
     String baseUrl = productionBaseUrl,
@@ -104,11 +284,15 @@ class PersonalityCoreService {
               Uri.parse('${_root(baseUrl)}/conversations/$conversationId/runs'),
             )
             ..headers.addAll({
-              ..._headers(accessToken),
+              ..._headers(await _requireToken()),
               'Content-Type': 'application/json',
               'Accept': 'text/event-stream',
             })
-            ..body = jsonEncode({'message': message, 'stream': true});
+            ..body = jsonEncode({
+              'message': message,
+              'stream': true,
+              if (attachmentIds.isNotEmpty) 'attachment_ids': attachmentIds,
+            });
       final response = await requestClient.send(request);
       _checkResponse(response.statusCode, null);
 
@@ -198,7 +382,6 @@ class PersonalityCoreService {
 
   /// Calls the OpenAI-compatible endpoint. Kept for non-conversation callers.
   Future<String> chat({
-    required String accessToken,
     required String agentId,
     required String prompt,
     String baseUrl = productionBaseUrl,
@@ -207,7 +390,10 @@ class PersonalityCoreService {
     try {
       final response = await requestClient.post(
         Uri.parse('${_root(baseUrl)}/v1/chat/completions'),
-        headers: {..._headers(accessToken), 'Content-Type': 'application/json'},
+        headers: {
+          ..._headers(await _requireToken()),
+          'Content-Type': 'application/json',
+        },
         body: jsonEncode({
           'model': agentId,
           'stream': false,
@@ -237,7 +423,6 @@ class PersonalityCoreService {
   }
 
   Future<String> chatMessages({
-    required String accessToken,
     required String agentId,
     required List<Map<String, String>> messages,
     String baseUrl = productionBaseUrl,
@@ -245,9 +430,6 @@ class PersonalityCoreService {
     bool stream = true,
     http.Client? client,
   }) async {
-    if (accessToken.trim().isEmpty) {
-      throw const PersonalityCoreException('Missing access token.');
-    }
     final requestClient = client ?? http.Client();
     try {
       final body = jsonEncode({
@@ -261,7 +443,7 @@ class PersonalityCoreService {
               Uri.parse('${_root(baseUrl)}/v1/chat/completions'),
             )
             ..headers.addAll({
-              ..._headers(accessToken),
+              ..._headers(await _requireToken()),
               'Content-Type': 'application/json',
             })
             ..body = body;
@@ -309,7 +491,10 @@ class PersonalityCoreService {
       // Non-stream path (mirrors the existing chat() contract).
       final response = await requestClient.post(
         Uri.parse('${_root(baseUrl)}/v1/chat/completions'),
-        headers: {..._headers(accessToken), 'Content-Type': 'application/json'},
+        headers: {
+          ..._headers(await _requireToken()),
+          'Content-Type': 'application/json',
+        },
         body: body,
       );
       final bodyJson = _decode(response.body, 'chat');

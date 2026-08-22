@@ -11,16 +11,15 @@ import 'package:synth_pet/personality/personality_service.dart';
 ///
 /// Personality Core owns the conversation history, tool execution, and final
 /// message persistence. This controller only forwards user turns and relays
-/// the server's SSE events to the UI.
+/// the server's SSE events to the UI. Identity comes from the global Solar
+/// auth service inside the backend; callers never pass access tokens.
 class ConversationController {
   ConversationController({
     required this.backend,
-    required this.getAccessToken,
     this.defaultAgentId = 'michan',
   }) : _agentId = defaultAgentId;
 
   final ChatBackend backend;
-  final Future<String?> Function() getAccessToken;
   final String defaultAgentId;
   String _agentId;
 
@@ -39,11 +38,12 @@ class ConversationController {
     if (!_events.isClosed) _events.add(e);
   }
 
-  Future<List<PersonalityAgent>> loadAgents() async {
-    final token = await getAccessToken();
-    if (token == null) return const [];
-    return backend.listAgents(accessToken: token);
-  }
+  Future<List<PersonalityAgent>> loadAgents() => backend.listAgents();
+
+  /// Uploads a local file to Solar Network drive; the returned id is usable
+  /// as a run attachment.
+  Future<String> uploadAttachment(String filePath) =>
+      backend.uploadAttachment(filePath: filePath);
 
   void setAgent(String id) {
     if (_agentId == id) return;
@@ -53,14 +53,46 @@ class ConversationController {
     _messages.clear();
   }
 
-  Future<void> send(String input) async {
+  /// Lists the account's persisted conversations, newest first.
+  Future<List<PersonalityConversation>> listConversations() =>
+      backend.listConversations();
+
+  /// Loads a persisted conversation's history into memory so the next
+  /// [send] continues that thread.
+  Future<void> openConversation(String id) async {
+    if (_busy || id.isEmpty) return;
+    final history = await backend.listMessages(conversationId: id);
+    _conversationId = id;
+    _messages
+      ..clear()
+      ..addAll([
+        for (final message in history)
+          ConversationMessage(
+            message.role == 'assistant'
+                ? ConversationRole.assistant
+                : ConversationRole.user,
+            message.content,
+            attachmentIds: message.attachmentIds,
+          ),
+      ]);
+    _emit(const ConversationOpened());
+  }
+
+  /// Forgets the current thread; the next [send] starts a fresh one.
+  void newConversation() {
+    if (_busy) return;
+    _conversationId = null;
+    _messages.clear();
+    _emit(const ConversationOpened());
+  }
+
+  Future<void> send(
+    String input, {
+    List<String> attachmentIds = const [],
+  }) async {
     final text = input.trim();
-    if (text.isEmpty || _busy) return;
-    final token = await getAccessToken();
-    if (token == null) {
-      _emit(const ErrorOccurred('Sign in to start a conversation.'));
-      return;
-    }
+    if (text.isEmpty && attachmentIds.isEmpty) return;
+    if (_busy) return;
 
     _busy = true;
     _aborted = false;
@@ -72,7 +104,6 @@ class ConversationController {
       var id = _conversationId;
       if (id == null) {
         id = await backend.createConversation(
-          accessToken: token,
           agentId: _agentId,
           client: _activeClient,
         );
@@ -84,12 +115,18 @@ class ConversationController {
         _conversationId = id;
       }
 
-      _messages.add(ConversationMessage(ConversationRole.user, text));
+      _messages.add(
+        ConversationMessage(
+          ConversationRole.user,
+          text,
+          attachmentIds: attachmentIds,
+        ),
+      );
       var emittedChunk = false;
       final full = await backend.runConversation(
-        accessToken: token,
         conversationId: id,
         message: text,
+        attachmentIds: attachmentIds,
         onChunk: (delta) {
           emittedChunk = true;
           _emit(ChunkReceived(delta));
