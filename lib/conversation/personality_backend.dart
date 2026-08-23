@@ -15,7 +15,11 @@ abstract class ChatBackend {
     required String message,
     List<String> attachmentIds = const [],
     void Function(String delta)? onChunk,
-    void Function(String name, Map<String, dynamic> args)? onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args)?
+    onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args,
+        String result)? onToolResult,
+    void Function(String delta)? onReasoning,
     http.Client? client,
   });
 
@@ -64,7 +68,11 @@ class PersonalityCoreBackend implements ChatBackend {
     required String message,
     List<String> attachmentIds = const [],
     void Function(String delta)? onChunk,
-    void Function(String name, Map<String, dynamic> args)? onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args)?
+    onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args,
+        String result)? onToolResult,
+    void Function(String delta)? onReasoning,
     http.Client? client,
   }) => _service.runConversation(
     conversationId: conversationId,
@@ -72,6 +80,8 @@ class PersonalityCoreBackend implements ChatBackend {
     attachmentIds: attachmentIds,
     onChunk: onChunk,
     onToolCall: onToolCall,
+    onToolResult: onToolResult,
+    onReasoning: onReasoning,
     client: client,
   );
 

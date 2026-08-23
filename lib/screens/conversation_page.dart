@@ -17,7 +17,7 @@ import 'package:synth_pet/widgets/message_markdown.dart';
 // ---------------------------------------------------------------------------
 // Bubble types
 // ---------------------------------------------------------------------------
-enum _BubbleKind { user, assistant, systemNote }
+enum _BubbleKind { user, assistant, thinking, systemNote }
 
 class _Bubble {
   _Bubble(
@@ -26,6 +26,7 @@ class _Bubble {
     this.streaming = false,
     this.attachmentIds = const [],
     this.attachmentPreviews = const [],
+    this.toolCallId,
   });
   final _BubbleKind kind;
   String text;
@@ -36,6 +37,9 @@ class _Bubble {
 
   /// Local file paths for attachments picked in this session.
   final List<String> attachmentPreviews;
+
+  /// Server tool-call id, used to update a running note with its result.
+  final String? toolCallId;
 }
 
 /// A locally picked file awaiting upload.
@@ -212,7 +216,20 @@ class _ConversationPageState extends State<ConversationPage> {
       switch (e) {
         case ThinkingStarted():
           _busy = true;
+        case ThinkingChunk(:final delta):
+          final last = _bubbles.isNotEmpty ? _bubbles.last : null;
+          if (last == null || last.kind == _BubbleKind.assistant) break;
+          if (last.kind == _BubbleKind.thinking) {
+            last.text += delta;
+          } else {
+            _bubbles.add(_Bubble(_BubbleKind.thinking, delta, streaming: true));
+          }
+          _scrollToEnd();
         case ChunkReceived(:final delta):
+          if (_bubbles.isNotEmpty &&
+              _bubbles.last.kind == _BubbleKind.thinking) {
+            _bubbles.removeLast();
+          }
           final last = _bubbles.isNotEmpty ? _bubbles.last : null;
           if (last == null || last.kind != _BubbleKind.assistant) {
             _bubbles.add(
@@ -225,6 +242,10 @@ class _ConversationPageState extends State<ConversationPage> {
           _scrollToEnd();
         case MessageCompleted(:final text):
           if (_bubbles.isNotEmpty &&
+              _bubbles.last.kind == _BubbleKind.thinking) {
+            _bubbles.removeLast();
+          }
+          if (_bubbles.isNotEmpty &&
               _bubbles.last.kind == _BubbleKind.assistant) {
             _bubbles.removeLast();
           }
@@ -235,9 +256,20 @@ class _ConversationPageState extends State<ConversationPage> {
             _bubbles.add(_Bubble(_BubbleKind.assistant, trimmed));
           }
           _scrollToEnd();
-        case ToolInvoked(:final name, :final result):
-          if (result == 'running') break;
-          _bubbles.add(_Bubble(_BubbleKind.systemNote, '$name · $result'));
+        case ToolInvoked(:final id, :final name, :final result):
+          if (result == 'running') {
+            _bubbles.add(_Bubble(_BubbleKind.systemNote, name, toolCallId: id));
+          } else {
+            final index = _bubbles.lastIndexWhere(
+              (b) => b.toolCallId != null && b.toolCallId == id,
+            );
+            if (index >= 0) {
+              _bubbles[index].text = '$name · $result';
+            } else {
+              _bubbles.add(_Bubble(_BubbleKind.systemNote, '$name · $result'));
+            }
+          }
+          _scrollToEnd();
         case ConversationOpened():
           _bubbles
             ..clear()
@@ -248,6 +280,10 @@ class _ConversationPageState extends State<ConversationPage> {
         case StatusChanged(:final busy):
           _busy = busy;
         case ErrorOccurred(:final message):
+          if (_bubbles.isNotEmpty &&
+              _bubbles.last.kind == _BubbleKind.thinking) {
+            _bubbles.removeLast();
+          }
           _error = message;
       }
     });
@@ -599,7 +635,13 @@ class _ConversationPageState extends State<ConversationPage> {
                 onPressed: _authError
                     ? null
                     : busy
-                    ? _controller.abort
+                    ? () {
+                        _controller.abort();
+                        if (_bubbles.isNotEmpty &&
+                            _bubbles.last.kind == _BubbleKind.thinking) {
+                          setState(() => _bubbles.removeLast());
+                        }
+                      }
                     : _send,
                 style: FilledButton.styleFrom(
                   shape: const CircleBorder(),
@@ -735,6 +777,39 @@ class _ConversationPageState extends State<ConversationPage> {
                   child: MessageMarkdown(
                     text: bubble.streaming ? '${bubble.text}▍' : bubble.text,
                     textStyle: const TextStyle(fontSize: 14, height: 1.35),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
+      case _BubbleKind.thinking:
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 9,
+                  ),
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.72,
+                  ),
+                  decoration: BoxDecoration(
+                    color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    '[thinking] ${bubble.text}${bubble.streaming ? '▍' : ''}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      fontStyle: FontStyle.italic,
+                      height: 1.35,
+                    ),
                   ),
                 ),
               ),

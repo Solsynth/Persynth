@@ -30,7 +30,11 @@ class _StreamingBackend implements ChatBackend {
     required String message,
     List<String> attachmentIds = const [],
     void Function(String delta)? onChunk,
-    void Function(String name, Map<String, dynamic> args)? onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args)?
+    onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args,
+        String result)? onToolResult,
+    void Function(String delta)? onReasoning,
     http.Client? client,
   }) async {
     runCalls++;
@@ -70,9 +74,40 @@ class _NonStreamingBackend extends _StreamingBackend {
     required String message,
     List<String> attachmentIds = const [],
     void Function(String delta)? onChunk,
-    void Function(String name, Map<String, dynamic> args)? onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args)?
+    onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args,
+        String result)? onToolResult,
+    void Function(String delta)? onReasoning,
     http.Client? client,
   }) async => 'Hello there friend';
+}
+class _ReasoningBackend extends _StreamingBackend {
+  @override
+  Future<String> runConversation({
+    required String conversationId,
+    required String message,
+    List<String> attachmentIds = const [],
+    void Function(String delta)? onChunk,
+    void Function(String id, String name, Map<String, dynamic> args)?
+    onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args,
+        String result)? onToolResult,
+    void Function(String delta)? onReasoning,
+    http.Client? client,
+  }) async {
+    onReasoning?.call('hmm');
+    onReasoning?.call(' let me check');
+    onToolCall?.call('call-1', 'remember', const {'note': 'buy milk'});
+    onToolResult?.call(
+      'call-1',
+      'remember',
+      const {'note': 'buy milk'},
+      'Saved note: buy milk.',
+    );
+    onChunk?.call('Done.');
+    return 'Done.';
+  }
 }
 
 /// Simulates a signed-out caller: the global identity provider has no token.
@@ -169,6 +204,26 @@ void main() {
         events.whereType<MessageCompleted>().single.text,
         'Hello there friend',
       );
+    });
+
+    test('relays thinking and tool call events from the backend', () async {
+      final controller = ConversationController(backend: _ReasoningBackend());
+      final events = <ConversationEvent>[];
+      controller.events.listen(events.add);
+
+      await controller.send('hello');
+
+      expect(
+        events.whereType<ThinkingChunk>().map((chunk) => chunk.delta),
+        ['hmm', ' let me check'],
+      );
+      final tools = events.whereType<ToolInvoked>().toList();
+      expect(tools, hasLength(2));
+      expect(tools.first.id, 'call-1');
+      expect(tools.first.name, 'remember');
+      expect(tools.first.args, {'note': 'buy milk'});
+      expect(tools.first.result, 'running');
+      expect(tools.last.result, 'Saved note: buy milk.');
     });
 
     test('forwards attachment ids to the run and records them', () async {

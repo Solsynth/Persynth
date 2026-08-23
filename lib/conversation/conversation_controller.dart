@@ -131,7 +131,11 @@ class ConversationController {
           emittedChunk = true;
           _emit(ChunkReceived(delta));
         },
-        onToolCall: (name, args) => _emit(ToolInvoked(name, args, 'running')),
+        onToolCall: (id, name, args) =>
+            _emit(ToolInvoked(id, name, args, 'running')),
+        onToolResult: (id, name, args, result) =>
+            _emit(ToolInvoked(id, name, args, result)),
+        onReasoning: (delta) => _emit(ThinkingChunk(delta)),
         client: _activeClient,
       );
       if (_aborted) return;

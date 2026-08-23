@@ -7,10 +7,15 @@ sealed class ConversationEvent {
 final class ThinkingStarted extends ConversationEvent {
   const ThinkingStarted();
 }
-
 /// A streamed token fragment of the assistant's reply.
 final class ChunkReceived extends ConversationEvent {
   const ChunkReceived(this.delta);
+  final String delta;
+}
+
+/// A streamed fragment of the assistant's reasoning (thinking) text.
+final class ThinkingChunk extends ConversationEvent {
+  const ThinkingChunk(this.delta);
   final String delta;
 }
 
@@ -23,7 +28,8 @@ final class MessageCompleted extends ConversationEvent {
 /// A tool was invoked; [result] is `'running'`, the resolved value, or
 /// `'unknown tool'` when no registered tool matched [name].
 final class ToolInvoked extends ConversationEvent {
-  const ToolInvoked(this.name, this.args, this.result);
+  const ToolInvoked(this.id, this.name, this.args, this.result);
+  final String id;
   final String name;
   final Map<String, dynamic> args;
   final String result;

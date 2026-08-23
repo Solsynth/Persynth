@@ -271,7 +271,11 @@ class PersonalityCoreService {
     required String message,
     List<String> attachmentIds = const [],
     void Function(String delta)? onChunk,
-    void Function(String name, Map<String, dynamic> args)? onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args)?
+    onToolCall,
+    void Function(String id, String name, Map<String, dynamic> args,
+        String result)? onToolResult,
+    void Function(String delta)? onReasoning,
     String baseUrl = productionBaseUrl,
     http.Client? client,
   }) async {
@@ -320,6 +324,12 @@ class PersonalityCoreService {
               onChunk?.call(delta);
             }
             break;
+          case 'reasoning.delta':
+            final delta = payload['delta'];
+            if (delta is String && delta.isNotEmpty) {
+              onReasoning?.call(delta);
+            }
+            break;
           case 'tool_call.delta':
             final name = payload['name'];
             if (name is String && name.isNotEmpty) {
@@ -339,7 +349,34 @@ class PersonalityCoreService {
                   // event visible without making the whole run fail.
                 }
               }
-              onToolCall?.call(name, args);
+              onToolCall?.call(payload['id']?.toString() ?? '', name, args);
+            }
+            break;
+          case 'tool_call.completed':
+            final name = payload['name'];
+            final result = payload['result'];
+            if (name is String && name.isNotEmpty && result is String) {
+              final rawArguments = payload['arguments'];
+              Map<String, dynamic> args = {};
+              if (rawArguments is Map) {
+                args = Map<String, dynamic>.from(rawArguments);
+              } else if (rawArguments is String &&
+                  rawArguments.trim().isNotEmpty) {
+                try {
+                  final decoded = jsonDecode(rawArguments);
+                  if (decoded is Map) {
+                    args = Map<String, dynamic>.from(decoded);
+                  }
+                } catch (_) {
+                  // Malformed tool arguments; keep the completion visible.
+                }
+              }
+              onToolResult?.call(
+                payload['id']?.toString() ?? '',
+                name,
+                args,
+                result,
+              );
             }
             break;
           case 'message.completed':
