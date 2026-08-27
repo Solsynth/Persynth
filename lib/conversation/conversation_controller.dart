@@ -68,11 +68,25 @@ class ConversationController {
       ..addAll([
         for (final message in history)
           ConversationMessage(
-            message.role == 'assistant'
-                ? ConversationRole.assistant
-                : ConversationRole.user,
+            switch (message.role) {
+              'assistant' => ConversationRole.assistant,
+              'tool' => ConversationRole.tool,
+              'system' => ConversationRole.system,
+              _ => ConversationRole.user,
+            },
             message.content,
             attachmentIds: message.attachmentIds,
+            reasoningContent: message.reasoningContent,
+            toolCalls: [
+              for (final call in message.toolCalls)
+                ConversationToolCall(
+                  id: call.id,
+                  name: call.name,
+                  arguments: call.arguments,
+                ),
+            ],
+            toolCallId: message.toolCallId,
+            toolName: message.toolName,
           ),
       ]);
     _emit(const ConversationOpened());

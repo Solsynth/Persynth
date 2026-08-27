@@ -61,20 +61,53 @@ class PersonalityMessage {
     required this.role,
     required this.content,
     this.attachmentIds = const [],
+    this.reasoningContent,
+    this.toolCalls = const [],
+    this.toolCallId,
+    this.toolName,
   });
 
   final String role;
   final String content;
   final List<String> attachmentIds;
 
+  /// Assistant-only: the model's reasoning captured at generation time.
+  final String? reasoningContent;
+
+  /// Assistant-only: tool calls requested by this message.
+  final List<PersonalityToolCall> toolCalls;
+
+  /// Tool-role messages only.
+  final String? toolCallId;
+  final String? toolName;
+
   factory PersonalityMessage.fromJson(Map<String, dynamic> json) {
     final metadata = json['metadata'];
-    final attachmentIds = <String>[];
+    Map<String, dynamic>? meta;
     if (metadata is Map) {
-      final raw = metadata['attachment_ids'];
-      if (raw is List) {
-        attachmentIds.addAll(
-          raw.map((id) => id.toString()).where((id) => id.isNotEmpty),
+      meta = Map<String, dynamic>.from(metadata);
+    }
+    final attachmentIds = <String>[];
+    final rawAttachments = meta?['attachment_ids'];
+    if (rawAttachments is List) {
+      attachmentIds.addAll(
+        rawAttachments.map((id) => id.toString()).where((id) => id.isNotEmpty),
+      );
+    }
+    final reasoningRaw = meta?['reasoning_content']?.toString() ?? '';
+    final calls = <PersonalityToolCall>[];
+    final rawCalls = meta?['tool_calls'];
+    if (rawCalls is List) {
+      for (final call in rawCalls) {
+        if (call is! Map) continue;
+        final function = call['function'];
+        calls.add(
+          PersonalityToolCall(
+            id: call['id']?.toString() ?? '',
+            name: function is Map ? function['name']?.toString() ?? '' : '',
+            arguments:
+                function is Map ? function['arguments']?.toString() ?? '' : '',
+          ),
         );
       }
     }
@@ -82,8 +115,31 @@ class PersonalityMessage {
       role: json['role']?.toString() ?? '',
       content: json['content']?.toString() ?? '',
       attachmentIds: attachmentIds,
+      reasoningContent: reasoningRaw.trim().isEmpty ? null : reasoningRaw.trim(),
+      toolCalls: calls,
+      toolCallId: () {
+        final v = meta?['tool_call_id']?.toString() ?? '';
+        return v.isEmpty ? null : v;
+      }(),
+      toolName: () {
+        final v = meta?['tool_name']?.toString() ?? '';
+        return v.isEmpty ? null : v;
+      }(),
     );
   }
+}
+
+/// A tool call captured in an assistant message's metadata.
+class PersonalityToolCall {
+  const PersonalityToolCall({
+    required this.id,
+    required this.name,
+    required this.arguments,
+  });
+
+  final String id;
+  final String name;
+  final String arguments;
 }
 
 typedef PersonalityTokenResolver = Future<String?> Function();

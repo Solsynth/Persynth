@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:auto_route/auto_route.dart';
@@ -12,12 +13,13 @@ import 'package:synth_pet/conversation/conversation_event.dart';
 import 'package:synth_pet/conversation/conversation_message.dart';
 import 'package:synth_pet/conversation/personality_backend.dart';
 import 'package:synth_pet/personality/personality_service.dart';
+import 'package:synth_pet/theme/app_theme.dart';
 import 'package:synth_pet/widgets/message_markdown.dart';
 
 // ---------------------------------------------------------------------------
 // Bubble types
 // ---------------------------------------------------------------------------
-enum _BubbleKind { user, assistant, thinking, systemNote }
+enum _BubbleKind { user, assistant, thinking, tool }
 
 class _Bubble {
   _Bubble(
@@ -27,6 +29,10 @@ class _Bubble {
     this.attachmentIds = const [],
     this.attachmentPreviews = const [],
     this.toolCallId,
+    this.args,
+    this.toolResult,
+    this.toolRunning = false,
+    this.collapsed = false,
   });
   final _BubbleKind kind;
   String text;
@@ -38,8 +44,24 @@ class _Bubble {
   /// Local file paths for attachments picked in this session.
   final List<String> attachmentPreviews;
 
-  /// Server tool-call id, used to update a running note with its result.
+  /// Server tool-call id, used to update a running row with its result.
   final String? toolCallId;
+
+  /// Tool invocation arguments, shown when a tool row is expanded.
+  Map<String, dynamic>? args;
+
+  /// Resolved tool result (`'running'` while pending, `'unknown tool'` on a
+  /// miss, `'interrupted'` when the turn ended first).
+  String? toolResult;
+
+  /// True while the tool call has not resolved.
+  bool toolRunning;
+
+  /// Detail well hidden; a folded trace reads as one log line.
+  bool collapsed = false;
+
+  /// The user explicitly toggled this section; the auto-fold leaves it alone.
+  bool touched = false;
 }
 
 /// A locally picked file awaiting upload.
@@ -226,10 +248,9 @@ class _ConversationPageState extends State<ConversationPage> {
           }
           _scrollToEnd();
         case ChunkReceived(:final delta):
-          if (_bubbles.isNotEmpty &&
-              _bubbles.last.kind == _BubbleKind.thinking) {
-            _bubbles.removeLast();
-          }
+          // The reply is starting; reasoning is over. The trace stays behind,
+          // folded, instead of vanishing with the reply.
+          _finalizeThinking();
           final last = _bubbles.isNotEmpty ? _bubbles.last : null;
           if (last == null || last.kind != _BubbleKind.assistant) {
             _bubbles.add(
@@ -241,10 +262,9 @@ class _ConversationPageState extends State<ConversationPage> {
           _splitStreamingBubble();
           _scrollToEnd();
         case MessageCompleted(:final text):
-          if (_bubbles.isNotEmpty &&
-              _bubbles.last.kind == _BubbleKind.thinking) {
-            _bubbles.removeLast();
-          }
+          _finalizeThinking();
+          // Swap the accumulated streaming bubble for the final, split
+          // message. Thinking and tool traces stay in the log, folded.
           if (_bubbles.isNotEmpty &&
               _bubbles.last.kind == _BubbleKind.assistant) {
             _bubbles.removeLast();
@@ -256,19 +276,8 @@ class _ConversationPageState extends State<ConversationPage> {
             _bubbles.add(_Bubble(_BubbleKind.assistant, trimmed));
           }
           _scrollToEnd();
-        case ToolInvoked(:final id, :final name, :final result):
-          if (result == 'running') {
-            _bubbles.add(_Bubble(_BubbleKind.systemNote, name, toolCallId: id));
-          } else {
-            final index = _bubbles.lastIndexWhere(
-              (b) => b.toolCallId != null && b.toolCallId == id,
-            );
-            if (index >= 0) {
-              _bubbles[index].text = '$name · $result';
-            } else {
-              _bubbles.add(_Bubble(_BubbleKind.systemNote, '$name · $result'));
-            }
-          }
+        case ToolInvoked(:final id, :final name, :final args, :final result):
+          _onToolInvoked(id, name, args, result);
           _scrollToEnd();
         case ConversationOpened():
           _bubbles
@@ -279,13 +288,87 @@ class _ConversationPageState extends State<ConversationPage> {
           _scrollToEnd();
         case StatusChanged(:final busy):
           _busy = busy;
-        case ErrorOccurred(:final message):
-          if (_bubbles.isNotEmpty &&
-              _bubbles.last.kind == _BubbleKind.thinking) {
-            _bubbles.removeLast();
+          if (!busy) {
+            _finalizeThinking();
+            _settleRunningTools();
           }
+        case ErrorOccurred(:final message):
+          _finalizeThinking();
           _error = message;
       }
+    });
+  }
+
+  void _onToolInvoked(
+    String id,
+    String name,
+    Map<String, dynamic> args,
+    String result,
+  ) {
+    if (result == 'running') {
+      _bubbles.add(
+        _Bubble(
+          _BubbleKind.tool,
+          name,
+          toolCallId: id,
+          args: args,
+          toolRunning: true,
+        ),
+      );
+      return;
+    }
+    final index = _bubbles.lastIndexWhere(
+      (b) => b.toolCallId != null && b.toolCallId == id,
+    );
+    if (index >= 0) {
+      final bubble = _bubbles[index];
+      bubble
+        ..toolRunning = false
+        ..toolResult = result
+        ..args = args;
+      // Settled machinery folds away unless the user pinned it open.
+      if (!bubble.touched) bubble.collapsed = true;
+    } else {
+      _bubbles.add(
+        _Bubble(
+          _BubbleKind.tool,
+          name,
+          toolCallId: id,
+          args: args,
+          toolResult: result,
+        ),
+      );
+    }
+  }
+
+  /// The reply has started or the turn ended; reasoning is over. Fold the
+  /// trace unless the user pinned it open.
+  void _finalizeThinking() {
+    for (final bubble in _bubbles) {
+      if (bubble.kind == _BubbleKind.thinking && bubble.streaming) {
+        bubble.streaming = false;
+        if (!bubble.touched) bubble.collapsed = true;
+      }
+    }
+  }
+
+  /// A turn ended while a tool row still showed `running` (abort or error);
+  /// log it as interrupted rather than leaving it spinning forever.
+  void _settleRunningTools() {
+    for (final bubble in _bubbles) {
+      if (bubble.kind == _BubbleKind.tool && bubble.toolRunning) {
+        bubble.toolRunning = false;
+        bubble.toolResult ??= 'interrupted';
+        if (!bubble.touched) bubble.collapsed = true;
+      }
+    }
+  }
+
+  void _toggleTrace(_Bubble bubble) {
+    setState(() {
+      bubble
+        ..touched = true
+        ..collapsed = !bubble.collapsed;
     });
   }
 
@@ -306,20 +389,61 @@ class _ConversationPageState extends State<ConversationPage> {
   }
 
   List<_Bubble> _bubblesFromMessage(ConversationMessage message) {
-    final kind = message.role == ConversationRole.assistant
-        ? _BubbleKind.assistant
-        : _BubbleKind.user;
-    return [
-      for (final part in message.content.split(RegExp(r'\n\s*\n')))
-        if (part.trim().isNotEmpty)
-          _Bubble(
-            kind,
-            part.trim(),
-            attachmentIds: kind == _BubbleKind.user
-                ? message.attachmentIds
-                : const [],
-          ),
-    ];
+    switch (message.role) {
+      case ConversationRole.assistant:
+        final bubbles = <_Bubble>[];
+        // Replayed reasoning reads exactly like the live thinking trace.
+        if (message.reasoningContent != null &&
+            message.reasoningContent!.trim().isNotEmpty) {
+          bubbles.add(
+            _Bubble(
+              _BubbleKind.thinking,
+              message.reasoningContent!,
+              collapsed: true,
+            ),
+          );
+        }
+        // Persisted tool calls restore as settled tool rows.
+        for (final call in message.toolCalls) {
+          Map<String, dynamic>? args;
+          try {
+            final decoded = jsonDecode(call.arguments);
+            if (decoded is Map<String, dynamic>) args = decoded;
+          } catch (_) {}
+          bubbles.add(
+            _Bubble(
+              _BubbleKind.tool,
+              call.name,
+              toolCallId: call.id,
+              args: args,
+              toolResult: 'earlier turn',
+              collapsed: true,
+            ),
+          );
+        }
+        for (final part in message.content.split(RegExp(r'\n\s*\n'))) {
+          if (part.trim().isNotEmpty) {
+            bubbles.add(_Bubble(_BubbleKind.assistant, part.trim()));
+          }
+        }
+        return bubbles;
+      case ConversationRole.tool:
+        // Tool results belong to the call above; skip orphaned rows so they
+        // never resurface as user messages.
+        return const [];
+      case ConversationRole.system:
+        return const [];
+      case ConversationRole.user:
+        return [
+          for (final part in message.content.split(RegExp(r'\n\s*\n')))
+            if (part.trim().isNotEmpty)
+              _Bubble(
+                _BubbleKind.user,
+                part.trim(),
+                attachmentIds: message.attachmentIds,
+              ),
+        ];
+    }
   }
 
   Future<void> _send() async {
@@ -443,32 +567,20 @@ class _ConversationPageState extends State<ConversationPage> {
 
   Widget _buildHeader(ThemeData theme) {
     final cs = theme.colorScheme;
+    final selectedAgent =
+        _agents.where((a) => a.id == _selectedAgentId).firstOrNull;
+    // No bar of its own: the title sits on the content sheet like the other
+    // pages, so the sheet's rounded shoulder stays visible.
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 14, 14, 14),
-      color: cs.surfaceContainer,
       child: Row(
         children: [
           Expanded(
-            child: Row(
-              children: [
-                Text(
-                  _agents
-                          .where((a) => a.id == _selectedAgentId)
-                          .firstOrNull
-                          ?.displayName ??
-                      'Conversation',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                // The companion is picked before the conversation starts;
-                // once messages exist the header gets out of the way.
-                if (_agents.isNotEmpty && _bubbles.isEmpty) ...[
-                  const SizedBox(width: 10),
-                  DropdownButton<PersonalityAgent>(
-                    value: _agents
-                        .where((a) => a.id == _selectedAgentId)
-                        .firstOrNull,
+            child: _agents.isNotEmpty && _bubbles.isEmpty
+                // Picking the companion: the dropdown's own button already
+                // shows the name, so no separate title duplicates it.
+                ? DropdownButton<PersonalityAgent>(
+                    value: selectedAgent,
                     underline: const SizedBox.shrink(),
                     isDense: true,
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -486,10 +598,13 @@ class _ConversationPageState extends State<ConversationPage> {
                       setState(() => _selectedAgentId = agent.id);
                       _controller.setAgent(agent.id);
                     },
+                  )
+                : Text(
+                    selectedAgent?.displayName ?? 'Conversation',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ],
-              ],
-            ),
           ),
           if (!_authError) ...[
             IconButton(
@@ -589,9 +704,10 @@ class _ConversationPageState extends State<ConversationPage> {
   Widget _buildFooter(ThemeData theme) {
     final cs = theme.colorScheme;
     final busy = _busy || _uploading;
-    return Container(
+    // No dock of its own: the input sits directly on the content sheet, a
+    // single filled pill field, so the sheet reads like the other pages.
+    return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-      color: cs.surfaceContainer,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -622,7 +738,7 @@ class _ConversationPageState extends State<ConversationPage> {
                       vertical: 12,
                     ),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(24),
                       borderSide: BorderSide.none,
                     ),
                   ),
@@ -637,10 +753,10 @@ class _ConversationPageState extends State<ConversationPage> {
                     : busy
                     ? () {
                         _controller.abort();
-                        if (_bubbles.isNotEmpty &&
-                            _bubbles.last.kind == _BubbleKind.thinking) {
-                          setState(() => _bubbles.removeLast());
-                        }
+                        setState(() {
+                          _finalizeThinking();
+                          _settleRunningTools();
+                        });
                       }
                     : _send,
                 style: FilledButton.styleFrom(
@@ -785,50 +901,10 @@ class _ConversationPageState extends State<ConversationPage> {
         );
 
       case _BubbleKind.thinking:
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 9,
-                  ),
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.72,
-                  ),
-                  decoration: BoxDecoration(
-                    color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    '[thinking] ${bubble.text}${bubble.streaming ? '▍' : ''}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                      fontStyle: FontStyle.italic,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
+        return _buildThinkingBubble(bubble, theme);
 
-      case _BubbleKind.systemNote:
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          child: Center(
-            child: Text(
-              bubble.text,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: cs.onSurfaceVariant,
-              ),
-            ),
-          ),
-        );
+      case _BubbleKind.tool:
+        return _buildToolBubble(bubble, theme);
     }
   }
 
@@ -871,6 +947,305 @@ class _ConversationPageState extends State<ConversationPage> {
             ),
         ],
       ),
+    );
+  }
+
+  // ---- machinery traces ----------------------------------------------------
+
+  /// The terminal-voice style shared by thinking and tool traces: Plex Mono
+  /// at trace size, tone taken from the palette, never a hardcoded color.
+  static TextStyle _traceStyle({
+    required Color color,
+    double size = 12,
+    FontWeight weight = FontWeight.w400,
+  }) => TextStyle(
+    fontFamily: SynthPetFonts.display,
+    fontSize: size,
+    height: 1.45,
+    fontWeight: weight,
+    color: color,
+  );
+
+  /// Reasoning types itself out live, then folds to a log line — `thought` —
+  /// with its first line as the summary.
+  Widget _buildThinkingBubble(_Bubble bubble, ThemeData theme) {
+    final cs = theme.colorScheme;
+    final streaming = bubble.streaming;
+    final snippet = bubble.text.trim().split('\n').first;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: _TraceSection(
+        label: Text(
+          streaming ? 'thinking' : 'thought',
+          style: _traceStyle(
+            color: cs.onSurfaceVariant,
+            weight: FontWeight.w600,
+          ),
+        ),
+        expanded: !bubble.collapsed,
+        onTap: () => _toggleTrace(bubble),
+        summary: bubble.collapsed && snippet.isNotEmpty
+            ? Text(
+                snippet,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _traceStyle(color: cs.onSurfaceVariant),
+              )
+            : null,
+        well: SelectableText(
+          '${bubble.text}${streaming ? '▍' : ''}',
+          style: _traceStyle(color: cs.onSurfaceVariant, size: 11.5),
+        ),
+      ),
+    );
+  }
+
+  /// One tool call as a log line: ember cursor while it runs, the resolved
+  /// result as the summary, arguments and full result in the well.
+  Widget _buildToolBubble(_Bubble bubble, ThemeData theme) {
+    final cs = theme.colorScheme;
+    final running = bubble.toolRunning;
+    final failed = bubble.toolResult == 'unknown tool';
+    final summary = bubble.toolResult?.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: _TraceSection(
+        leading: running
+            ? _TraceDot(character: '▍', color: cs.primary, pulse: true)
+            : failed
+            ? _TraceDot(character: '!', color: cs.error)
+            : null,
+        label: Text(
+          bubble.text,
+          style: _traceStyle(color: cs.onSurface, weight: FontWeight.w600),
+        ),
+        expanded: !bubble.collapsed,
+        onTap: () => _toggleTrace(bubble),
+        summary: !bubble.collapsed || summary == null || summary.isEmpty
+            ? null
+            : Text(
+                summary,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _traceStyle(
+                  color: failed ? cs.error : cs.onSurfaceVariant,
+                ),
+              ),
+        well: _ToolWell(bubble: bubble, theme: theme),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Machinery traces — the companion's engine-room log: thinking and tool
+// calls, in the same terminal voice as the pet itself.
+// ---------------------------------------------------------------------------
+
+/// One collapsible machinery trace: a single log line with a detail well
+/// that folds out beneath it. Live sections sit open; settled ones fold.
+class _TraceSection extends StatelessWidget {
+  const _TraceSection({
+    required this.label,
+    required this.expanded,
+    required this.onTap,
+    required this.well,
+    this.leading,
+    this.summary,
+  });
+
+  /// The trace's name or verb, in the terminal voice.
+  final Text label;
+
+  /// Leading state marker slot; null leaves a quiet gap so rows align.
+  final Widget? leading;
+
+  /// One-line trailing summary shown when folded.
+  final Widget? summary;
+
+  final bool expanded;
+  final VoidCallback onTap;
+
+  /// Detail well shown when expanded.
+  final Widget well;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.72,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    child: Center(child: leading ?? const SizedBox.shrink()),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    expanded ? '▾' : '▸',
+                    style: TextStyle(
+                      fontFamily: SynthPetFonts.display,
+                      fontSize: 10,
+                      height: 1,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  label,
+                  if (summary != null) ...[
+                    const SizedBox(width: 8),
+                    Flexible(child: summary!),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          AnimatedCrossFade(
+            firstChild: const SizedBox(width: double.infinity),
+            secondChild: Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: well,
+              ),
+            ),
+            crossFadeState: expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: reduced
+                ? Duration.zero
+                : const Duration(milliseconds: 180),
+            sizeCurve: Curves.easeOutCubic,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A leading state marker: the ember block cursor pulses while a tool runs;
+/// the brick `!` marks a failed call. Settled rows carry no marker.
+class _TraceDot extends StatefulWidget {
+  const _TraceDot({
+    required this.character,
+    required this.color,
+    this.pulse = false,
+  });
+
+  final String character;
+  final Color color;
+  final bool pulse;
+
+  @override
+  State<_TraceDot> createState() => _TraceDotState();
+}
+
+class _TraceDotState extends State<_TraceDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  late final Animation<double> _pulse = Tween(
+    begin: 0.35,
+    end: 1.0,
+  ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOutSine));
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final quiet = !widget.pulse || MediaQuery.disableAnimationsOf(context);
+    final style = TextStyle(
+      fontFamily: SynthPetFonts.display,
+      fontSize: 12,
+      height: 1,
+      color: widget.color,
+    );
+    if (quiet) return Text(widget.character, style: style);
+    return AnimatedBuilder(
+      animation: _pulse,
+      builder: (_, child) => Opacity(opacity: _pulse.value, child: child),
+      child: Text(widget.character, style: style),
+    );
+  }
+}
+
+/// The expanded detail of a tool call: arguments in secondary tone, resolved
+/// result in primary tone, separated by tone rather than a rule.
+class _ToolWell extends StatelessWidget {
+  const _ToolWell({required this.bubble, required this.theme});
+
+  final _Bubble bubble;
+  final ThemeData theme;
+
+  String get _argsText {
+    final args = bubble.args;
+    if (args == null || args.isEmpty) return '';
+    return [
+      for (final entry in args.entries)
+        '${entry.key}: '
+            '${entry.value is String ? entry.value : jsonEncode(entry.value)}',
+    ].join('\n');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = theme.colorScheme;
+    final result = bubble.toolResult;
+    final argsText = _argsText;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (argsText.isNotEmpty) ...[
+          SelectableText(
+            argsText,
+            style: TextStyle(
+              fontFamily: SynthPetFonts.display,
+              fontSize: 11.5,
+              height: 1.5,
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+          if (result != null && result.isNotEmpty) const SizedBox(height: 8),
+        ],
+        if (result != null && result.isNotEmpty)
+          SelectableText(
+            result,
+            style: TextStyle(
+              fontFamily: SynthPetFonts.display,
+              fontSize: 11.5,
+              height: 1.5,
+              color: result == 'unknown tool' ? cs.error : cs.onSurface,
+            ),
+          ),
+      ],
     );
   }
 }
