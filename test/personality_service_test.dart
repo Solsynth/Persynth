@@ -36,6 +36,7 @@ void main() {
     expect(jsonDecode(request.body), {
       'model': 'mochi',
       'stream': false,
+      'server_tools': true,
       'messages': [
         {'role': 'user', 'content': 'Say hello.'},
       ],
@@ -100,55 +101,77 @@ void main() {
     expect(reply, 'Done.');
   });
 
-  test('creates a persisted conversation and relays run SSE deltas', () async {
-    final requests = <Request>[];
+  test('lists only pet agents and flags them', () async {
+    late Request request;
     final service = PersonalityCoreService(
       tokenResolver: () async => 'token-123',
       client: MockClient((incoming) async {
-        requests.add(incoming);
-        if (incoming.url.path.endsWith('/conversations')) {
-          return Response(jsonEncode({'id': 'thread-1'}), 201);
-        }
+        request = incoming;
         return Response(
-          [
-            'event: run.started',
-            'data: {"conversation_id":"thread-1"}',
-            '',
-            'event: message.delta',
-            'data: {"delta":"Hello"}',
-            '',
-            'event: message.delta',
-            'data: {"delta":" there"}',
-            '',
-            'event: message.completed',
-            'data: {"content":"Hello there","message_id":"msg-1"}',
-            '',
-            'event: run.completed',
-            'data: {"run_id":"run-1","message_id":"msg-1"}',
-            '',
-          ].join('\n'),
+          jsonEncode([
+            {'id': 'mochi', 'name': 'Mochi', 'abilities': ['pet', 'memory']},
+            {'id': 'assistant', 'name': 'Assistant', 'abilities': ['chat']},
+          ]),
           200,
         );
       }),
     );
 
-    final conversationId = await service.createConversation(agentId: 'mochi');
-    final deltas = <String>[];
-    final reply = await service.runConversation(
-      conversationId: conversationId,
-      message: 'Say hello.',
-      onChunk: deltas.add,
+    final agents = await service.listAgents();
+
+    expect(request.url.queryParameters['pet'], 'true');
+    expect(agents, hasLength(2));
+    expect(agents.first.isPet, isTrue);
+    expect(agents.last.isPet, isFalse);
+  });
+
+  test('fetches pet affection and treats 404 as no session', () async {
+    final requests = <Request>[];
+    final service = PersonalityCoreService(
+      tokenResolver: () async => 'token-123',
+      client: MockClient((incoming) async {
+        requests.add(incoming);
+        if (incoming.url.path.endsWith('/pet/affection') &&
+            incoming.url.queryParameters['agent_id'] == 'mochi') {
+          return Response(
+            jsonEncode({
+              'agent_id': 'mochi',
+              'affection': 62,
+              'level': 'warm',
+              'reason': 'The user gave me a treat.',
+            }),
+            200,
+          );
+        }
+        return Response('{}', 404);
+      }),
     );
 
-    expect(conversationId, 'thread-1');
-    expect(deltas, ['Hello', ' there']);
-    expect(reply, 'Hello there');
-    expect(requests[0].url.path, '/personality/conversations');
-    expect(jsonDecode(requests[0].body), {'agent_id': 'mochi', 'title': ''});
-    expect(requests[1].url.path, '/personality/conversations/thread-1/runs');
-    expect(jsonDecode(requests[1].body), {
-      'message': 'Say hello.',
-      'stream': true,
-    });
+    final affection = await service.getPetAffection(agentId: 'mochi');
+    expect(affection, isNotNull);
+    expect(affection!.affection, 62);
+    expect(affection.level, 'warm');
+    expect(affection.reason, 'The user gave me a treat.');
+    expect(requests.first.url.path, '/personality/pet/affection');
+    expect(requests.first.url.queryParameters['agent_id'], 'mochi');
+
+    final missing = await service.getPetAffection(agentId: 'nobody');
+    expect(missing, isNull);
+  });
+
+  test('deletes agent memories with DELETE', () async {
+    late Request request;
+    final service = PersonalityCoreService(
+      tokenResolver: () async => 'token-123',
+      client: MockClient((incoming) async {
+        request = incoming;
+        return Response('', 204);
+      }),
+    );
+
+    await service.deleteAgentMemories(agentId: 'mochi');
+
+    expect(request.method, 'DELETE');
+    expect(request.url.path, '/personality/agents/mochi/memories');
   });
 }

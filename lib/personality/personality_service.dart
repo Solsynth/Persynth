@@ -9,11 +9,13 @@ class PersonalityAgent {
     required this.id,
     required this.name,
     required this.description,
+    this.isPet = false,
   });
 
   final String id;
   final String name;
   final String description;
+  final bool isPet;
 
   String get displayName => name.isEmpty ? 'Unnamed agent' : name;
 
@@ -22,6 +24,36 @@ class PersonalityAgent {
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       description: json['description']?.toString() ?? '',
+      isPet: json['is_pet'] == true || json['abilities'] is List &&
+          (json['abilities'] as List).contains('pet'),
+    );
+  }
+}
+
+/// A pet agent's affection state for the signed-in account.
+class PetAffection {
+  const PetAffection({
+    required this.agentId,
+    required this.affection,
+    required this.level,
+    this.reason,
+  });
+
+  final String agentId;
+  final int affection;
+  final String level;
+  final String? reason;
+
+  /// A stable 0-100 score; the server clamps it.
+  double get fraction => (affection / 100).clamp(0, 1);
+
+  factory PetAffection.fromJson(Map<String, dynamic> json) {
+    final reason = json['reason']?.toString();
+    return PetAffection(
+      agentId: json['agent_id']?.toString() ?? '',
+      affection: (json['affection'] as num?)?.toInt() ?? 50,
+      level: json['level']?.toString() ?? 'familiar',
+      reason: reason == null || reason.trim().isEmpty ? null : reason.trim(),
     );
   }
 }
@@ -271,8 +303,11 @@ class PersonalityCoreService {
   }) async {
     final requestClient = client ?? http.Client();
     try {
+      final uri = Uri.parse(
+        '${_root(baseUrl)}/agents',
+      ).replace(queryParameters: const {'pet': 'true'});
       final response = await requestClient.get(
-        Uri.parse('${_root(baseUrl)}/agents'),
+        uri,
         headers: _headers(await _requireToken()),
       );
       final body = _decode(response.body, 'agent-list');
@@ -287,6 +322,54 @@ class PersonalityCoreService {
           else if (item is Map)
             PersonalityAgent.fromJson(Map<String, dynamic>.from(item)),
       ].where((agent) => agent.id.isNotEmpty).toList();
+    } finally {
+      if (client == null) requestClient.close();
+    }
+  }
+  /// Fetches a pet agent's affection toward the signed-in account.
+  /// Returns null when the account has no pet session yet (the server 404s).
+  Future<PetAffection?> getPetAffection({
+    required String agentId,
+    String baseUrl = productionBaseUrl,
+  }) async {
+    final requestClient = client ?? http.Client();
+    try {
+      final response = await requestClient.get(
+        Uri.parse('${_root(baseUrl)}/pet/affection').replace(
+          queryParameters: {'agent_id': agentId},
+        ),
+        headers: _headers(await _requireToken()),
+      );
+      if (response.statusCode == 404) return null;
+      final body = _decode(response.body, 'pet-affection');
+      _checkResponse(response.statusCode, body);
+      if (body is! Map) {
+        throw const PersonalityCoreException('Invalid pet-affection response.');
+      }
+      final parsed = PetAffection.fromJson(Map<String, dynamic>.from(body));
+      return parsed.agentId.isEmpty ? null : parsed;
+    } finally {
+      if (client == null) requestClient.close();
+    }
+  }
+
+  /// Purges the agent's memories and conversation history for the signed-in
+  /// account. No-op when the agent is unknown.
+  Future<void> deleteAgentMemories({
+    required String agentId,
+    String baseUrl = productionBaseUrl,
+  }) async {
+    final requestClient = client ?? http.Client();
+    try {
+      final response = await requestClient.delete(
+        Uri.parse('${_root(baseUrl)}/agents/$agentId/memories'),
+        headers: _headers(await _requireToken()),
+      );
+      if (response.statusCode >= 200 && response.statusCode < 300) return;
+      _checkResponse(
+        response.statusCode,
+        response.body.isEmpty ? null : _decode(response.body, 'memory-delete'),
+      );
     } finally {
       if (client == null) requestClient.close();
     }
@@ -490,6 +573,7 @@ class PersonalityCoreService {
         body: jsonEncode({
           'model': agentId,
           'stream': false,
+          'server_tools': true,
           'messages': [
             {'role': 'user', 'content': prompt},
           ],

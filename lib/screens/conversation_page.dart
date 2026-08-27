@@ -216,6 +216,7 @@ class _ConversationPageState extends State<ConversationPage> {
     }
     final agents = await _controller.loadAgents();
     final defaultId = PersonalityCoreConfig.fromEnvironment().agentId;
+    // Pet-only listing: prefer the configured companion, else the first pet.
     final selected = agents.isEmpty
         ? defaultId
         : (agents.any((a) => a.id == defaultId) ? defaultId : agents.first.id);

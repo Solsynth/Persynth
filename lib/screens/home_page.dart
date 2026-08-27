@@ -2,6 +2,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 
 import 'package:synth_pet/auth/solar_auth_service.dart';
+import 'package:synth_pet/personality/personality_service.dart';
 import 'package:synth_pet/screens/conversation_page.dart';
 import 'package:synth_pet/shared/desktop_window_service.dart';
 
@@ -130,14 +131,303 @@ class _SideNavigation extends StatelessWidget {
   }
 }
 
-class _ConfigurationContent extends StatelessWidget {
+class _ConfigurationContent extends StatefulWidget {
   const _ConfigurationContent({required this.wide});
 
   final bool wide;
 
   @override
+  State<_ConfigurationContent> createState() => _ConfigurationContentState();
+}
+
+class _PetAffectionCard extends StatefulWidget {
+  const _PetAffectionCard({required this.petId, required this.petName});
+
+  final String petId;
+  final String petName;
+
+  @override
+  State<_PetAffectionCard> createState() => _PetAffectionCardState();
+}
+
+class _PetAffectionCardState extends State<_PetAffectionCard> {
+  final _personality = const PersonalityCoreService();
+  PetAffection? _affection;
+  bool _busy = true;
+  bool _failed = false;
+  bool _resetting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _busy = true;
+      _failed = false;
+    });
+    try {
+      final affection = await _personality.getPetAffection(agentId: widget.petId);
+      if (mounted) setState(() => _affection = affection);
+    } on PersonalityCoreException {
+      if (mounted) setState(() => _failed = true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _resetMemories() async {
+    setState(() => _resetting = true);
+    try {
+      await _personality.deleteAgentMemories(agentId: widget.petId);
+      await _load();
+    } on PersonalityCoreException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not reset memories: ${error.message}')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _resetting = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final affection = _affection;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 16, 16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.petName,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_busy)
+                    const LinearProgressIndicator(minHeight: 6)
+                  else if (_failed)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Could not load affection.',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _load,
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    )
+                  else if (affection == null)
+                    Text(
+                      'No bond yet. Open the pet and say hello to start one.',
+                      style: theme.textTheme.bodySmall,
+                    )
+                  else
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _AffectionMeter(fraction: affection.fraction),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Text(
+                              '${affection.affection}/100 · ${affection.level}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                            if (affection.reason != null) ...[
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  affection.reason!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+            if (!_busy && affection != null)
+              TextButton.icon(
+                onPressed: _resetting ? null : _resetMemories,
+                icon: _resetting
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.delete_sweep_outlined, size: 16),
+                label: const Text('Reset'),
+                style: TextButton.styleFrom(
+                  foregroundColor: cs.onSurfaceVariant,
+                  textStyle: const TextStyle(fontSize: 12),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A quiet progress bar for affection. Tone marks the bond level; the label
+/// carries the exact number. No animation beyond the filled width.
+class _AffectionMeter extends StatelessWidget {
+  const _AffectionMeter({required this.fraction});
+
+  final double fraction;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: LinearProgressIndicator(
+        value: fraction,
+        minHeight: 6,
+        backgroundColor: cs.surfaceContainerHighest,
+        valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+      ),
+    );
+  }
+}
+
+class _PetLoadError extends StatelessWidget {
+  const _PetLoadError({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 16, 16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Could not load companions.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PetEmpty extends StatelessWidget {
+  const _PetEmpty();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Text(
+          'No pet agents on your account yet. Add a pet-capable agent to '
+          'Personality Core to see it here.',
+          style: theme.textTheme.bodySmall,
+        ),
+      ),
+    );
+  }
+}
+class _PetSignInHint extends StatelessWidget {
+  const _PetSignInHint();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Text(
+          'Sign in above to see your pets and their bond with you.',
+          style: theme.textTheme.bodySmall,
+        ),
+      ),
+    );
+  }
+}
+
+class _ConfigurationContentState extends State<_ConfigurationContent> {
+  final _personality = const PersonalityCoreService();
+  List<PersonalityAgent> _pets = const [];
+  bool _petsBusy = false;
+  bool _petsFailed = false;
+
+  bool _signedIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAuth();
+  }
+
+  Future<void> _checkAuth() async {
+    // Pets are per-account; only reach the network once a session exists.
+    // This also keeps the signed-out dashboard quiet in tests.
+    String? token;
+    try {
+      token = await SolarAuthService().accessToken();
+    } on SolarAuthException {
+      token = null;
+    }
+    if (mounted) setState(() => _signedIn = token != null);
+    if (token != null) _loadPets();
+  }
+
+  Future<void> _loadPets() async {
+    setState(() {
+      _petsBusy = true;
+      _petsFailed = false;
+    });
+    try {
+      final pets = await _personality.listAgents();
+      if (mounted) setState(() => _pets = pets);
+    } on PersonalityCoreException {
+      if (mounted) setState(() => _petsFailed = true);
+    } finally {
+      if (mounted) setState(() => _petsBusy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final wide = widget.wide;
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 28, wide ? 40 : 20, 32),
       child: Center(
@@ -166,6 +456,33 @@ class _ConfigurationContent extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               const _AccountCard(),
+              const SizedBox(height: 16),
+              Text(
+                'Companions',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (!_signedIn)
+                const _PetSignInHint()
+              else if (_petsBusy)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              else if (_petsFailed)
+                _PetLoadError(onRetry: _loadPets)
+              else if (_pets.isEmpty)
+                const _PetEmpty()
+              else ...[
+                for (final pet in _pets) ...[
+                  _PetAffectionCard(petId: pet.id, petName: pet.displayName),
+                  const SizedBox(height: 10),
+                ],
+              ],
             ],
           ),
         ),
