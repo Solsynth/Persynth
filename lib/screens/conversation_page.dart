@@ -451,15 +451,18 @@ class _ConversationPageState extends State<ConversationPage> {
     final text = _inputController.text.trim();
     if ((text.isEmpty && _pending.isEmpty) || _busy || _authError) return;
 
+    final isContinue = text == '.';
     final pending = List<_PendingAttachment>.of(_pending);
     setState(() {
-      _bubbles.add(
-        _Bubble(
-          _BubbleKind.user,
-          text,
-          attachmentPreviews: [for (final a in pending) a.path],
-        ),
-      );
+      if (!isContinue) {
+        _bubbles.add(
+          _Bubble(
+            _BubbleKind.user,
+            text,
+            attachmentPreviews: [for (final a in pending) a.path],
+          ),
+        );
+      }
       _error = null;
       _inputController.clear();
       _pending.clear();
@@ -471,7 +474,11 @@ class _ConversationPageState extends State<ConversationPage> {
       for (final attachment in pending) {
         attachmentIds.add(await _controller.uploadAttachment(attachment.path));
       }
-      await _controller.send(text, attachmentIds: attachmentIds);
+      await _controller.send(
+        text,
+        attachmentIds: attachmentIds,
+        persist: !isContinue,
+      );
     } on PersonalityCoreException catch (e) {
       setState(() => _error = e.message);
     } finally {
@@ -873,30 +880,49 @@ class _ConversationPageState extends State<ConversationPage> {
         );
 
       case _BubbleKind.assistant:
+        final text = bubble.text;
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.start,
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 11,
-                  ),
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.72,
-                  ),
-                  decoration: BoxDecoration(
-                    color: cs.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: MessageMarkdown(
-                    text: bubble.streaming ? '${bubble.text}▍' : bubble.text,
-                    textStyle: const TextStyle(fontSize: 14, height: 1.35),
+              if (text.isNotEmpty)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 11,
+                        ),
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.of(context).size.width * 0.72,
+                        ),
+                        decoration: BoxDecoration(
+                          color: cs.surfaceContainerLowest,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: MessageMarkdown(
+                          text: text,
+                          textStyle: const TextStyle(fontSize: 14, height: 1.35),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              if (bubble.streaming)
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, top: 6),
+                  child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: cs.onSurfaceVariant,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         );
@@ -994,7 +1020,7 @@ class _ConversationPageState extends State<ConversationPage> {
               )
             : null,
         well: SelectableText(
-          '${bubble.text}${streaming ? '▍' : ''}',
+          bubble.text,
           style: _traceStyle(color: cs.onSurfaceVariant, size: 11.5),
         ),
       ),

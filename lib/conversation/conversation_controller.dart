@@ -103,6 +103,7 @@ class ConversationController {
   Future<void> send(
     String input, {
     List<String> attachmentIds = const [],
+    bool persist = true,
   }) async {
     final text = input.trim();
     if (text.isEmpty && attachmentIds.isEmpty) return;
@@ -129,13 +130,15 @@ class ConversationController {
         _conversationId = id;
       }
 
-      _messages.add(
-        ConversationMessage(
-          ConversationRole.user,
-          text,
-          attachmentIds: attachmentIds,
-        ),
-      );
+      if (persist) {
+        _messages.add(
+          ConversationMessage(
+            ConversationRole.user,
+            text,
+            attachmentIds: attachmentIds,
+          ),
+        );
+      }
       var emittedChunk = false;
       final full = await backend.runConversation(
         conversationId: id,
