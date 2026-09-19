@@ -2,7 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:synth_pet/personality/insight_chat_controller.dart';
-import 'package:synth_pet/personality/local_web_tools.dart';
+import 'package:synth_pet/personality/local_tool.dart';
+import 'package:synth_pet/personality/local_tools.dart';
 import 'package:synth_pet/personality/personality_api.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -82,7 +83,7 @@ ProviderContainer _container(SharedPreferences prefs, _HandoffApi api) {
       sharedPreferencesProvider.overrideWithValue(prefs),
       personalityApiProvider.overrideWithValue(api),
       personalityAgentsProvider.overrideWith((ref) async => [_agent]),
-      localWebToolsProvider.overrideWithValue([_stubTool]),
+      localToolsProvider.overrideWithValue([_stubTool]),
     ],
   );
 }

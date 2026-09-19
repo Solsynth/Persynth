@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:synth_pet/personality/local_web_tools.dart';
+import 'package:synth_pet/personality/local_tool.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 

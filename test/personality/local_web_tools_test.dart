@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:synth_pet/personality/local_tool.dart';
 import 'package:synth_pet/personality/local_web_tools.dart';
 
 /// One canned HTTP response.

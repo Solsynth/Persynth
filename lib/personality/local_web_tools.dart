@@ -3,48 +3,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:synth_pet/personality/local_tool.dart';
 
 // ---------------------------------------------------------------------------
-// Local web tools
+// Local web tools (the `SnLocalTool` contract lives in local_tool.dart)
 // ---------------------------------------------------------------------------
-
-/// One tool whose body runs in the client rather than on the Personality
-/// server.
-///
-/// The server's own `web_search`/`web_fetch` scrape from shared datacenter
-/// egress IPs, which search engines answer with bot challenges; these tools
-/// make the same requests from the user's connection instead. Server-owned
-/// names cannot be redefined, hence the `_local` suffixes.
-class SnLocalTool {
-  const SnLocalTool({
-    required this.name,
-    required this.description,
-    required this.parameters,
-    required this.execute,
-  });
-
-  /// Wire name the model calls; must not collide with a server-owned tool.
-  final String name;
-
-  /// Prose the model reads when deciding whether to call this tool.
-  final String description;
-
-  /// JSON Schema of the arguments object (`function.parameters`).
-  final Map<String, dynamic> parameters;
-
-  /// Runs the tool and returns the text handed back to the model.
-  final Future<String> Function(Map<String, dynamic> arguments) execute;
-
-  /// The OpenAI `tools[]` entry the compatibility endpoint accepts verbatim.
-  Map<String, dynamic> toOpenAiTool() => {
-    'type': 'function',
-    'function': {
-      'name': name,
-      'description': description,
-      'parameters': parameters,
-    },
-  };
-}
 
 /// The client-executed web tools, in the order the model sees them.
 ///

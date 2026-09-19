@@ -6,6 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:synth_pet/auth/solar_auth_controller.dart';
 import 'package:synth_pet/auth/solar_auth_service.dart';
+import 'package:synth_pet/personality/local_tools.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 import 'package:synth_pet/screens/ai_console_tabs.dart';
 
@@ -187,7 +188,57 @@ class _GeneralSettingsTab extends HookConsumerWidget {
             ),
           ),
         ),
+        const SizedBox(height: 20),
+        _SectionHeader('Local tools'),
+        const _LocalToolsSection(),
       ],
+    );
+  }
+}
+
+/// The switches behind which the companion's on-device tools sit.
+///
+/// Neither set is a server-side ability: the app runs the calls on this
+/// machine, so the switches are the whole permission model. The device set
+/// starts off and says plainly what turning it on grants.
+class _LocalToolsSection extends ConsumerWidget {
+  const _LocalToolsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final settings = ref.watch(localToolSettingsProvider);
+    final notifier = ref.read(localToolSettingsProvider.notifier);
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Column(
+        children: [
+          SwitchListTile(
+            value: settings.web,
+            onChanged: notifier.setWeb,
+            title: const Text('Web search & fetch'),
+            subtitle: const Text(
+              'Runs web_search_local and web_fetch_local from this machine\'s '
+              'own connection instead of the server\'s.',
+            ),
+          ),
+          const Divider(height: 1),
+          SwitchListTile(
+            value: settings.device,
+            onChanged: notifier.setDevice,
+            title: const Text('Files & commands'),
+            subtitle: Text(
+              'Lets the companion read this machine\'s files and run shell '
+              'commands. Relative paths resolve against your home directory. '
+              'Anything your account can do, it can do too.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

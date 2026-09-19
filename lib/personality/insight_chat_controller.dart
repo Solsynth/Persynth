@@ -2,10 +2,9 @@ import 'dart:async';
 
 import 'package:collection/collection.dart';
 import 'package:dio/dio.dart'
-    show CancelToken, Dio, DioException, DioExceptionType;
+    show CancelToken, DioException, DioExceptionType;
 import 'package:flutter/foundation.dart';
-import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:synth_pet/personality/local_web_tools.dart';
+import 'package:synth_pet/personality/local_tools.dart';
 import 'package:synth_pet/personality/personality_api.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -285,7 +284,7 @@ class InsightChatController extends _$InsightChatController {
         conversationId: conversationId,
         message: content,
         attachmentIds: attachments,
-        clientTools: ref.read(localWebToolsProvider),
+        clientTools: ref.read(localToolsProvider),
         cancelToken: cancelToken,
       )) {
         if (_disposed) return;
@@ -318,7 +317,7 @@ class InsightChatController extends _$InsightChatController {
     PersonalityToolCallClient event,
     String conversationId,
   ) async {
-    final tools = ref.read(localWebToolsProvider);
+    final tools = ref.read(localToolsProvider);
     final tool = tools.where((t) => t.name == event.name).firstOrNull;
 
     String result;
@@ -653,10 +652,3 @@ List<InsightBubble> _bubblesFromMessage(SnPersonalityMessage message) {
 
 bool _isAbort(Object error) =>
     error is DioException && error.type == DioExceptionType.cancel;
-
-/// The on-device web tools with a bare HTTP client: never carries the app's
-/// Authorization header, so search-engine traffic leaves from the user's own
-/// connection without leaking the account token.
-final localWebToolsProvider = Provider<List<SnLocalTool>>((ref) {
-  return buildLocalWebTools(Dio());
-});

@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:synth_pet/auth/solar_auth_controller.dart';
 import 'package:synth_pet/auth/solar_auth_service.dart';
-import 'package:synth_pet/personality/local_web_tools.dart';
+import 'package:synth_pet/personality/local_tool.dart';
 import 'package:synth_pet/personality/personality_api.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 import 'package:synth_pet/router.dart';
