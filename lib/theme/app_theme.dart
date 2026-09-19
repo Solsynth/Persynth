@@ -296,20 +296,24 @@ ThemeData buildSynthPetTheme(Brightness brightness) {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: p.panel,
+      // The canvas tone recesses a field against the panel cards, sheets and
+      // bars it sits on; a panel fill matched them and vanished.
+      fillColor: p.canvas,
       hintStyle: TextStyle(color: p.inkSoft, fontSize: 13.5),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      // A field is outlined, not just filled: the fill alone cannot separate
+      // it from a card of the same tone. This entry fixes the outline's shape
+      // (a filled field with no theme border falls back to an underline) and
+      // the stroke colour comes from the M3 defaults. Deliberately only
+      // `border`, never `enabledBorder` — that outranks a field's own
+      // `border: InputBorder.none`, and the composer and the island opt out
+      // exactly that way.
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide.none,
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: p.ember),
+        borderSide: BorderSide(color: p.ember, width: 1.5),
       ),
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
