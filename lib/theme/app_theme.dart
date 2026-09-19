@@ -144,7 +144,7 @@ ThemeData buildSynthPetTheme(Brightness brightness) {
     onInverseSurface: p.canvas,
     inversePrimary: p.emberTint,
     surfaceTint: Colors.transparent,
-    shadow: p.ink,
+    shadow: Colors.transparent,
     scrim: Colors.black,
     onSurfaceVariant: p.inkSoft,
   );
@@ -153,7 +153,7 @@ ThemeData buildSynthPetTheme(Brightness brightness) {
     colorScheme: scheme,
     fontFamily: SynthPetFonts.body,
     scaffoldBackgroundColor: p.canvas,
-    shadowColor: const Color(0x1A20252C),
+    shadowColor: Colors.transparent,
     iconTheme: IconThemeData(color: p.inkSoft),
   );
 
