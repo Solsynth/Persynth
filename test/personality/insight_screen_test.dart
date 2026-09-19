@@ -13,7 +13,6 @@ import 'package:synth_pet/personality/local_web_tools.dart';
 import 'package:synth_pet/personality/personality_api.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 import 'package:synth_pet/router.dart';
-import 'package:synth_pet/screens/ai_console_screen.dart';
 import 'package:synth_pet/screens/settings_page.dart';
 import 'package:synth_pet/theme/app_theme.dart';
 
@@ -74,7 +73,6 @@ class _ConversationTestRouter extends RootStackRouter {
   @override
   List<AutoRoute> get routes => [
     AutoRoute(page: ConversationRoute.page, path: '/', initial: true),
-    AutoRoute(page: AiConsoleRoute.page, path: '/ai-console'),
     AutoRoute(page: SettingsRoute.page, path: '/settings'),
   ];
 }
@@ -161,6 +159,9 @@ void main() {
       find.textContaining('start a conversation with Michan'),
       findsOneWidget,
     );
+    // The thread list is bare: its title and new-chat live in the app bar.
+    expect(find.text('Conversations'), findsNothing);
+    expect(find.byIcon(Symbols.edit_square_rounded), findsOneWidget);
   });
 
   testWidgets('streams a turn into the thread log', (tester) async {
@@ -252,15 +253,6 @@ void main() {
     expect(find.text('First thread'), findsOneWidget);
   });
 
-  testWidgets('opens the AI console from the header', (tester) async {
-    await _pumpConversationPage(tester, _FakePersonalityApi());
-
-    await tester.tap(find.byIcon(Symbols.settings_rounded));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(AiConsoleScreen), findsOneWidget);
-  });
-
   testWidgets('opens the settings page from the header', (tester) async {
     await _pumpConversationPage(tester, _FakePersonalityApi());
 
@@ -269,6 +261,11 @@ void main() {
 
     expect(find.byType(SettingsPage), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
+    // The account/server settings and the AI console share the one page.
+    expect(find.text('General'), findsOneWidget);
+    expect(find.text('Catalog'), findsOneWidget);
+    expect(find.text('Billing'), findsOneWidget);
+    expect(find.text('Credentials'), findsOneWidget);
   });
 
   testWidgets('invites a signed-out user to sign in and recovers', (

@@ -110,10 +110,7 @@ class ConversationPage extends HookConsumerWidget {
     final mainContent = Column(
       children: [
         if (authState.status == SolarAuthStatus.signedOut)
-          _AuthBanner(
-            busy: signingIn.value,
-            onSignIn: signIn,
-          ),
+          _AuthBanner(busy: signingIn.value, onSignIn: signIn),
         if (chat.error != null)
           _ErrorBanner(
             message: chat.error!,
@@ -214,11 +211,6 @@ class ConversationPage extends HookConsumerWidget {
             onPressed: () => context.router.push(const SettingsRoute()),
             icon: const Icon(Symbols.tune_rounded),
           ),
-          IconButton(
-            tooltip: 'AI Console',
-            onPressed: () => context.router.push(const AiConsoleRoute()),
-            icon: const Icon(Symbols.settings_rounded),
-          ),
           const Gap(4),
         ],
       ),
@@ -229,10 +221,9 @@ class ConversationPage extends HookConsumerWidget {
         maxWideSidebarWidth: 400,
         minMainContentWidth: 360,
         mainContent: mainContent,
-        sidebarContent: _ConversationSidebar(
+        sidebarContent: _ConversationList(
           activeId: chat.conversationId,
           onSelect: controller.openConversation,
-          onNewConversation: controller.newConversation,
         ),
         drawerBuilder: (sheetContext) => SheetScaffold(
           titleText: 'Conversations',
@@ -1087,52 +1078,6 @@ class _AttachmentThumbnail extends StatelessWidget {
   }
 }
 
-/// Wide-screen sidebar: a header plus the thread list.
-class _ConversationSidebar extends StatelessWidget {
-  const _ConversationSidebar({
-    required this.activeId,
-    required this.onSelect,
-    required this.onNewConversation,
-  });
-
-  final String? activeId;
-  final ValueChanged<String> onSelect;
-  final VoidCallback onNewConversation;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Conversations',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              IconButton(
-                tooltip: 'New chat',
-                onPressed: onNewConversation,
-                icon: const Icon(Symbols.edit_square_rounded, size: 20),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: _ConversationList(activeId: activeId, onSelect: onSelect),
-        ),
-      ],
-    );
-  }
-}
-
 class _ConversationList extends ConsumerWidget {
   const _ConversationList({required this.activeId, required this.onSelect});
 
@@ -1246,7 +1191,9 @@ class _ConversationList extends ConsumerWidget {
                         Text(
                           _formatRelative(lastMessageAt),
                           style: theme.textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant.withValues(alpha: 0.85),
+                            color: scheme.onSurfaceVariant.withValues(
+                              alpha: 0.85,
+                            ),
                             fontWeight: FontWeight.w500,
                             height: 1.2,
                           ),

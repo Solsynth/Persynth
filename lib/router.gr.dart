@@ -11,22 +11,6 @@
 part of 'router.dart';
 
 /// generated route for
-/// [AiConsoleScreen]
-class AiConsoleRoute extends PageRouteInfo<void> {
-  const AiConsoleRoute({List<PageRouteInfo>? children})
-    : super(AiConsoleRoute.name, initialChildren: children);
-
-  static const String name = 'AiConsoleRoute';
-
-  static PageInfo page = PageInfo(
-    name,
-    builder: (data) {
-      return const AiConsoleScreen();
-    },
-  );
-}
-
-/// generated route for
 /// [ConversationPage]
 class ConversationRoute extends PageRouteInfo<void> {
   const ConversationRoute({List<PageRouteInfo>? children})

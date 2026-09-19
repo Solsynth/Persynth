@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -14,7 +13,7 @@ import 'package:synth_pet/screens/authorize_client_info.dart';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-part 'ai_console_screen.g.dart';
+part 'ai_console_tabs.g.dart';
 
 // ---------------------------------------------------------------------------
 // Models — local client-side mirrors of the FloatLand personality backend
@@ -94,8 +93,9 @@ class SnPersonalityBilling {
         hourlyRunLimit: json['hourly_run_limit'] is int
             ? json['hourly_run_limit']
             : null,
-        dailyRunLimit:
-            json['daily_run_limit'] is int ? json['daily_run_limit'] : null,
+        dailyRunLimit: json['daily_run_limit'] is int
+            ? json['daily_run_limit']
+            : null,
         spendingQuota: json['spending_quota']?.toString(),
         blacklisted: json['blacklisted'] is bool ? json['blacklisted'] : false,
         usage: SnPersonalityBillingUsage.fromJson(
@@ -141,9 +141,8 @@ class SnPersonalityModel {
         provider: json['provider'] as String,
         name: json['name'] as String,
         type: json['type']?.toString(),
-        modalities: (json['modalities'] as List?)
-                ?.map((e) => e.toString())
-                .toList() ??
+        modalities:
+            (json['modalities'] as List?)?.map((e) => e.toString()).toList() ??
             const [],
         pricing: json['pricing'] is Map
             ? SnPersonalityModelPricing.fromJson(json['pricing'])
@@ -185,17 +184,14 @@ class SnPersonalityCredential {
         id: json['id'] as String,
         name: json['name'] as String,
         tokenPrefix: json['token_prefix'] as String,
-        agentIds: (json['agent_ids'] as List?)
-                ?.map((e) => e.toString())
-                .toList() ??
+        agentIds:
+            (json['agent_ids'] as List?)?.map((e) => e.toString()).toList() ??
             const [],
-        providers: (json['providers'] as List?)
-                ?.map((e) => e.toString())
-                .toList() ??
+        providers:
+            (json['providers'] as List?)?.map((e) => e.toString()).toList() ??
             const [],
-        models: (json['models'] as List?)
-                ?.map((e) => e.toString())
-                .toList() ??
+        models:
+            (json['models'] as List?)?.map((e) => e.toString()).toList() ??
             const [],
         usageLimit: (json['usage_limit'] ?? '0').toString(),
         usageUsed: (json['usage_used'] ?? '0').toString(),
@@ -345,7 +341,9 @@ Future<SnPersonalityOAuthDeviceFlow> startPersonalityOAuthDeviceFlow(
 ) async {
   final dio = ref.read(personalityApiClientProvider);
   final resp = await dio.post('/personality/oauth/device');
-  return SnPersonalityOAuthDeviceFlow.fromJson(resp.data as Map<String, dynamic>);
+  return SnPersonalityOAuthDeviceFlow.fromJson(
+    resp.data as Map<String, dynamic>,
+  );
 }
 
 /// Revokes the account's OAuth session.
@@ -355,53 +353,8 @@ Future<void> revokePersonalityOAuth(WidgetRef ref) async {
 }
 
 // ---------------------------------------------------------------------------
-// Screen
+// Tabs — hosted by the settings page
 // ---------------------------------------------------------------------------
-
-@RoutePage()
-class AiConsoleScreen extends HookConsumerWidget {
-  const AiConsoleScreen({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Symbols.arrow_back),
-            tooltip: 'Back',
-            onPressed: () => context.router.maybePop(),
-          ),
-          title: const Text('AI Console'),
-          bottom: TabBar(
-            tabs: [
-              Tab(
-                icon: const Icon(Symbols.extension),
-                text: 'Catalog',
-              ),
-              Tab(
-                icon: const Icon(Symbols.receipt_long),
-                text: 'Billing',
-              ),
-              Tab(
-                icon: const Icon(Symbols.key),
-                text: 'Credentials',
-              ),
-            ],
-          ),
-        ),
-        body: const TabBarView(
-          children: [
-            _CatalogTab(),
-            _BillingTab(),
-            _CredentialsTab(),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _SectionTitle extends StatelessWidget {
   final String title;
@@ -471,8 +424,8 @@ class _EmptyNote extends StatelessWidget {
   }
 }
 
-class _CatalogTab extends ConsumerWidget {
-  const _CatalogTab();
+class AiConsoleCatalogTab extends ConsumerWidget {
+  const AiConsoleCatalogTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -552,14 +505,13 @@ class _AgentCard extends ConsumerWidget {
                 ),
                 const Gap(8),
                 Expanded(
-                  child: Text(
-                    agent.name,
-                    style: theme.textTheme.titleMedium,
-                  ),
+                  child: Text(agent.name, style: theme.textTheme.titleMedium),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: agent.enabled
                         ? theme.colorScheme.primaryContainer
@@ -574,12 +526,8 @@ class _AgentCard extends ConsumerWidget {
               ],
             ),
             if (agent.description != null)
-              Text(
-                agent.description!,
-                style: theme.textTheme.bodySmall,
-              ),
-            if (agent.model != null)
-              _KeyValue('Model', agent.model!),
+              Text(agent.description!, style: theme.textTheme.bodySmall),
+            if (agent.model != null) _KeyValue('Model', agent.model!),
             if (agent.abilities.isNotEmpty)
               Wrap(
                 spacing: 6,
@@ -651,7 +599,11 @@ class _AccountOAuthBlock extends HookConsumerWidget {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              Icon(Symbols.cloud_off, size: 18, color: theme.colorScheme.outline),
+              Icon(
+                Symbols.cloud_off,
+                size: 18,
+                color: theme.colorScheme.outline,
+              ),
               const Gap(8),
               Expanded(
                 child: Text(
@@ -676,10 +628,7 @@ class _AccountOAuthBlock extends HookConsumerWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
               const Gap(8),
-              Text(
-                'Checking…',
-                style: theme.textTheme.labelMedium,
-              ),
+              Text('Checking…', style: theme.textTheme.labelMedium),
             ],
           ),
         ),
@@ -811,7 +760,8 @@ class _OAuthConnectSheet extends HookConsumerWidget {
     }
 
     final connected = status.value?.isConnected ?? false;
-    final done = connected ||
+    final done =
+        connected ||
         resolved.value == 'approved' ||
         resolved.value == 'declined';
 
@@ -929,18 +879,14 @@ class _ModelCard extends StatelessWidget {
           children: [
             Text(model.name, style: theme.textTheme.titleMedium),
             _KeyValue('Provider', model.provider),
-            if (model.type != null)
-              _KeyValue('Type', model.type!),
+            if (model.type != null) _KeyValue('Type', model.type!),
             if (model.modalities.isNotEmpty)
-              _KeyValue(
-                'Modalities',
-                model.modalities.join(', '),
-              ),
+              _KeyValue('Modalities', model.modalities.join(', ')),
             if (pricing != null)
               _KeyValue(
                 'Pricing',
                 '${pricing.input ?? '?'} / ${pricing.output ?? '?'}'
-                ' (${_localizeCurrency(pricing.currency ?? 'USD')})',
+                    ' (${_localizeCurrency(pricing.currency ?? 'USD')})',
                 trailing: Text(
                   'per 1K tokens',
                   style: theme.textTheme.labelSmall,
@@ -955,10 +901,7 @@ class _ModelCard extends StatelessWidget {
 
 /// Localizes a wallet currency code (`points` → "Bits", `golds` → "Golds"),
 /// like the payment overlay does. Unknown codes (e.g. `USD`) pass through.
-const _currencyLabels = <String, String>{
-  'points': 'Bits',
-  'golds': 'Golds',
-};
+const _currencyLabels = <String, String>{'points': 'Bits', 'golds': 'Golds'};
 
 String _localizeCurrency(String currency) {
   if (currency.isEmpty) return currency;
@@ -970,8 +913,8 @@ String _usageText(BuildContext context, SnPersonalityRunUsage? u) {
   return u.max == null ? u.used : '${u.used} / ${u.max}';
 }
 
-class _BillingTab extends HookConsumerWidget {
-  const _BillingTab();
+class AiConsoleBillingTab extends HookConsumerWidget {
+  const AiConsoleBillingTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1006,8 +949,9 @@ class _BillingTab extends HookConsumerWidget {
                       Expanded(
                         child: Text(
                           'Billing suspended (blacklisted)',
-                          style:
-                              TextStyle(color: theme.colorScheme.onErrorContainer),
+                          style: TextStyle(
+                            color: theme.colorScheme.onErrorContainer,
+                          ),
                         ),
                       ),
                     ],
@@ -1021,10 +965,7 @@ class _BillingTab extends HookConsumerWidget {
                     spacing: 8,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Run limits',
-                        style: theme.textTheme.titleSmall,
-                      ),
+                      Text('Run limits', style: theme.textTheme.titleSmall),
                       _KeyValue(
                         'Hourly',
                         b.hourlyRunLimit?.toString() ?? 'Unknown',
@@ -1045,10 +986,7 @@ class _BillingTab extends HookConsumerWidget {
                     spacing: 8,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Spending quota',
-                        style: theme.textTheme.titleSmall,
-                      ),
+                      Text('Spending quota', style: theme.textTheme.titleSmall),
                       Text(
                         'Set to 0 to disable immediate settlement.',
                         style: theme.textTheme.labelSmall,
@@ -1060,18 +998,13 @@ class _BillingTab extends HookConsumerWidget {
                             child: TextField(
                               controller: quotaController,
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                hintText: '0',
-                              ),
+                              decoration: const InputDecoration(hintText: '0'),
                             ),
                           ),
                           const Gap(8),
                           FilledButton(
-                            onPressed: () => _saveQuota(
-                              context,
-                              ref,
-                              quotaController.text,
-                            ),
+                            onPressed: () =>
+                                _saveQuota(context, ref, quotaController.text),
                             child: Text('Save'),
                           ),
                         ],
@@ -1088,10 +1021,7 @@ class _BillingTab extends HookConsumerWidget {
                     spacing: 8,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Usage',
-                        style: theme.textTheme.titleSmall,
-                      ),
+                      Text('Usage', style: theme.textTheme.titleSmall),
                       _KeyValue(
                         'Hourly',
                         _usageText(context, b.usage.hourlyRuns),
@@ -1105,11 +1035,7 @@ class _BillingTab extends HookConsumerWidget {
                         b.usage.hourlyUsage,
                         'Hourly',
                       ),
-                      ..._usageMapWidgets(
-                        context,
-                        b.usage.dailyUsage,
-                        'Daily',
-                      ),
+                      ..._usageMapWidgets(context, b.usage.dailyUsage, 'Daily'),
                     ],
                   ),
                 ),
@@ -1180,8 +1106,8 @@ class _BillingTab extends HookConsumerWidget {
   }
 }
 
-class _CredentialsTab extends ConsumerWidget {
-  const _CredentialsTab();
+class AiConsoleCredentialsTab extends ConsumerWidget {
+  const AiConsoleCredentialsTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1340,22 +1266,16 @@ class _CreateCredentialSheet extends HookConsumerWidget {
                 children: [
                   TextField(
                     controller: name,
-                    decoration: InputDecoration(
-                      labelText: 'Name',
-                    ),
+                    decoration: InputDecoration(labelText: 'Name'),
                   ),
                   TextField(
                     controller: limit,
                     keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'Usage limit',
-                    ),
+                    decoration: InputDecoration(labelText: 'Usage limit'),
                   ),
                   TextField(
                     controller: currency,
-                    decoration: InputDecoration(
-                      labelText: 'Currency',
-                    ),
+                    decoration: InputDecoration(labelText: 'Currency'),
                   ),
                   const Gap(8),
                   FilledButton(
@@ -1369,25 +1289,26 @@ class _CreateCredentialSheet extends HookConsumerWidget {
                             submitting.value = true;
                             _showLoadingModal(context);
                             try {
-                              final dio = ref.read(personalityApiClientProvider);
+                              final dio = ref.read(
+                                personalityApiClientProvider,
+                              );
                               final resp = await dio.post(
                                 '/personality/openai/credentials',
                                 data: {
                                   'name': name.text.trim(),
                                   'usage_limit': limit.text.trim(),
-                                  'usage_currency':
-                                      currency.text.trim().toUpperCase(),
+                                  'usage_currency': currency.text
+                                      .trim()
+                                      .toUpperCase(),
                                 },
                               );
                               final created =
                                   SnPersonalityCredentialCreated.fromJson(
-                                resp.data as Map<String, dynamic>,
-                              );
+                                    resp.data as Map<String, dynamic>,
+                                  );
                               if (context.mounted) {
                                 _hideLoadingModal(context);
-                                ref.invalidate(
-                                  personalityCredentialsProvider,
-                                );
+                                ref.invalidate(personalityCredentialsProvider);
                                 createdToken.value = created.token;
                               }
                             } catch (e) {
@@ -1422,10 +1343,7 @@ class _TokenReveal extends StatelessWidget {
       spacing: 12,
       children: [
         Icon(Symbols.key, size: 40, color: theme.colorScheme.primary),
-        Text(
-          'Credential created',
-          style: theme.textTheme.titleMedium,
-        ),
+        Text('Credential created', style: theme.textTheme.titleMedium),
         Text(
           'Copy this token now. It will not be shown again.',
           style: theme.textTheme.bodySmall,
@@ -1439,28 +1357,21 @@ class _TokenReveal extends StatelessWidget {
             color: theme.colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: SelectableText(
-            token,
-            style: theme.textTheme.bodyMedium,
-          ),
+          child: SelectableText(token, style: theme.textTheme.bodyMedium),
         ),
         const Gap(4),
         Row(
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () =>
-                    Clipboard.setData(ClipboardData(text: token)),
-                    icon: const Icon(Symbols.content_copy),
+                onPressed: () => Clipboard.setData(ClipboardData(text: token)),
+                icon: const Icon(Symbols.content_copy),
                 label: Text('Copy token'),
               ),
             ),
             const Gap(8),
             Expanded(
-              child: FilledButton(
-                onPressed: onDone,
-                child: Text('Done'),
-              ),
+              child: FilledButton(onPressed: onDone, child: Text('Done')),
             ),
           ],
         ),
@@ -1493,31 +1404,34 @@ class _ResponseError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Symbols.error_outline,
-              size: 44,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const Gap(8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 320),
-              child: Text(
-                personalityErrorMessage(error),
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.error,
+    // A long server message must scroll rather than overflow the column.
+    return SingleChildScrollView(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Symbols.error_outline,
+                size: 44,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              const Gap(8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 320),
+                child: Text(
+                  personalityErrorMessage(error),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
                 ),
               ),
-            ),
-            const Gap(8),
-            TextButton(onPressed: onRetry, child: const Text('Retry')),
-          ],
+              const Gap(8),
+              TextButton(onPressed: onRetry, child: const Text('Retry')),
+            ],
+          ),
         ),
       ),
     );
@@ -1526,9 +1440,9 @@ class _ResponseError extends StatelessWidget {
 
 /// Surfaces a failed request as a transient snackbar.
 void _showErrorAlert(BuildContext context, Object error) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(personalityErrorMessage(error))),
-  );
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(personalityErrorMessage(error))));
 }
 
 /// A simple confirm dialog returning true when the user approves.

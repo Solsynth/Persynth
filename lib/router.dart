@@ -1,6 +1,5 @@
 import 'package:auto_route/auto_route.dart';
 
-import 'package:synth_pet/screens/ai_console_screen.dart';
 import 'package:synth_pet/screens/conversation_page.dart';
 import 'package:synth_pet/screens/pet_page.dart';
 import 'package:synth_pet/screens/settings_page.dart';
@@ -22,7 +21,6 @@ class AppRouter extends RootStackRouter {
     return [
       AutoRoute(page: ConversationRoute.page, path: '/', initial: true),
       AutoRoute(page: SettingsRoute.page, path: '/settings'),
-      AutoRoute(page: AiConsoleRoute.page, path: '/ai-console'),
     ];
   }
 }
