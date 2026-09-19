@@ -3,14 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'package:synth_pet/personality/personality_network.dart';
 import 'package:synth_pet/router.dart';
 import 'package:synth_pet/shared/desktop_window_service.dart';
 import 'package:synth_pet/theme/app_theme.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final preferences = await SharedPreferences.getInstance();
 
   var isPetWindow = false;
   if (DesktopWindowFrame.isPlatformDesktop) {
@@ -43,7 +46,12 @@ Future<void> main(List<String> args) async {
     });
   }
 
-  runApp(ProviderScope(child: MyApp(isPetWindow: isPetWindow)));
+  runApp(
+    ProviderScope(
+      overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+      child: MyApp(isPetWindow: isPetWindow),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {

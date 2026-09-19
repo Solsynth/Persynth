@@ -29,13 +29,19 @@ dependencies:
   flutter:
     sdk: flutter
 
-  auto_route: ^10.1.2
+  auto_route: ^11.1.0
+  collection: ^1.19.1
   cupertino_icons: ^1.0.8
   desktop_multi_window: ^0.3.0
+  dio: ^5.11.0
+  flutter_hooks: ^0.21.3+1
+  gap: ^3.0.1
   http: ^1.6.0
   crypto: ^3.0.7
   flutter_secure_storage: ^10.3.1
   flutter_web_auth_2: ^5.0.3
+  material_symbols_icons: ^4.2960.0
+  riverpod_annotation: ^4.0.3
   shared_preferences: ^2.5.5
   speech_to_text: ^7.3.0
   island_ui_foundation:
@@ -56,9 +62,10 @@ dependencies:
   http_parser: ^4.1.2
 
 dev_dependencies:
-  auto_route_generator: ^10.3.1
+  auto_route_generator: ^10.6.0
   build_runner: ^2.4.14
   flutter_lints: ^6.0.0
+  riverpod_generator: ^4.0.4
   flutter_test:
     sdk: flutter
 

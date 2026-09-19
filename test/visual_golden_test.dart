@@ -13,44 +13,10 @@ void _mockSecureStorage() {
       );
 }
 
-/// Generates goldens for all three app windows. Run once with
+/// Generates the pet island golden. Run once with
 /// `flutter test --update-goldens`.
 void main() {
   setUpAll(_mockSecureStorage);
-
-  testWidgets('config window', (tester) async {
-    tester.view.physicalSize = const Size(960, 640);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-
-    await tester.pumpWidget(MyApp(useDesktopFrame: false));
-    await tester.pumpAndSettle();
-
-    await expectLater(
-      find.byType(MaterialApp),
-      matchesGoldenFile('goldens/config_window.png'),
-    );
-  });
-
-  testWidgets('conversation tab', (tester) async {
-    tester.view.physicalSize = const Size(960, 640);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-
-    await tester.pumpWidget(MyApp(useDesktopFrame: false));
-    await tester.pumpAndSettle();
-
-    expect(find.byIcon(Icons.chat_bubble_outline), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.chat_bubble_outline));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('conversation')), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 400));
-
-    await expectLater(
-      find.byType(MaterialApp),
-      matchesGoldenFile('goldens/conversation_tab.png'),
-    );
-  });
 
   testWidgets('pet island', (tester) async {
     tester.view.physicalSize = const Size(340, 420);

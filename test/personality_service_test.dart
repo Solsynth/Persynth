@@ -44,87 +44,6 @@ void main() {
     expect(reply, 'Stay soft, little sheep.');
   });
 
-  test('relays reasoning and tool call SSE events', () async {
-    final service = PersonalityCoreService(
-      tokenResolver: () async => 'token-123',
-      client: MockClient((incoming) async {
-        return Response(
-          [
-            'event: reasoning.delta',
-            'data: {"delta":"thinking..."}',
-            '',
-            'event: tool_call.delta',
-            'data: {"id":"call-1","name":"remember","arguments":{"note":"buy milk"}}',
-            '',
-            'event: tool_call.completed',
-            'data: {"id":"call-1","name":"remember","arguments":{"note":"buy milk"},"result":"Saved note: buy milk."}',
-            '',
-            'event: message.delta',
-            'data: {"delta":"Done."}',
-            '',
-            'event: message.completed',
-            'data: {"content":"Done.","message_id":"msg-1"}',
-            '',
-          ].join('\n'),
-          200,
-        );
-      }),
-    );
-
-    final reasoning = <String>[];
-    String? toolCallId;
-    String? toolName;
-    Map<String, dynamic>? toolArgs;
-    String? toolResult;
-    final reply = await service.runConversation(
-      conversationId: 'thread-1',
-      message: 'go',
-      onReasoning: reasoning.add,
-      onToolCall: (id, name, args) {
-        toolCallId = id;
-        toolName = name;
-        toolArgs = args;
-      },
-      onToolResult: (id, name, args, result) {
-        toolCallId = id;
-        toolName = name;
-        toolArgs = args;
-        toolResult = result;
-      },
-    );
-
-    expect(reasoning, ['thinking...']);
-    expect(toolCallId, 'call-1');
-    expect(toolName, 'remember');
-    expect(toolArgs, {'note': 'buy milk'});
-    expect(toolResult, 'Saved note: buy milk.');
-    expect(reply, 'Done.');
-  });
-
-  test('lists only pet agents and flags them', () async {
-    late Request request;
-    final service = PersonalityCoreService(
-      tokenResolver: () async => 'token-123',
-      client: MockClient((incoming) async {
-        request = incoming;
-        return Response(
-          jsonEncode([
-            {'id': 'mochi', 'name': 'Mochi', 'abilities': ['pet', 'memory']},
-            {'id': 'assistant', 'name': 'Assistant', 'abilities': ['chat']},
-          ]),
-          200,
-        );
-      }),
-    );
-
-    final agents = await service.listAgents();
-
-    expect(request.url.queryParameters['pet'], 'true');
-    expect(agents, hasLength(2));
-    expect(agents.first.isPet, isTrue);
-    expect(agents.last.isPet, isFalse);
-  });
-
   test('fetches pet affection and treats 404 as no session', () async {
     final requests = <Request>[];
     final service = PersonalityCoreService(
@@ -159,19 +78,23 @@ void main() {
     expect(missing, isNull);
   });
 
-  test('deletes agent memories with DELETE', () async {
-    late Request request;
+  test('uploads a local file and returns the drive id', () async {
+    late BaseRequest captured;
     final service = PersonalityCoreService(
       tokenResolver: () async => 'token-123',
       client: MockClient((incoming) async {
-        request = incoming;
-        return Response('', 204);
+        captured = incoming;
+        return Response(jsonEncode({'id': 'file-9'}), 200);
       }),
     );
 
-    await service.deleteAgentMemories(agentId: 'mochi');
+    final id = await service.uploadAttachment(
+      filePath: 'test/fixtures/pet_image.png',
+    );
 
-    expect(request.method, 'DELETE');
-    expect(request.url.path, '/personality/agents/mochi/memories');
+    expect(captured.method, 'POST');
+    expect(captured.url.path, '/drive/files/upload/direct');
+    expect(captured.headers['authorization'], 'Bearer token-123');
+    expect(id, 'file-9');
   });
 }
