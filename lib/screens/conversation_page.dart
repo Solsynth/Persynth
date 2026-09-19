@@ -139,7 +139,7 @@ class ConversationPage extends HookConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: 0,
+        titleSpacing: 16,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -977,6 +977,9 @@ class _Composer extends StatelessWidget {
                             hintText: 'Message the companion…',
                             border: InputBorder.none,
                             isDense: true,
+                            // The composer is the field's surface; a second
+                            // fill would paint a box inside it.
+                            filled: false,
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: 8,
                               vertical: 12,
