@@ -405,6 +405,7 @@ class InsightChatController extends _$InsightChatController {
     String name,
     Map<String, dynamic> arguments,
   ) {
+    final fold = _traceFold();
     _set(
       state.copyWith(
         bubbles: [
@@ -415,10 +416,30 @@ class InsightChatController extends _$InsightChatController {
             toolCallId: id,
             toolArgs: arguments,
             toolRunning: true,
+            collapsed: fold.collapsed,
+            touched: fold.touched,
           ),
         ],
       ),
     );
+  }
+
+  /// The fold state a new trace row opens in: the state of the trace above it,
+  /// the reader's pin included.
+  ///
+  /// A folded log therefore stays folded thought after thought, and a reader
+  /// who opened one keeps getting them opened, instead of every new thought
+  /// resetting to expanded — or to folded — under the cursor.
+  ({bool collapsed, bool touched}) _traceFold() {
+    for (final bubble in state.bubbles.reversed) {
+      if (bubble.kind == InsightBubbleKind.thinking ||
+          bubble.kind == InsightBubbleKind.tool) {
+        return (collapsed: bubble.collapsed, touched: bubble.touched);
+      }
+    }
+    // Nothing above it: the first trace of a turn streams open, so the work is
+    // visible as it happens.
+    return (collapsed: false, touched: false);
   }
 
   void _appendReasoningDelta(String delta) {
@@ -431,11 +452,14 @@ class InsightChatController extends _$InsightChatController {
         last.streaming) {
       bubbles[bubbles.length - 1] = last.copyWith(text: last.text + delta);
     } else {
+      final fold = _traceFold();
       bubbles.add(
         InsightBubble(
           kind: InsightBubbleKind.thinking,
           text: delta,
           streaming: true,
+          collapsed: fold.collapsed,
+          touched: fold.touched,
         ),
       );
     }
@@ -484,6 +508,7 @@ class InsightChatController extends _$InsightChatController {
         collapsed: bubble.touched ? bubble.collapsed : true,
       );
     } else {
+      final fold = _traceFold();
       bubbles.add(
         InsightBubble(
           kind: InsightBubbleKind.tool,
@@ -491,7 +516,8 @@ class InsightChatController extends _$InsightChatController {
           toolCallId: id,
           toolArgs: arguments,
           toolResult: result,
-          collapsed: true,
+          collapsed: fold.collapsed,
+          touched: fold.touched,
         ),
       );
     }
