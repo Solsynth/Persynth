@@ -211,6 +211,25 @@ ThemeData buildSynthPetTheme(Brightness brightness) {
 
   return base.copyWith(
     textTheme: textTheme,
+    appBarTheme: AppBarThemeData(
+      backgroundColor: p.shell,
+      foregroundColor: p.ink,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      surfaceTintColor: Colors.transparent,
+      iconTheme: IconThemeData(color: p.inkSoft),
+      actionsIconTheme: IconThemeData(color: p.inkSoft),
+      titleTextStyle: textTheme.titleSmall?.copyWith(
+        fontSize: 15,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+    tabBarTheme: TabBarThemeData(
+      labelColor: p.emberDeep,
+      unselectedLabelColor: p.inkSoft,
+      indicatorColor: p.ember,
+      dividerColor: Colors.transparent,
+    ),
     navigationRailTheme: NavigationRailThemeData(
       backgroundColor: Colors.transparent,
       labelType: NavigationRailLabelType.none,
