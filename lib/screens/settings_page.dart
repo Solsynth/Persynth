@@ -4,6 +4,7 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import 'package:synth_pet/auth/solar_auth_controller.dart';
 import 'package:synth_pet/auth/solar_auth_service.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 import 'package:synth_pet/router.dart';
@@ -17,53 +18,27 @@ class SettingsPage extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final auth = useMemoized(SolarAuthService.new);
-    final user = useState<SolarUser?>(null);
-    final loading = useState(false);
+    final authState = ref.watch(solarAuthStateProvider);
     final savingUrl = useState(false);
 
     final urlController = useTextEditingController(
       text: ref.read(personalityServerUrlProvider),
     );
 
-    Future<void> loadUser() async {
-      try {
-        final current = await auth.currentUser();
-        if (context.mounted) user.value = current;
-      } catch (_) {
-        if (context.mounted) user.value = null;
-      }
-    }
-
-    useEffect(() {
-      loadUser();
-      return null;
-    }, []);
-
     Future<void> signIn() async {
-      loading.value = true;
       try {
-        final signedIn = await auth.signIn();
-        user.value = signedIn;
+        await ref.read(solarAuthStateProvider.notifier).signIn();
       } on SolarAuthException catch (error) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(error.message)),
           );
         }
-      } finally {
-        loading.value = false;
       }
     }
 
     Future<void> signOut() async {
-      loading.value = true;
-      try {
-        await auth.signOut();
-        user.value = null;
-      } finally {
-        loading.value = false;
-      }
+      await ref.read(solarAuthStateProvider.notifier).signOut();
     }
 
     Future<void> saveServerUrl() async {
@@ -110,7 +85,7 @@ class SettingsPage extends HookConsumerWidget {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: user.value == null
+                    child: authState.user == null
                         ? Text(
                             'Not signed in',
                             style: theme.textTheme.bodyMedium,
@@ -119,25 +94,25 @@ class SettingsPage extends HookConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                user.value!.name,
+                                authState.user!.name,
                                 style: theme.textTheme.titleSmall?.copyWith(
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              if (user.value!.handle.isNotEmpty)
+                              if (authState.user!.handle.isNotEmpty)
                                 Text(
-                                  '@${user.value!.handle}',
+                                  '@${authState.user!.handle}',
                                   style: theme.textTheme.bodySmall,
                                 ),
                             ],
                           ),
                   ),
-                  if (loading.value)
+                  if (authState.status == SolarAuthStatus.checking)
                     const SizedBox.square(
                       dimension: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  else if (user.value == null)
+                  else if (authState.user == null)
                     FilledButton(
                       onPressed: signIn,
                       child: const Text('Sign in'),

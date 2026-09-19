@@ -8,6 +8,8 @@ import 'package:gap/gap.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:synth_pet/auth/solar_auth_controller.dart';
+import 'package:synth_pet/auth/solar_auth_service.dart';
 import 'package:synth_pet/personality/insight_chat_controller.dart';
 import 'package:synth_pet/personality/personality_api.dart';
 import 'package:synth_pet/personality/personality_service.dart';
@@ -30,6 +32,8 @@ class ConversationPage extends HookConsumerWidget {
     final scheme = theme.colorScheme;
     final chat = ref.watch(insightChatControllerProvider);
     final controller = ref.read(insightChatControllerProvider.notifier);
+    final authState = ref.watch(solarAuthStateProvider);
+    final signingIn = useState(false);
     final agents =
         ref.watch(personalityAgentsProvider).value ??
         const <SnPersonalityAgent>[];
@@ -84,8 +88,32 @@ class ConversationPage extends HookConsumerWidget {
       }
     }
 
+    Future<void> signIn() async {
+      if (signingIn.value) return;
+      signingIn.value = true;
+      try {
+        await ref.read(solarAuthStateProvider.notifier).signIn();
+        // The session is fresh; reload agents and threads that 401'd.
+        ref.invalidate(personalityAgentsProvider);
+        ref.invalidate(personalityConversationsProvider);
+      } on SolarAuthException catch (error) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Sign in failed: ${error.message}')),
+          );
+        }
+      } finally {
+        signingIn.value = false;
+      }
+    }
+
     final mainContent = Column(
       children: [
+        if (authState.status == SolarAuthStatus.signedOut)
+          _AuthBanner(
+            busy: signingIn.value,
+            onSignIn: signIn,
+          ),
         if (chat.error != null)
           _ErrorBanner(
             message: chat.error!,
@@ -353,6 +381,66 @@ class _ErrorBanner extends StatelessWidget {
                   color: scheme.onErrorContainer,
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AuthBanner extends StatelessWidget {
+  const _AuthBanner({required this.busy, required this.onSignIn});
+
+  final bool busy;
+  final VoidCallback onSignIn;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Material(
+        color: scheme.errorContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Row(
+            children: [
+              Icon(
+                Symbols.login_rounded,
+                size: 18,
+                color: scheme.onErrorContainer,
+              ),
+              const Gap(8),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'You\'re signed out. Sign in to chat with your companion.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ),
+              if (busy)
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              else
+                TextButton(
+                  onPressed: onSignIn,
+                  style: TextButton.styleFrom(
+                    foregroundColor: scheme.onErrorContainer,
+                  ),
+                  child: const Text('Sign in'),
+                ),
             ],
           ),
         ),
@@ -845,7 +933,7 @@ class _Composer extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
           child: Material(
-            elevation: 2,
+            elevation: 0,
             color: scheme.surfaceContainerHighest,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(24),

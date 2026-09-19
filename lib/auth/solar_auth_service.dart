@@ -62,6 +62,34 @@ class SolarAuthService {
 
   Future<String?> accessToken() async => (await _validSession())?.accessToken;
 
+  /// Exchanges the stored refresh token for a fresh access token regardless
+  /// of the client-side expiry clock — used when the server rejects a request
+  /// with 401. Returns the new access token, or null when there is no session,
+  /// no refresh token, or the refresh failed (the unusable session is deleted
+  /// so the user can sign in again).
+  Future<String?> forceRefresh() async {
+    try {
+      final session = await _readSession();
+      if (session == null) return null;
+      final refreshToken = session.refreshToken;
+      if (refreshToken == null || refreshToken.isEmpty) return null;
+      final refreshed = await _exchange((await _discover()).tokenEndpoint, {
+        'grant_type': 'refresh_token',
+        'client_id': clientId,
+        'refresh_token': refreshToken,
+      }, previous: session);
+      await _saveSession(refreshed);
+      return refreshed.accessToken;
+    } on SolarAuthException {
+      try {
+        await _deleteSession();
+      } on SolarAuthException {
+        // The session is already unusable.
+      }
+      return null;
+    }
+  }
+
   Future<SolarUser> signIn() async {
     final session = await _authorize();
     final user = await _currentUser(session);

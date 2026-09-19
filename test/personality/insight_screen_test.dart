@@ -7,6 +7,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:synth_pet/auth/solar_auth_controller.dart';
+import 'package:synth_pet/auth/solar_auth_service.dart';
 import 'package:synth_pet/personality/local_web_tools.dart';
 import 'package:synth_pet/personality/personality_api.dart';
 import 'package:synth_pet/personality/personality_network.dart';
@@ -77,10 +79,33 @@ class _ConversationTestRouter extends RootStackRouter {
   ];
 }
 
+const _signedInUser = SolarUser(name: 'Test', handle: 'tester');
+
+/// A deterministic auth notifier: starts in [initial]; signing in flips the
+/// state to signed-in (the OAuth flow itself is never run in tests).
+class _StubSolarAuthNotifier extends SolarAuthNotifier {
+  _StubSolarAuthNotifier(this.initial);
+
+  final SolarAuthState initial;
+
+  @override
+  SolarAuthState build() => initial;
+
+  @override
+  Future<SolarUser> signIn() async {
+    state = const SolarAuthState(SolarAuthStatus.signedIn, _signedInUser);
+    return _signedInUser;
+  }
+}
+
 Future<void> _pumpConversationPage(
   WidgetTester tester,
-  _FakePersonalityApi api,
-) async {
+  _FakePersonalityApi api, {
+  SolarAuthState authState = const SolarAuthState(
+    SolarAuthStatus.signedIn,
+    _signedInUser,
+  ),
+}) async {
   final preferences = await SharedPreferences.getInstance();
   final routerConfig = _ConversationTestRouter().config();
   await tester.runAsync(() async {
@@ -90,6 +115,9 @@ Future<void> _pumpConversationPage(
           sharedPreferencesProvider.overrideWithValue(preferences),
           personalityApiProvider.overrideWithValue(api),
           personalityAgentsProvider.overrideWith((ref) async => [_agent]),
+          solarAuthStateProvider.overrideWith(
+            () => _StubSolarAuthNotifier(authState),
+          ),
         ],
         child: MaterialApp.router(
           routerConfig: routerConfig,
@@ -241,6 +269,28 @@ void main() {
 
     expect(find.byType(SettingsPage), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
+  });
+
+  testWidgets('invites a signed-out user to sign in and recovers', (
+    tester,
+  ) async {
+    await _pumpConversationPage(
+      tester,
+      _FakePersonalityApi(),
+      authState: const SolarAuthState(SolarAuthStatus.signedOut, null),
+    );
+
+    expect(
+      find.textContaining("You're signed out"),
+      findsOneWidget,
+    );
+    expect(find.text('Sign in'), findsOneWidget);
+
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+
+    // The fresh session hides the banner; the chat surface is usable again.
+    expect(find.textContaining("You're signed out"), findsNothing);
   });
 
   testWidgets('replays a persisted thread into the same rows', (tester) async {
