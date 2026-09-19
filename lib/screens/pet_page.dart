@@ -442,6 +442,7 @@ $transcript''';
                           decoration: const InputDecoration(
                             hintText: 'Talk to Mochi…',
                             border: InputBorder.none,
+                            focusedBorder: InputBorder.none,
                             filled: false,
                             contentPadding: EdgeInsets.symmetric(vertical: 12),
                           ),

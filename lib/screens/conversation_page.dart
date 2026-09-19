@@ -976,6 +976,7 @@ class _Composer extends StatelessWidget {
                           decoration: InputDecoration(
                             hintText: 'Message the companion…',
                             border: InputBorder.none,
+                            focusedBorder: InputBorder.none,
                             isDense: true,
                             // The composer is the field's surface; a second
                             // fill would paint a box inside it.
