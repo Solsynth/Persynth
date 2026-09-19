@@ -4,12 +4,23 @@
 <dict>
 	<!-- Deliberately not sandboxed: the companion's on-device tools read the
 	     user's files and run their commands, and the sandbox would confine
-	     every one of those paths to this app's own container. Shipping
-	     sandboxed instead would mean shipping those two tool sets disabled.
+	     every one of those paths to this app's own container.
+
+	     Full Disk Access is not a way around that, so don't reach for it
+	     here. It is a TCC grant, and TCC sits on top of the sandbox: the
+	     sandbox grants file access by path list (the container, /System,
+	     /Library, the standard folders, whatever the user picked in an open
+	     panel) and never consults TCC to widen it, so a grant can only ever
+	     remove TCC's veto on a path the sandbox already allows. Confirmed in
+	     /System/Library/Sandbox/Profiles/application.sb, which has no TCC
+	     rule for file access. Sandboxed, these tools would be limited to
+	     user-chosen folders, with the shell confined along with them.
+
 	     The switch that actually decides this is ENABLE_APP_SANDBOX in
 	     Runner.xcodeproj (Debug, Profile and Release): Xcode generates the
-	     entitlement from it, so turning the sandbox back on there is enough
-	     to re-confine the app. -->
+	     entitlement from it, so turning it back on there re-confines the app.
+	     A sandboxed build is what the Mac App Store requires, so this app
+	     ships outside it. -->
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>keychain-access-groups</key>
