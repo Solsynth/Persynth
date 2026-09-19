@@ -208,6 +208,26 @@ int _lineCount(String text) =>
 /// file or a failing command is reported as text for the model to read.
 String _error(String message) => 'Error: $message';
 
+/// `EACCES`/`EPERM`: on macOS the usual cause is not a file mode but the
+/// privacy layer, and its fix is a settings pane rather than a retry — so say
+/// which pane. Elaborating beats handing the model an errno it will work
+/// around by trying the same path again.
+String _permissionHint(String path, FileSystemException error) {
+  final code = error.osError?.errorCode;
+  if (code != 13 && code != 1) return '';
+  if (!Platform.isMacOS) return 'Permission denied for $path.';
+  return 'macOS is protecting $path. Grant SynthPet Full Disk Access in '
+      'System Settings → Privacy & Security (or ask the user for a folder it '
+      'may read).';
+}
+
+/// What went wrong with [path], in the terms the reader of the error needs.
+String _ioMessage(String verb, String path, FileSystemException error) {
+  final hint = _permissionHint(path, error);
+  if (hint.isNotEmpty) return hint;
+  return 'could not $verb $path — ${error.osError?.message ?? error.message}';
+}
+
 Future<String> _readFile(
   Directory base,
   Map<String, dynamic> arguments,
@@ -236,14 +256,14 @@ Future<String> _readFile(
   try {
     length = await file.length();
   } on FileSystemException catch (error) {
-    return _error('could not read $path — ${error.osError?.message ?? error.message}');
+    return _error(_ioMessage('read', path, error));
   }
 
   final Uint8List head;
   try {
     head = await _readHead(file);
   } on FileSystemException catch (error) {
-    return _error('could not read $path — ${error.osError?.message ?? error.message}');
+    return _error(_ioMessage('read', path, error));
   }
 
   final probe = head.length > _binaryProbeBytes
@@ -304,9 +324,7 @@ Future<String> _listDir(
   try {
     children = await Directory(path).list(followLinks: false).toList();
   } on FileSystemException catch (error) {
-    return _error(
-      'could not list $path — ${error.osError?.message ?? error.message}',
-    );
+    return _error(_ioMessage('list', path, error));
   }
 
   final rows = <({String name, String kind, int? size, DateTime? modified})>[];
@@ -449,6 +467,11 @@ Future<String> _runCommand(
         ? 'Timed out after ${timeout.inSeconds}s and was killed.'
         : 'Exit: $exitCode',
     if (clipped.truncated) 'Truncated to $maxChars characters.',
+    if (err.contains('Operation not permitted') && Platform.isMacOS)
+      'Something here was blocked by macOS rather than by the command: either '
+          'the working directory is protected, or the command touched a '
+          'protected path. Full Disk Access in System Settings → Privacy & '
+          'Security lifts that.',
   ];
 
   final text = clipped.text.isEmpty ? header.join('\n') : '${header.join('\n')}\n\n${clipped.text}';

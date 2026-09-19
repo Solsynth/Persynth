@@ -2,8 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<!-- Deliberately not sandboxed: the companion's on-device tools read the
+	     user's files and run their commands, and the sandbox would confine
+	     every one of those paths to this app's own container. Shipping
+	     sandboxed instead would mean shipping those two tool sets disabled.
+	     The switch that actually decides this is ENABLE_APP_SANDBOX in
+	     Runner.xcodeproj (Debug, Profile and Release): Xcode generates the
+	     entitlement from it, so turning the sandbox back on there is enough
+	     to re-confine the app. -->
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>keychain-access-groups</key>

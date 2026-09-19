@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -9,6 +11,7 @@ import 'package:synth_pet/auth/solar_auth_service.dart';
 import 'package:synth_pet/personality/local_tools.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 import 'package:synth_pet/screens/ai_console_tabs.dart';
+import 'package:synth_pet/shared/macos_permissions.dart';
 
 /// The pushed settings page: the account and server in General, with the AI
 /// console (agents, models, billing, credentials) folded in as its own tabs.
@@ -237,7 +240,61 @@ class _LocalToolsSection extends ConsumerWidget {
               ),
             ),
           ),
+          if (Platform.isMacOS) ...[
+            const Divider(height: 1),
+            const _FullDiskAccessRow(),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// macOS asks before any app reads Desktop, Documents, Downloads, iCloud Drive
+/// or another app's data, and remembers the answer. Full Disk Access is that
+/// answer given once and for all — there is no API to request it, so the app
+/// reports the state and opens the pane where it is granted.
+class _FullDiskAccessRow extends ConsumerWidget {
+  const _FullDiskAccessRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final granted = ref.watch(fullDiskAccessProvider);
+
+    return ListTile(
+      leading: Icon(
+        Symbols.shield_lock_rounded,
+        color: granted.value == ProtectedAccess.granted
+            ? theme.colorScheme.primary
+            : theme.colorScheme.onSurfaceVariant,
+      ),
+      title: const Text('Full Disk Access'),
+      subtitle: Text(
+        switch (granted.value) {
+          ProtectedAccess.granted =>
+            'Granted. macOS no longer stops the companion at protected '
+                'folders.',
+          ProtectedAccess.denied =>
+            'Not granted. macOS asks before the companion reads Desktop, '
+                'Documents, Downloads or another app\'s data; granting this '
+                'skips the asking.',
+          _ => 'macOS asks before the companion reads Desktop, Documents, '
+              'Downloads or another app\'s data. Turn this on to skip the '
+              'asking. Checking whether it already is…',
+        },
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+      trailing: TextButton(
+        onPressed: () async {
+          await openFullDiskAccessSettings();
+          // The user is about to change the answer elsewhere; re-probe when
+          // they come back rather than trusting the reading from before.
+          ref.invalidate(fullDiskAccessProvider);
+        },
+        child: const Text('Open settings'),
       ),
     );
   }

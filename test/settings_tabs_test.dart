@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:synth_pet/personality/local_tools.dart';
 import 'package:synth_pet/personality/personality_network.dart';
+import 'package:synth_pet/shared/macos_permissions.dart';
 import 'package:synth_pet/screens/settings_page.dart';
 import 'package:synth_pet/theme/app_theme.dart';
 
@@ -27,7 +30,14 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(preferences),
+          // The real probe opens the system privacy database; tests answer
+          // for it instead of going near it.
+          fullDiskAccessProvider.overrideWith(
+            (ref) async => ProtectedAccess.denied,
+          ),
+        ],
         child: MaterialApp(
           theme: buildSynthPetTheme(Brightness.light),
           home: const SettingsPage(),
@@ -45,6 +55,37 @@ void main() {
     }
   });
 
+  testWidgets('the permission the device tools lean on is reported', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(preferences),
+          fullDiskAccessProvider.overrideWith(
+            (ref) async => ProtectedAccess.granted,
+          ),
+        ],
+        child: MaterialApp(
+          theme: buildSynthPetTheme(Brightness.light),
+          home: const SettingsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    if (!Platform.isMacOS) {
+      expect(find.text('Full Disk Access'), findsNothing);
+      return;
+    }
+    expect(find.text('Full Disk Access'), findsOneWidget);
+    expect(find.textContaining('Granted.'), findsOneWidget);
+    expect(find.text('Open settings'), findsOneWidget);
+  });
+
   testWidgets('the local tool switches decide what the companion may call', (
     tester,
   ) async {
@@ -53,7 +94,14 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(preferences),
+          // The real probe opens the system privacy database; tests answer
+          // for it instead of going near it.
+          fullDiskAccessProvider.overrideWith(
+            (ref) async => ProtectedAccess.denied,
+          ),
+        ],
         child: MaterialApp(
           theme: buildSynthPetTheme(Brightness.light),
           home: const SettingsPage(),

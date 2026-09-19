@@ -133,6 +133,22 @@ void main() {
       expect(text, contains('Only the first 1.0 MB of the file was read.'));
     });
 
+    test('explains a permission denial instead of quoting an errno', () async {
+      final locked = File('${root.path}/locked.txt')
+        ..writeAsStringSync('secret');
+      await Process.run('chmod', ['000', locked.path]);
+
+      final text = await _tool(tools, 'read_file_local').execute({
+        'path': 'locked.txt',
+      });
+
+      expect(text, startsWith('Error: '));
+      expect(
+        text,
+        contains(Platform.isMacOS ? 'Full Disk Access' : 'Permission denied'),
+      );
+    });
+
     test('requires a path', () async {
       expect(
         await _tool(tools, 'read_file_local').execute({}),
