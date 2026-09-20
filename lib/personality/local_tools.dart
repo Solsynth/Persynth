@@ -1,17 +1,17 @@
 import 'package:dio/dio.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import 'package:synth_pet/personality/local_device_tools.dart';
-import 'package:synth_pet/personality/local_web_tools.dart';
 import 'package:synth_pet/personality/local_tool.dart';
+import 'package:synth_pet/personality/local_web_tools.dart';
+import 'package:synth_pet/personality/mcp_device_tools.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 
 /// SharedPreferences key for the web tool set (`web_search_local`,
 /// `web_fetch_local`).
 const kLocalWebToolsStoreKey = 'synth_pet_local_tools_web';
 
-/// SharedPreferences key for the device tool set (`read_file_local`,
-/// `list_dir_local`, `run_command_local`).
+/// SharedPreferences key for the device tool set (`mcp_read_file`,
+/// `mcp_list_dir`, `mcp_run_command`).
 const kLocalDeviceToolsStoreKey = 'synth_pet_local_tools_device';
 
 /// Which on-device tool sets are switched on.
@@ -19,8 +19,8 @@ const kLocalDeviceToolsStoreKey = 'synth_pet_local_tools_device';
 /// The web set is on by default: it only makes requests the server would have
 /// made anyway, merely from the user's own connection. The device set is off
 /// by default and stays off until the user turns it on — it reads this
-/// machine's files and runs shell commands, which is not something to grant on
-/// someone's behalf.
+/// machine's files and runs shell commands (through the MCP daemon), which is
+/// not something to grant on someone's behalf.
 class LocalToolSettings {
   const LocalToolSettings({required this.web, required this.device});
 
@@ -72,7 +72,7 @@ final localToolSettingsProvider =
     );
 
 /// Every enabled local tool, in the order the model sees them: the web set
-/// first, then the device set.
+/// first, then the MCP device set.
 ///
 /// Anything switched off is absent from the list, so the model is never told
 /// the tool exists — switching a set off is a capability boundary, not a
@@ -83,6 +83,6 @@ final localToolsProvider = Provider<List<SnLocalTool>>((ref) {
     // A bare client: web traffic must not carry the app's Authorization
     // header, so search-engine requests leave without the account token.
     if (settings.web) ...buildLocalWebTools(Dio()),
-    if (settings.device) ...buildLocalDeviceTools(),
+    if (settings.device) ...ref.watch(mcpDeviceToolsProvider),
   ];
 });

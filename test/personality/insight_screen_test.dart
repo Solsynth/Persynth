@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:synth_pet/auth/solar_auth_controller.dart';
 import 'package:synth_pet/auth/solar_auth_service.dart';
 import 'package:synth_pet/personality/local_tool.dart';
+import 'package:synth_pet/personality/mcp_client.dart';
 import 'package:synth_pet/personality/personality_api.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 import 'package:synth_pet/router.dart';
@@ -115,6 +116,11 @@ Future<void> _pumpConversationPage(
           personalityAgentsProvider.overrideWith((ref) async => [_agent]),
           solarAuthStateProvider.overrideWith(
             () => _StubSolarAuthNotifier(authState),
+          ),
+          // The settings page probes the MCP daemon over the loopback; tests
+          // answer for it instead of going near the network.
+          mcpDaemonStatusProvider.overrideWith(
+            (ref) async => const McpDaemonStatus(reachable: false),
           ),
         ],
         child: MaterialApp.router(

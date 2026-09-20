@@ -2,10 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Deliberately not sandboxed: see DebugProfile.entitlements. The
-	     companion's file and command tools need the user's real filesystem,
-	     which the sandbox does not allow. The Mac App Store requires a
-	     sandboxed build, so this app ships outside it. -->
+	<!-- Sandboxed, as the Mac App Store requires. The file and command tools
+	     run in the SynthPet MCP daemon outside the sandbox; see
+	     DebugProfile.entitlements for the full reasoning. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
 	<key>keychain-access-groups</key>
 	<array/>
 </dict>

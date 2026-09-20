@@ -1,118 +1,23 @@
+/// The filesystem and shell tool bodies the daemon exposes over MCP.
+///
+/// These were ported verbatim from the app's in-process device tools
+/// (`lib/personality/local_device_tools.dart`), which the app dropped when
+/// the sandbox came back: the same semantics, now running in a process that
+/// is allowed to touch the user's files. Relative paths resolve against
+/// [base], the directory the daemon was started with (the user's home by
+/// default); absolute paths are taken as written.
+///
+/// Every body returns a string — including the `Error: ...` lines, which are
+/// answers about the request for the model to read, not defects of the tool.
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:synth_pet/personality/local_tool.dart';
-
-// ---------------------------------------------------------------------------
-// Local device tools
-// ---------------------------------------------------------------------------
-
-/// The filesystem and shell tools, in the order the model sees them.
-///
-/// These are the sharp edge of the app: they read this machine's files and run
-/// commands on it. They are therefore off unless the user turns them on, and
-/// [root] — the directory relative paths resolve against — is the user's home
-/// by default. A GUI app launched from Finder or a bundle has no meaningful
-/// working directory, so a model asking for `notes.txt` must land somewhere it
-/// can reason about; absolute paths are taken as written.
-List<SnLocalTool> buildLocalDeviceTools({String? root}) {
-  final base = _directoryOf(root ?? _homeDirectory());
-
-  return [
-    SnLocalTool(
-      name: 'read_file_local',
-      description:
-          "Read a text file from the user's machine. Relative paths resolve "
-          'against their home directory; absolute paths are used as given.\n\n'
-          'Returns the file size and line count, then its text. Binary files '
-          'are reported rather than dumped. Large files are truncated to '
-          '`max_chars`.',
-      parameters: const <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'path': <String, dynamic>{
-            'type': 'string',
-            'description':
-                'File to read: absolute, or relative to the home directory.',
-          },
-          'max_chars': <String, dynamic>{
-            'type': 'integer',
-            'minimum': 500,
-            'maximum': 200000,
-            'description': 'Output character cap (500-200000, default 20000).',
-          },
-        },
-        'required': <String>['path'],
-      },
-      execute: (arguments) => _readFile(base, arguments),
-    ),
-    SnLocalTool(
-      name: 'list_dir_local',
-      description:
-          "List a directory on the user's machine: one entry per line, "
-          'directories marked with a trailing slash, with size and last '
-          'modified time. Relative paths resolve against their home directory.',
-      parameters: const <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'path': <String, dynamic>{
-            'type': 'string',
-            'description':
-                'Directory to list; defaults to the home directory. Absolute, '
-                'or relative to the home directory.',
-          },
-        },
-      },
-      execute: (arguments) => _listDir(base, arguments),
-    ),
-    SnLocalTool(
-      name: 'run_command_local',
-      description:
-          "Run a shell command on the user's machine and return its output.\n\n"
-          'The command runs through the platform shell ("/bin/sh -c", '
-          '"cmd /c" on Windows) with the home directory as its working '
-          'directory unless `cwd` says otherwise. stdout and stderr are both '
-          'captured, along with the exit code; a command that outruns '
-          '`timeout_seconds` is killed. Destructive commands run with all the '
-          "user's own authority — check with them before anything that "
-          'deletes, overwrites, or installs.',
-      parameters: const <String, dynamic>{
-        'type': 'object',
-        'properties': <String, dynamic>{
-          'command': <String, dynamic>{
-            'type': 'string',
-            'description': 'Command line to run, exactly as a shell would see it.',
-          },
-          'cwd': <String, dynamic>{
-            'type': 'string',
-            'description':
-                'Working directory; defaults to the home directory. Absolute, '
-                'or relative to the home directory.',
-          },
-          'timeout_seconds': <String, dynamic>{
-            'type': 'integer',
-            'minimum': 1,
-            'maximum': 120,
-            'description': 'Kill the command after this long (1-120, default 30).',
-          },
-          'max_chars': <String, dynamic>{
-            'type': 'integer',
-            'minimum': 500,
-            'maximum': 200000,
-            'description': 'Output character cap (500-200000, default 20000).',
-          },
-        },
-        'required': <String>['command'],
-      },
-      execute: (arguments) => _runCommand(base, arguments),
-    ),
-  ];
-}
-
 /// The user's home directory: the base every relative path resolves against.
-String _homeDirectory() {
+String homeDirectory() {
   final environment = Platform.environment;
   final home = environment['HOME'] ?? environment['USERPROFILE'];
   return home == null || home.trim().isEmpty
@@ -122,7 +27,7 @@ String _homeDirectory() {
 
 /// [root] as an absolute [Directory], with any trailing separator removed so
 /// joining a relative path onto it cannot produce a doubled slash.
-Directory _directoryOf(String root) {
+Directory directoryOf(String root) {
   final path = Directory(root).absolute.path;
   final trimmed = path.replaceFirst(RegExp(r'[/\\]+$'), '');
   // A bare root ("/") would trim to nothing; keep it as written.
@@ -130,9 +35,9 @@ Directory _directoryOf(String root) {
 }
 
 /// Joins [path] onto [base] unless it is already absolute.
-String _resolve(Directory base, String path) {
+String resolve(Directory base, String path) {
   if (path.startsWith('~')) {
-    final home = _homeDirectory();
+    final home = homeDirectory();
     final rest = path.substring(1).replaceFirst(RegExp(r'^[/\\]+'), '');
     return rest.isEmpty ? home : '$home${Platform.pathSeparator}$rest';
   }
@@ -144,14 +49,15 @@ String _resolve(Directory base, String path) {
 
 /// Reads an integer argument clamped into `[min, max]`, falling back to
 /// [fallback] when absent or unusable.
-int _boundedInt(Object? value, int fallback, int min, int max) {
+int boundedInt(Object? value, int fallback, int min, int max) {
   final requested = value is num && value.isFinite ? value.truncate() : fallback;
   if (requested < min) return min;
   if (requested > max) return max;
   return requested;
 }
 
-String? _stringArgument(Map<String, dynamic> arguments, String name) {
+/// The [name] argument as a non-empty trimmed string, or null.
+String? stringArgument(Map<String, dynamic> arguments, String name) {
   final value = arguments[name];
   if (value is! String) return null;
   final trimmed = value.trim();
@@ -159,7 +65,7 @@ String? _stringArgument(Map<String, dynamic> arguments, String name) {
 }
 
 /// Human-readable byte count, e.g. `1.2 MB`.
-String _formatBytes(int bytes) {
+String formatBytes(int bytes) {
   if (bytes < 1024) return '$bytes B';
   const units = ['KB', 'MB', 'GB', 'TB'];
   var value = bytes / 1024;
@@ -172,106 +78,104 @@ String _formatBytes(int bytes) {
 }
 
 /// `2026-09-19 14:03` in local time.
-String _formatTime(DateTime time) {
+String formatTime(DateTime time) {
   String pad(int value) => value.toString().padLeft(2, '0');
   final local = time.toLocal();
   return '${local.year}-${pad(local.month)}-${pad(local.day)} '
       '${pad(local.hour)}:${pad(local.minute)}';
 }
 
-const _defaultMaxChars = 20000;
-const _minMaxChars = 500;
-const _maxMaxChars = 200000;
+const defaultMaxChars = 20000;
+const minMaxChars = 500;
+const maxMaxChars = 200000;
 
 /// Bytes searched for a NUL before a file counts as binary, and the most that
 /// is ever read from one.
-const _binaryProbeBytes = 8000;
-const _maxReadBytes = 1 * 1024 * 1024;
+const binaryProbeBytes = 8000;
+const maxReadBytes = 1 * 1024 * 1024;
 
 /// The most directory entries listed in one call.
-const _maxEntries = 200;
+const maxEntries = 200;
 
-const _defaultTimeoutSeconds = 30;
-const _maxTimeoutSeconds = 120;
+const defaultTimeoutSeconds = 30;
+const maxTimeoutSeconds = 120;
 
 /// Clips [text] to [max] characters, reporting how much was dropped.
-({String text, bool truncated}) _truncate(String text, int max) {
+({String text, bool truncated}) truncate(String text, int max) {
   if (text.length <= max) return (text: text, truncated: false);
   return (text: text.substring(0, max), truncated: true);
 }
 
 /// Lines in [text], counting a final line with no trailing newline.
-int _lineCount(String text) =>
+int lineCount(String text) =>
     text.isEmpty ? 0 : '\n'.allMatches(text).length + 1;
 
 /// `Error: ...` lines are answers about the request, not defects: a missing
 /// file or a failing command is reported as text for the model to read.
-String _error(String message) => 'Error: $message';
+String error(String message) => 'Error: $message';
 
 /// `EACCES`/`EPERM`: on macOS the usual cause is not a file mode but the
 /// privacy layer, and its fix is a settings pane rather than a retry — so say
 /// which pane. Elaborating beats handing the model an errno it will work
 /// around by trying the same path again.
-String _permissionHint(String path, FileSystemException error) {
+String permissionHint(String path, FileSystemException error) {
   final code = error.osError?.errorCode;
   if (code != 13 && code != 1) return '';
   if (!Platform.isMacOS) return 'Permission denied for $path.';
-  return 'macOS is protecting $path. Grant SynthPet Full Disk Access in '
-      'System Settings → Privacy & Security (or ask the user for a folder it '
-      'may read).';
+  return 'macOS is protecting $path. Grant the SynthPet MCP server '
+      '(synthpet_mcp) Full Disk Access in System Settings → Privacy & '
+      'Security (or ask the user for a folder it may read).';
 }
 
 /// What went wrong with [path], in the terms the reader of the error needs.
-String _ioMessage(String verb, String path, FileSystemException error) {
-  final hint = _permissionHint(path, error);
+String ioMessage(String verb, String path, FileSystemException error) {
+  final hint = permissionHint(path, error);
   if (hint.isNotEmpty) return hint;
   return 'could not $verb $path — ${error.osError?.message ?? error.message}';
 }
 
-Future<String> _readFile(
-  Directory base,
-  Map<String, dynamic> arguments,
-) async {
-  final requested = _stringArgument(arguments, 'path');
-  if (requested == null) return _error('`path` is required.');
+/// `read_file`: read a text file from the user's machine.
+Future<String> readFile(Directory base, Map<String, dynamic> arguments) async {
+  final requested = stringArgument(arguments, 'path');
+  if (requested == null) return error('`path` is required.');
 
-  final path = _resolve(base, requested);
+  final path = resolve(base, requested);
   final type = FileSystemEntity.typeSync(path, followLinks: true);
   if (type == FileSystemEntityType.notFound) {
-    return _error('no such file: $path');
+    return error('no such file: $path');
   }
   if (type == FileSystemEntityType.directory) {
-    return _error('$path is a directory; use list_dir_local.');
+    return error('$path is a directory; use list_dir.');
   }
 
   final file = File(path);
-  final maxChars = _boundedInt(
+  final maxChars = boundedInt(
     arguments['max_chars'],
-    _defaultMaxChars,
-    _minMaxChars,
-    _maxMaxChars,
+    defaultMaxChars,
+    minMaxChars,
+    maxMaxChars,
   );
 
   final int length;
   try {
     length = await file.length();
-  } on FileSystemException catch (error) {
-    return _error(_ioMessage('read', path, error));
+  } on FileSystemException catch (caught) {
+    return error(ioMessage('read', path, caught));
   }
 
   final Uint8List head;
   try {
-    head = await _readHead(file);
-  } on FileSystemException catch (error) {
-    return _error(_ioMessage('read', path, error));
+    head = await readHead(file);
+  } on FileSystemException catch (caught) {
+    return error(ioMessage('read', path, caught));
   }
 
-  final probe = head.length > _binaryProbeBytes
-      ? head.sublist(0, _binaryProbeBytes)
+  final probe = head.length > binaryProbeBytes
+      ? head.sublist(0, binaryProbeBytes)
       : head;
   if (probe.contains(0)) {
     return 'Path: $path\n'
-        'Size: ${_formatBytes(length)}\n\n'
+        'Size: ${formatBytes(length)}\n\n'
         'Binary file ($length bytes); not shown.';
   }
 
@@ -279,26 +183,26 @@ Future<String> _readFile(
   // Valid UTF-8 is the common case; a partly invalid file still yields its
   // readable text instead of failing outright.
   final decoded = utf8.decode(head, allowMalformed: true);
-  final clipped = _truncate(decoded, maxChars);
+  final clipped = truncate(decoded, maxChars);
 
   final header = [
     'Path: $path',
-    'Size: ${_formatBytes(length)}, ${_lineCount(clipped.text)} line(s)',
+    'Size: ${formatBytes(length)}, ${lineCount(clipped.text)} line(s)',
     if (clipped.truncated) 'Truncated to $maxChars characters.',
     if (truncatedBytes)
-      'Only the first ${_formatBytes(head.length)} of the file was read.',
+      'Only the first ${formatBytes(head.length)} of the file was read.',
   ];
 
   return '${header.join('\n')}\n\n${clipped.text}'.trimRight();
 }
 
-/// Reads at most [_maxReadBytes] from [file], streamed so a huge file is never
+/// Reads at most [maxReadBytes] from [file], streamed so a huge file is never
 /// held whole in memory.
-Future<Uint8List> _readHead(File file) async {
+Future<Uint8List> readHead(File file) async {
   final builder = BytesBuilder(copy: false);
   await for (final chunk in file.openRead()) {
-    if (builder.length + chunk.length >= _maxReadBytes) {
-      builder.add(chunk.sublist(0, _maxReadBytes - builder.length));
+    if (builder.length + chunk.length >= maxReadBytes) {
+      builder.add(chunk.sublist(0, maxReadBytes - builder.length));
       break;
     }
     builder.add(chunk);
@@ -306,25 +210,23 @@ Future<Uint8List> _readHead(File file) async {
   return builder.takeBytes();
 }
 
-Future<String> _listDir(
-  Directory base,
-  Map<String, dynamic> arguments,
-) async {
-  final requested = _stringArgument(arguments, 'path') ?? base.path;
-  final path = _resolve(base, requested);
+/// `list_dir`: list a directory on the user's machine.
+Future<String> listDir(Directory base, Map<String, dynamic> arguments) async {
+  final requested = stringArgument(arguments, 'path') ?? base.path;
+  final path = resolve(base, requested);
   final type = FileSystemEntity.typeSync(path, followLinks: true);
   if (type == FileSystemEntityType.notFound) {
-    return _error('no such directory: $path');
+    return error('no such directory: $path');
   }
   if (type != FileSystemEntityType.directory) {
-    return _error('$path is not a directory.');
+    return error('$path is not a directory.');
   }
 
   final List<FileSystemEntity> children;
   try {
     children = await Directory(path).list(followLinks: false).toList();
-  } on FileSystemException catch (error) {
-    return _error(_ioMessage('list', path, error));
+  } on FileSystemException catch (caught) {
+    return error(ioMessage('list', path, caught));
   }
 
   final rows = <({String name, String kind, int? size, DateTime? modified})>[];
@@ -367,7 +269,7 @@ Future<String> _listDir(
     return a.name.toLowerCase().compareTo(b.name.toLowerCase());
   });
 
-  final shown = rows.take(_maxEntries).toList();
+  final shown = rows.take(maxEntries).toList();
   final width = shown.fold(
     0,
     (max, row) => row.name.length > max ? row.name.length : max,
@@ -383,8 +285,8 @@ Future<String> _listDir(
       [
         row.kind.padRight(4),
         (row.kind == 'dir' ? '${row.name}/' : row.name).padRight(width + 2),
-        if (row.size != null) _formatBytes(row.size!),
-        if (row.modified != null) _formatTime(row.modified!),
+        if (row.size != null) formatBytes(row.size!),
+        if (row.modified != null) formatTime(row.modified!),
       ].join(' ').trimRight(),
   ];
 
@@ -392,48 +294,49 @@ Future<String> _listDir(
   return '${header.join('\n')}\n\n${body.join('\n')}';
 }
 
-Future<String> _runCommand(
+/// `run_command`: run a shell command on the user's machine.
+Future<String> runCommand(
   Directory base,
   Map<String, dynamic> arguments,
 ) async {
-  final command = _stringArgument(arguments, 'command');
-  if (command == null) return _error('`command` is required.');
+  final command = stringArgument(arguments, 'command');
+  if (command == null) return error('`command` is required.');
 
-  final cwd = _resolve(base, _stringArgument(arguments, 'cwd') ?? '.');
+  final cwd = resolve(base, stringArgument(arguments, 'cwd') ?? '.');
   if (FileSystemEntity.typeSync(cwd, followLinks: true) !=
       FileSystemEntityType.directory) {
-    return _error('working directory does not exist: $cwd');
+    return error('working directory does not exist: $cwd');
   }
 
   final timeout = Duration(
-    seconds: _boundedInt(
+    seconds: boundedInt(
       arguments['timeout_seconds'],
-      _defaultTimeoutSeconds,
+      defaultTimeoutSeconds,
       1,
-      _maxTimeoutSeconds,
+      maxTimeoutSeconds,
     ),
   );
-  final maxChars = _boundedInt(
+  final maxChars = boundedInt(
     arguments['max_chars'],
-    _defaultMaxChars,
-    _minMaxChars,
-    _maxMaxChars,
+    defaultMaxChars,
+    minMaxChars,
+    maxMaxChars,
   );
 
   final Process process;
   try {
     process = await Process.start(
-      _shell,
-      _shellArguments(command),
+      shell,
+      shellArguments(command),
       workingDirectory: cwd,
       runInShell: false,
     );
-  } on ProcessException catch (error) {
-    return _error('could not start a shell — ${error.message}');
+  } on ProcessException catch (caught) {
+    return error('could not start a shell — ${caught.message}');
   }
 
-  final stdout = _decoded(process.stdout);
-  final stderr = _decoded(process.stderr);
+  final stdout = decoded(process.stdout);
+  final stderr = decoded(process.stderr);
 
   var timedOut = false;
   var exitCode = -1;
@@ -459,7 +362,7 @@ Future<String> _runCommand(
     if (body.isNotEmpty) body.write('\n\n');
     body.write('stderr:\n${err.trimRight()}');
   }
-  final clipped = _truncate(body.toString(), maxChars);
+  final clipped = truncate(body.toString(), maxChars);
 
   final header = [
     '\$ $command',
@@ -474,18 +377,20 @@ Future<String> _runCommand(
           'Security lifts that.',
   ];
 
-  final text = clipped.text.isEmpty ? header.join('\n') : '${header.join('\n')}\n\n${clipped.text}';
+  final text = clipped.text.isEmpty
+      ? header.join('\n')
+      : '${header.join('\n')}\n\n${clipped.text}';
   return text.trimRight();
 }
 
 /// The platform shell, and the argument that hands it a whole command line.
-String get _shell => Platform.isWindows ? 'cmd.exe' : '/bin/sh';
+String get shell => Platform.isWindows ? 'cmd.exe' : '/bin/sh';
 
-List<String> _shellArguments(String command) =>
+List<String> shellArguments(String command) =>
     Platform.isWindows ? ['/c', command] : ['-c', command];
 
 /// Collects a stream as text, never failing on bytes that are not UTF-8.
-Future<String> _decoded(Stream<List<int>> stream) async {
+Future<String> decoded(Stream<List<int>> stream) async {
   final builder = BytesBuilder(copy: false);
   await for (final chunk in stream) {
     builder.add(chunk);

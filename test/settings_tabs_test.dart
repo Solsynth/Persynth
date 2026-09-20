@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,8 +5,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:synth_pet/personality/local_tools.dart';
+import 'package:synth_pet/personality/mcp_client.dart';
 import 'package:synth_pet/personality/personality_network.dart';
-import 'package:synth_pet/shared/macos_permissions.dart';
 import 'package:synth_pet/screens/settings_page.dart';
 import 'package:synth_pet/theme/app_theme.dart';
 
@@ -32,10 +30,10 @@ void main() {
       ProviderScope(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(preferences),
-          // The real probe opens the system privacy database; tests answer
-          // for it instead of going near it.
-          fullDiskAccessProvider.overrideWith(
-            (ref) async => ProtectedAccess.denied,
+          // The row probes the daemon over the network; tests answer for it
+          // instead of going near the loopback.
+          mcpDaemonStatusProvider.overrideWith(
+            (ref) async => const McpDaemonStatus(reachable: false),
           ),
         ],
         child: MaterialApp(
@@ -55,7 +53,7 @@ void main() {
     }
   });
 
-  testWidgets('the permission the device tools lean on is reported', (
+  testWidgets('the MCP daemon the device tools lean on is reported', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -65,8 +63,11 @@ void main() {
       ProviderScope(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(preferences),
-          fullDiskAccessProvider.overrideWith(
-            (ref) async => ProtectedAccess.granted,
+          mcpDaemonStatusProvider.overrideWith(
+            (ref) async => const McpDaemonStatus(
+              reachable: true,
+              toolCount: 3,
+            ),
           ),
         ],
         child: MaterialApp(
@@ -77,13 +78,37 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    if (!Platform.isMacOS) {
-      expect(find.text('Full Disk Access'), findsNothing);
-      return;
-    }
-    expect(find.text('Full Disk Access'), findsOneWidget);
-    expect(find.textContaining('Granted.'), findsOneWidget);
-    expect(find.text('Open settings'), findsOneWidget);
+    expect(find.text('MCP daemon'), findsOneWidget);
+    expect(find.textContaining('Running on'), findsOneWidget);
+    expect(find.textContaining('3 tools'), findsOneWidget);
+    expect(find.text('Check again'), findsOneWidget);
+  });
+
+  testWidgets('an unreachable daemon is reported with how to start it', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(preferences),
+          mcpDaemonStatusProvider.overrideWith(
+            (ref) async => const McpDaemonStatus(reachable: false),
+          ),
+        ],
+        child: MaterialApp(
+          theme: buildSynthPetTheme(Brightness.light),
+          home: const SettingsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('MCP daemon'), findsOneWidget);
+    expect(find.textContaining('Not running'), findsOneWidget);
+    expect(find.textContaining('dart run synthpet_mcp'), findsOneWidget);
   });
 
   testWidgets('the local tool switches decide what the companion may call', (
@@ -96,10 +121,8 @@ void main() {
       ProviderScope(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(preferences),
-          // The real probe opens the system privacy database; tests answer
-          // for it instead of going near it.
-          fullDiskAccessProvider.overrideWith(
-            (ref) async => ProtectedAccess.denied,
+          mcpDaemonStatusProvider.overrideWith(
+            (ref) async => const McpDaemonStatus(reachable: false),
           ),
         ],
         child: MaterialApp(
@@ -129,7 +152,7 @@ void main() {
 
     expect(container.read(localToolSettingsProvider).device, isTrue);
     expect(preferences.getBool(kLocalDeviceToolsStoreKey), isTrue);
-    expect(offered(), contains('run_command_local'));
+    expect(offered(), contains('mcp_run_command'));
 
     final web = find.widgetWithText(SwitchListTile, 'Web search & fetch');
     await tester.ensureVisible(web);
@@ -138,7 +161,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Only what is switched on is ever offered to the model.
-    expect(offered(), ['read_file_local', 'list_dir_local', 'run_command_local']);
+    expect(offered(), ['mcp_read_file', 'mcp_list_dir', 'mcp_run_command']);
     expect(preferences.getBool(kLocalWebToolsStoreKey), isFalse);
   });
 }

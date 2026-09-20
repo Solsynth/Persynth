@@ -49,3 +49,16 @@ dart run build_runner build
 flutter analyze
 flutter test
 ```
+
+The app is sandboxed, so its file and command tools (`Files & commands` in
+settings) run in the SynthPet MCP daemon — a separate, unsandboxed process
+under `tool/synthpet_mcp`:
+
+```sh
+cd tool/synthpet_mcp && dart pub get && dart run synthpet_mcp
+```
+
+The daemon listens on `127.0.0.1:4317/mcp` (override with `--port`, or point
+the app at another URL with `--dart-define=SYNTHPET_MCP_URL=...`). Compile it
+with `dart compile exe bin/synthpet_mcp.dart` for a standalone binary; grant
+that binary Full Disk Access to reach macOS-protected folders.

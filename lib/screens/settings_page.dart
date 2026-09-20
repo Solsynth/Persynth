@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -9,9 +7,9 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:synth_pet/auth/solar_auth_controller.dart';
 import 'package:synth_pet/auth/solar_auth_service.dart';
 import 'package:synth_pet/personality/local_tools.dart';
+import 'package:synth_pet/personality/mcp_client.dart';
 import 'package:synth_pet/personality/personality_network.dart';
 import 'package:synth_pet/screens/ai_console_tabs.dart';
-import 'package:synth_pet/shared/macos_permissions.dart';
 
 /// The pushed settings page: the account and server in General, with the AI
 /// console (agents, models, billing, credentials) folded in as its own tabs.
@@ -233,68 +231,61 @@ class _LocalToolsSection extends ConsumerWidget {
             title: const Text('Files & commands'),
             subtitle: Text(
               'Lets the companion read this machine\'s files and run shell '
-              'commands. Relative paths resolve against your home directory. '
-              'Anything your account can do, it can do too.',
+              'commands through the SynthPet MCP daemon. Relative paths '
+              'resolve against your home directory. Anything your account can '
+              'do, it can do too.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ),
-          if (Platform.isMacOS) ...[
-            const Divider(height: 1),
-            const _FullDiskAccessRow(),
-          ],
+          const Divider(height: 1),
+          const _McpDaemonRow(),
         ],
       ),
     );
   }
 }
 
-/// macOS asks before any app reads Desktop, Documents, Downloads, iCloud Drive
-/// or another app's data, and remembers the answer. Full Disk Access is that
-/// answer given once and for all — there is no API to request it, so the app
-/// reports the state and opens the pane where it is granted.
-class _FullDiskAccessRow extends ConsumerWidget {
-  const _FullDiskAccessRow();
+/// Where the device tools actually run: the MCP daemon is a separate process
+/// because the app is sandboxed, so its reachability is the device set's
+/// lifeline. The row reports it and says how to start it; re-checking
+/// re-probes.
+class _McpDaemonRow extends ConsumerWidget {
+  const _McpDaemonRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final granted = ref.watch(fullDiskAccessProvider);
+    final status = ref.watch(mcpDaemonStatusProvider);
+    final url = ref.watch(mcpDaemonUrlProvider);
 
+    final running = status.value?.reachable == true;
     return ListTile(
       leading: Icon(
-        Symbols.shield_lock_rounded,
-        color: granted.value == ProtectedAccess.granted
+        running ? Symbols.dns_rounded : Symbols.link_off_rounded,
+        color: running
             ? theme.colorScheme.primary
             : theme.colorScheme.onSurfaceVariant,
       ),
-      title: const Text('Full Disk Access'),
+      title: const Text('MCP daemon'),
       subtitle: Text(
-        switch (granted.value) {
-          ProtectedAccess.granted =>
-            'Granted. macOS no longer stops the companion at protected '
-                'folders.',
-          ProtectedAccess.denied =>
-            'Not granted. macOS asks before the companion reads Desktop, '
-                'Documents, Downloads or another app\'s data; granting this '
-                'skips the asking.',
-          _ => 'macOS asks before the companion reads Desktop, Documents, '
-              'Downloads or another app\'s data. Turn this on to skip the '
-              'asking. Checking whether it already is…',
+        switch (status.value) {
+          McpDaemonStatus(reachable: true, toolCount: final count) =>
+            'Running on $url with $count tool${count == 1 ? '' : 's'} '
+                'available.',
+          McpDaemonStatus(reachable: false) =>
+            'Not running. Start it from tool/synthpet_mcp '
+                '(`dart run synthpet_mcp`) for Files & commands to work.',
+          null => 'Checking whether the daemon is running…',
         },
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
       trailing: TextButton(
-        onPressed: () async {
-          await openFullDiskAccessSettings();
-          // The user is about to change the answer elsewhere; re-probe when
-          // they come back rather than trusting the reading from before.
-          ref.invalidate(fullDiskAccessProvider);
-        },
-        child: const Text('Open settings'),
+        onPressed: () => ref.invalidate(mcpDaemonStatusProvider),
+        child: const Text('Check again'),
       ),
     );
   }

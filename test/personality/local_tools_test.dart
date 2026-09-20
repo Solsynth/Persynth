@@ -38,9 +38,9 @@ void main() {
     expect(_names(container), [
       'web_search_local',
       'web_fetch_local',
-      'read_file_local',
-      'list_dir_local',
-      'run_command_local',
+      'mcp_read_file',
+      'mcp_list_dir',
+      'mcp_run_command',
     ]);
   });
 
@@ -70,6 +70,6 @@ void main() {
     addTearDown(relaunched.dispose);
 
     expect(relaunched.read(localToolSettingsProvider).device, isTrue);
-    expect(_names(relaunched), contains('run_command_local'));
+    expect(_names(relaunched), contains('mcp_run_command'));
   });
 }
