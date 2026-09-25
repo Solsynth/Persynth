@@ -1,4 +1,4 @@
-/// The SynthPet MCP daemon.
+/// The Persynth MCP daemon.
 ///
 /// A standalone Model Context Protocol server that exposes the filesystem and
 /// shell tools the companion's agent may call on this machine. It runs as its

@@ -1,4 +1,4 @@
-/// The app's MCP client: it talks to the SynthPet MCP daemon, a separate
+/// The app's MCP client: it talks to the Persynth MCP daemon, a separate
 /// process that holds the filesystem and shell tools the companion may call.
 ///
 /// The daemon exists because the app is sandboxed again: a child process of a

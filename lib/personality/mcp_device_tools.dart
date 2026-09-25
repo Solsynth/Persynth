@@ -3,7 +3,7 @@
 /// These used to run in-process (`read_file_local`, `list_dir_local`,
 /// `run_command_local`), which is why the app could not be sandboxed: they
 /// read the user's files and run shell commands inside the app. They now run
-/// in the SynthPet MCP daemon, a separate process, and each call here is a
+/// in the Persynth MCP daemon, a separate process, and each call here is a
 /// `tools/call` over the wire. The `mcp_` prefix tells the model a call is
 /// leaving the machine through the daemon, and keeps the names clear of the
 /// server-owned tools.
@@ -129,7 +129,7 @@ Future<String> _forward(
   try {
     return await gateway.callTool(tool, arguments);
   } catch (error) {
-    return 'Error: the SynthPet MCP daemon is not running ($error). '
+    return 'Error: the Persynth MCP daemon is not running ($error). '
         'Start it (tool/synthpet_mcp: `dart run synthpet_mcp`) and try again.';
   }
 }

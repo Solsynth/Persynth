@@ -37,7 +37,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          theme: buildSynthPetTheme(Brightness.light),
+          theme: buildPersynthTheme(Brightness.light),
           home: const SettingsPage(),
         ),
       ),
@@ -71,7 +71,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          theme: buildSynthPetTheme(Brightness.light),
+          theme: buildPersynthTheme(Brightness.light),
           home: const SettingsPage(),
         ),
       ),
@@ -99,7 +99,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          theme: buildSynthPetTheme(Brightness.light),
+          theme: buildPersynthTheme(Brightness.light),
           home: const SettingsPage(),
         ),
       ),
@@ -126,7 +126,7 @@ void main() {
           ),
         ],
         child: MaterialApp(
-          theme: buildSynthPetTheme(Brightness.light),
+          theme: buildPersynthTheme(Brightness.light),
           home: const SettingsPage(),
         ),
       ),

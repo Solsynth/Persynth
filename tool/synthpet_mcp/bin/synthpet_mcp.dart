@@ -1,4 +1,4 @@
-/// The SynthPet MCP daemon entrypoint.
+/// The Persynth MCP daemon entrypoint.
 ///
 /// Usage: `dart run synthpet_mcp [--port 4317] [--root <directory>]`
 ///

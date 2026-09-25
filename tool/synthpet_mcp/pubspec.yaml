@@ -1,6 +1,6 @@
 name: synthpet_mcp
 description: >-
-  The SynthPet MCP daemon: an out-of-process Model Context Protocol server
+  The Persynth MCP daemon: an out-of-process Model Context Protocol server
   that gives the app's companion filesystem and shell tools without the app
   itself needing to leave the App Sandbox.
 publish_to: none

@@ -51,7 +51,7 @@ flutter test
 ```
 
 The app is sandboxed, so its file and command tools (`Files & commands` in
-settings) run in the SynthPet MCP daemon — a separate, unsandboxed process
+settings) run in the Persynth MCP daemon — a separate, unsandboxed process
 under `tool/synthpet_mcp`:
 
 ```sh

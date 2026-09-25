@@ -70,7 +70,7 @@ class MessageMarkdown extends StatelessWidget {
       content: content,
       textStyle: textStyle,
       onLinkTap: (uri) async {
-        // SynthPet has no in-app browser surface yet; links are no-ops until
+        // Persynth has no in-app browser surface yet; links are no-ops until
         // an external-url handler lands.
       },
     );

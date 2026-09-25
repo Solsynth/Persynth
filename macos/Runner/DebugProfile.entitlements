@@ -7,7 +7,7 @@
 	     every one of their paths to this app's own container, and a child
 	     process of a sandboxed app inherits the sandbox, so there is no
 	     in-bundle helper that could reach the disk either. They now live in
-	     the SynthPet MCP daemon (tool/synthpet_mcp), a separate, unsandboxed
+	     the Persynth MCP daemon (tool/synthpet_mcp), a separate, unsandboxed
 	     process, and this app talks to it as an MCP client over loopback
 	     HTTP — which is why outgoing network is on (it also serves the
 	     Personality server). Incoming connections stay off. -->

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<!-- Sandboxed, as the Mac App Store requires. The file and command tools
-	     run in the SynthPet MCP daemon outside the sandbox; see
+	     run in the Persynth MCP daemon outside the sandbox; see
 	     DebugProfile.entitlements for the full reasoning. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>

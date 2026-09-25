@@ -19,7 +19,7 @@ class PetAvatar extends StatelessWidget {
           face,
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: SynthPetFonts.display,
+            fontFamily: PersynthFonts.display,
             fontSize: size * .25,
             fontWeight: FontWeight.w600,
             height: 1,

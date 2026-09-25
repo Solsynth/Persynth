@@ -44,6 +44,9 @@ dependencies:
   riverpod_annotation: ^4.0.7
   shared_preferences: ^2.5.5
   speech_to_text: ^7.5.0
+  # The island_ui_foundation window frame renders with this Material fork's
+  # widgets; theme it directly so the titlebar follows the app theme.
+  material_ui: ^1.3.0
   island_ui_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git

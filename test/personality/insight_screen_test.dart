@@ -125,7 +125,7 @@ Future<void> _pumpConversationPage(
         ],
         child: MaterialApp.router(
           routerConfig: routerConfig,
-          theme: buildSynthPetTheme(Brightness.light),
+          theme: buildPersynthTheme(Brightness.light),
         ),
       ),
     );

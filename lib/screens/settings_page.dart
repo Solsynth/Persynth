@@ -231,7 +231,7 @@ class _LocalToolsSection extends ConsumerWidget {
             title: const Text('Files & commands'),
             subtitle: Text(
               'Lets the companion read this machine\'s files and run shell '
-              'commands through the SynthPet MCP daemon. Relative paths '
+              'commands through the Persynth MCP daemon. Relative paths '
               'resolve against your home directory. Anything your account can '
               'do, it can do too.',
               style: theme.textTheme.bodySmall?.copyWith(

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// The app's vernacular voice: the pet is ASCII text, so the chrome speaks
 /// in terminal. Used for eyebrows, names, the face glyph, and metadata.
-abstract final class SynthPetFonts {
+abstract final class PersynthFonts {
   static const display = 'IBM Plex Mono';
   static const body = 'Avenir Next';
 }
@@ -15,8 +15,8 @@ abstract final class SynthPetFonts {
 /// raised step for cards, wells and bubbles. The single accent is reserved
 /// for things that are alive or actionable: the presence signals, the pet's
 /// aura, and primary actions.
-class SynthPetPalette {
-  const SynthPetPalette({
+class PersynthPalette {
+  const PersynthPalette({
     required this.canvas,
     required this.shell,
     required this.shellDeep,
@@ -71,7 +71,7 @@ class SynthPetPalette {
   final Color brickTint;
 
   /// The default daylight look.
-  static const light = SynthPetPalette(
+  static const light = PersynthPalette(
     canvas: Color(0xFFE9EDF1),
     shell: Color(0xFFDCE3E9),
     shellDeep: Color(0xFFD2D9E0),
@@ -88,7 +88,7 @@ class SynthPetPalette {
 
   /// Dusk look — same structure, surfaces inverted, accent lifted for
   /// contrast on dark surfaces.
-  static const dark = SynthPetPalette(
+  static const dark = PersynthPalette(
     canvas: Color(0xFF14171B),
     shell: Color(0xFF1B1F24),
     shellDeep: Color(0xFF242A31),
@@ -106,10 +106,10 @@ class SynthPetPalette {
 
 /// Builds the single app theme for [brightness]. Every screen reads from
 /// this one source; nothing in the app hardcodes a color.
-ThemeData buildSynthPetTheme(Brightness brightness) {
+ThemeData buildPersynthTheme(Brightness brightness) {
   final p = brightness == Brightness.dark
-      ? SynthPetPalette.dark
-      : SynthPetPalette.light;
+      ? PersynthPalette.dark
+      : PersynthPalette.light;
 
   final scheme = ColorScheme(
     brightness: brightness,
@@ -151,14 +151,14 @@ ThemeData buildSynthPetTheme(Brightness brightness) {
   final base = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
-    fontFamily: SynthPetFonts.body,
+    fontFamily: PersynthFonts.body,
     scaffoldBackgroundColor: p.canvas,
     shadowColor: Colors.transparent,
     iconTheme: IconThemeData(color: p.inkSoft),
   );
 
   final textTheme = base.textTheme
-      .apply(fontFamily: SynthPetFonts.body)
+      .apply(fontFamily: PersynthFonts.body)
       .copyWith(
         displaySmall: base.textTheme.displaySmall?.copyWith(
           fontWeight: FontWeight.w600,
@@ -201,7 +201,7 @@ ThemeData buildSynthPetTheme(Brightness brightness) {
           color: p.inkSoft,
         ),
         labelSmall: base.textTheme.labelSmall?.copyWith(
-          fontFamily: SynthPetFonts.display,
+          fontFamily: PersynthFonts.display,
           fontSize: 10.5,
           letterSpacing: 0.4,
           fontWeight: FontWeight.w400,
@@ -264,7 +264,7 @@ ThemeData buildSynthPetTheme(Brightness brightness) {
         disabledForegroundColor: p.inkSoft,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         textStyle: const TextStyle(
-          fontFamily: SynthPetFonts.body,
+          fontFamily: PersynthFonts.body,
           fontSize: 13.5,
           fontWeight: FontWeight.w600,
         ),
@@ -277,7 +277,7 @@ ThemeData buildSynthPetTheme(Brightness brightness) {
         side: BorderSide(color: p.hairline, width: 1),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         textStyle: const TextStyle(
-          fontFamily: SynthPetFonts.body,
+          fontFamily: PersynthFonts.body,
           fontSize: 13.5,
           fontWeight: FontWeight.w600,
         ),
@@ -288,7 +288,7 @@ ThemeData buildSynthPetTheme(Brightness brightness) {
       style: TextButton.styleFrom(
         foregroundColor: p.inkSoft,
         textStyle: const TextStyle(
-          fontFamily: SynthPetFonts.body,
+          fontFamily: PersynthFonts.body,
           fontSize: 13,
           fontWeight: FontWeight.w500,
         ),

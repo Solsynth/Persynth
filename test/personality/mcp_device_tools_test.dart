@@ -101,7 +101,7 @@ void main() {
 
     expect(
       await tool.execute({'path': 'x'}),
-      startsWith('Error: the SynthPet MCP daemon is not running'),
+      startsWith('Error: the Persynth MCP daemon is not running'),
     );
   });
 

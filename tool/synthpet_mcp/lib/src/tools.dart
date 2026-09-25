@@ -122,7 +122,7 @@ String permissionHint(String path, FileSystemException error) {
   final code = error.osError?.errorCode;
   if (code != 13 && code != 1) return '';
   if (!Platform.isMacOS) return 'Permission denied for $path.';
-  return 'macOS is protecting $path. Grant the SynthPet MCP server '
+  return 'macOS is protecting $path. Grant the Persynth MCP server '
       '(synthpet_mcp) Full Disk Access in System Settings → Privacy & '
       'Security (or ask the user for a folder it may read).';
 }

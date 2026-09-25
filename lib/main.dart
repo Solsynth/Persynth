@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -36,7 +37,7 @@ Future<void> main(List<String> args) async {
       backgroundColor: Colors.transparent,
       skipTaskbar: isPetWindow,
       alwaysOnTop: isPetWindow,
-      title: isPetWindow ? 'Mochi' : 'SynthPet',
+      title: isPetWindow ? 'Mochi' : 'Persynth',
       titleBarStyle: TitleBarStyle.hidden,
       windowButtonVisibility: true,
     );
@@ -71,9 +72,9 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: isPetWindow ? 'Mochi' : 'SynthPet',
-      theme: buildSynthPetTheme(Brightness.light),
-      darkTheme: buildSynthPetTheme(Brightness.dark),
+      title: isPetWindow ? 'Mochi' : 'Persynth',
+      theme: buildPersynthTheme(Brightness.light),
+      darkTheme: buildPersynthTheme(Brightness.dark),
       themeMode: ThemeMode.system,
       routerConfig: _router.config(),
       builder: (context, child) {
@@ -88,18 +89,37 @@ class MyApp extends StatelessWidget {
         // chrome. Everything else gets the quiet desktop frame.
         if (isPetWindow && DesktopWindowFrame.isPlatformDesktop) return content;
 
-        return DesktopWindowFrame(
-          isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
-          title: Text(
-            isPetWindow ? 'Mochi' : 'SynthPet',
-            style: TextStyle(
-              fontFamily: SynthPetFonts.display,
-              fontSize: 11,
-              letterSpacing: 1.1,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+        // DesktopWindowFrame (island_ui_foundation) paints with the
+        // `material_ui` fork's Material, which reads a separate theme system
+        // from Flutter's. Without a material_ui Theme in scope it falls back
+        // to the fork's default (always-light) scheme. Mirror the app scheme
+        // so the chrome (the shell step, by design) follows light/dark mode.
+        final scheme = Theme.of(context).colorScheme;
+        final brightness = Theme.of(context).brightness;
+        final chromeScheme = mui.ColorScheme.fromSeed(
+          seedColor: scheme.primary,
+          brightness: brightness,
+        ).copyWith(surfaceContainer: scheme.surfaceContainer);
+        final chromeTheme = (brightness == Brightness.dark
+                ? mui.ThemeData.dark()
+                : mui.ThemeData.light())
+            .copyWith(colorScheme: chromeScheme);
+
+        return mui.Theme(
+          data: chromeTheme,
+          child: DesktopWindowFrame(
+            isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
+            title: Text(
+              isPetWindow ? 'Mochi' : 'Persynth',
+              style: TextStyle(
+                fontFamily: PersynthFonts.display,
+                fontSize: 11,
+                letterSpacing: 1.1,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
+            child: content,
           ),
-          child: content,
         );
       },
     );
