@@ -34,6 +34,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import 'package:solar_network_sdk/solar_network_sdk.dart';
+
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/mcp_client.dart';
 
@@ -48,6 +50,7 @@ class SnPluginContext {
     required this.api,
     required this.http,
     required this.mcp,
+    required this.solar,
   });
 
   /// The account-authenticated client for Solar Network. A plugin that reads
@@ -63,6 +66,16 @@ class SnPluginContext {
   /// The Persynth MCP daemon, for bodies that have to leave the app's sandbox:
   /// files, shell commands.
   final McpGateway mcp;
+
+  /// The typed Solar Network client, over the same authenticated connection as
+  /// [api]: same base URL, same bearer token, same single refresh on a 401.
+  ///
+  /// A plugin whose tools read or write the user's own Solar Network data —
+  /// posts, chats, wallet, calendar — calls through this rather than
+  /// hand-rolling paths, so the shapes it reads are the ones the SDK declares
+  /// and a field rename upstream is a compile error here rather than a silent
+  /// empty result.
+  final SolarNetworkClient solar;
 }
 
 /// The namespace the server puts in front of every client-owned tool and skill
@@ -144,6 +157,21 @@ abstract class SnPlugin {
   /// The server namespaces it like any other caller-owned name, so this is
   /// what the plugin calls itself, not what the model reads.
   String get skillName => id;
+
+  /// The server-owned tools this plugin's own tools replace, keyed by the
+  /// server tool's name and holding the local tool that replaces it.
+  ///
+  /// Declaring one is what tells the server to stop offering its own copy, so
+  /// the model is offered one tool for the job rather than two it has to
+  /// choose between. The reason to prefer the local one is the reason these
+  /// plugins exist at all: the call leaves from the user's own address
+  /// carrying their own token, which is what risk control sees.
+  ///
+  /// Only declare what the plugin actually covers. An override removes the
+  /// server's tool, so claiming one without a local tool that does the same
+  /// work removes the capability outright. The value is never sent — it is
+  /// the claim written down where a test can hold the plugin to it.
+  Map<String, String> get overrides => const {};
 
   /// The tools the model is offered while this plugin is on, in the order it
   /// should see them.

@@ -7,6 +7,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:persynth/auth/solar_auth_controller.dart';
 import 'package:persynth/auth/solar_auth_service.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/screens/ai_console_tabs.dart';
 
@@ -235,7 +236,7 @@ class _PluginsSection extends ConsumerWidget {
               onChanged: (value) => notifier.setEnabled(plugin.id, value),
               title: Text(plugin.label),
               subtitle: Text(
-                plugin.description,
+                '${plugin.description}${_replaces(plugin)}',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -247,6 +248,20 @@ class _PluginsSection extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// What a plugin takes over from the server, as a sentence to append to its
+/// own account of itself.
+///
+/// A plugin that replaces a server tool changes where the call comes from,
+/// which is the whole reason to prefer it — so the row has to say so. Derived
+/// from the plugin's own declaration rather than written into its description,
+/// so a plugin cannot claim a replacement the rest of the app does not know
+/// about, and the list cannot go stale.
+String _replaces(SnPlugin plugin) {
+  final names = plugin.overrides.keys.toList()..sort();
+  if (names.isEmpty) return '';
+  return ' Replaces the server\'s ${names.join(', ')}.';
 }
 
 class _SectionHeader extends StatelessWidget {

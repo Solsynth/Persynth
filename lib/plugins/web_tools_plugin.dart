@@ -41,6 +41,12 @@ class WebToolsPlugin extends SnPlugin {
   bool get enabledByDefault => true;
 
   @override
+  Map<String, String> get overrides => const {
+    'web_search': 'web_search',
+    'read_webpage': 'web_fetch',
+  };
+
+  @override
   List<SnLocalTool> buildTools(SnPluginContext context) =>
       buildLocalWebTools(context.http);
 

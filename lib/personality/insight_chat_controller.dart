@@ -290,12 +290,13 @@ class InsightChatController extends _$InsightChatController {
       _cancelToken = cancelToken;
       _set(state.copyWith(busy: true));
 
-      // The tools offered for this run. A call to `load_skill` can
-      // add to that set mid-run, so what is sent to resume the run is the
-      // difference against this — the tools the server has not seen yet.
+      // What this run has been told about. A call to `load_skill` can add to
+      // it mid-run, so what is sent to resume the run is the difference
+      // against this — the tools and the overrides the server has not seen.
       final offeredTools = {
         for (final tool in ref.read(pluginToolsProvider)) tool.name,
       };
+      final offeredOverrides = ref.read(pluginOverridesProvider).toSet();
 
       await for (final event in _api.runConversation(
         conversationId: conversationId,
@@ -303,12 +304,18 @@ class InsightChatController extends _$InsightChatController {
         attachmentIds: attachments,
         clientTools: ref.read(pluginToolsProvider),
         clientSkills: ref.read(pluginSkillsProvider),
+        overrides: ref.read(pluginOverridesProvider),
         context: ref.read(pluginSystemPromptProvider),
         cancelToken: cancelToken,
       )) {
         if (_disposed) return;
         if (event is PersonalityToolCallClient) {
-          await _runClientTool(event, conversationId, offeredTools);
+          await _runClientTool(
+            event,
+            conversationId,
+            offeredTools,
+            offeredOverrides,
+          );
         } else {
           _handleEvent(event, turnId);
         }
@@ -333,13 +340,15 @@ class InsightChatController extends _$InsightChatController {
   /// waiting on the resume endpoint; the tool bubble renders here and the
   /// server's `tool_call.completed` event (after resume) finishes the trace.
   ///
-  /// [offeredTools] is what this run has already been told about. Running a
-  /// tool can load a plugin — `load_skill` — so what the resume
-  /// carries is whatever the enabled set has gained since.
+  /// [offeredTools] and [offeredOverrides] are what this run has already been
+  /// told about. Running a tool can load a plugin — `load_skill` — so what the
+  /// resume carries is whatever the enabled set has gained since, in both
+  /// directions it can gain: definitions to add, and server tools to drop.
   Future<void> _runClientTool(
     PersonalityToolCallClient event,
     String conversationId,
     Set<String> offeredTools,
+    Set<String> offeredOverrides,
   ) async {
     // The model calls a client-owned tool under the server's namespace; the
     // registry holds it under the name the app gave it.
@@ -366,6 +375,12 @@ class InsightChatController extends _$InsightChatController {
     ];
     offeredTools.addAll(additions.map((tool) => tool.name));
 
+    final overrideAdditions = [
+      for (final name in ref.read(pluginOverridesProvider))
+        if (!offeredOverrides.contains(name)) name,
+    ];
+    offeredOverrides.addAll(overrideAdditions);
+
     if (event.runId.isEmpty) return;
     try {
       await _api.submitClientToolResult(
@@ -374,6 +389,7 @@ class InsightChatController extends _$InsightChatController {
         toolCallId: event.id,
         result: result,
         clientTools: additions,
+        overrides: overrideAdditions,
       );
     } catch (error) {
       // The run may have already timed out server-side; surface the failure

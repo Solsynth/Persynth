@@ -168,4 +168,82 @@ void main() {
     expect(offered(), [loadSkillToolName]);
     expect(preferences.getBool(const WebToolsPlugin().storeKey), isFalse);
   });
+
+  testWidgets('every Solar set has its own switch, and granting one wires it', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(preferences),
+          mcpDaemonStatusProvider.overrideWith(
+            (ref) async => const McpDaemonStatus(reachable: false),
+          ),
+        ],
+        child: MaterialApp(
+          theme: buildPersynthTheme(Brightness.light),
+          home: const SettingsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Each set the registry declares is a row the user can actually reach,
+    // rather than something only the code knows about.
+    for (final label in [
+      'Moments & feed',
+      'Messages',
+      'Notifications',
+      'Calendar',
+      'Daily rituals',
+      'Profile & standing',
+      'Wallet',
+    ]) {
+      final row = find.widgetWithText(SwitchListTile, label);
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(row).value, isFalse, reason: label);
+    }
+
+    // A set that takes over a server tool says which one, so the switch is a
+    // decision about where the call comes from rather than only what it does.
+    expect(
+      find.textContaining(
+        "Replaces the server's get_unread_notification_count, "
+        'list_notifications, mark_all_notifications_read.',
+      ),
+      findsOneWidget,
+    );
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SettingsPage)),
+    );
+    List<String> offered() =>
+        container.read(pluginToolsProvider).map((tool) => tool.name).toList();
+    expect(offered(), ['web_search', 'web_fetch']);
+
+    final notifications = find.widgetWithText(
+      SwitchListTile,
+      'Notifications',
+    );
+    await tester.ensureVisible(notifications);
+    await tester.pumpAndSettle();
+    await tester.tap(notifications);
+    await tester.pumpAndSettle();
+
+    // Granting it is the whole of the wiring: the definitions are on the next
+    // run, and the choice outlives the app.
+    expect(offered(), [
+      'web_search',
+      'web_fetch',
+      'read_notifications',
+      'unread_notifications',
+      'mark_notification_read',
+      'mark_all_notifications_read',
+    ]);
+    expect(preferences.getBool('persynth_plugin_notifications'), isTrue);
+  });
 }

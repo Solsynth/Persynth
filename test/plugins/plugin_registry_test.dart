@@ -9,6 +9,7 @@ import 'package:persynth/plugins/device_tools_plugin.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/plugins/web_tools_plugin.dart';
+import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 /// A plugin that exists only in the test: proof that a capability added to the
 /// registry is offered, loadable and explained without anything else changing.
@@ -81,6 +82,9 @@ ProviderContainer _containerWith(
           api: ref.watch(personalityApiClientProvider),
           http: ref.watch(pluginHttpClientProvider),
           mcp: _UnreachableGateway(),
+          solar: SolarNetworkClient.fromDio(
+            ref.watch(personalityApiClientProvider),
+          ),
         ),
       ),
     ],
@@ -114,6 +118,147 @@ Future<String> _load(ProviderContainer container, String skillName) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('a Solar set the user switches on rides on the run in registry order', () async {
+    final container = await _launch();
+    final notifier = container.read(pluginEnablementProvider.notifier);
+    await notifier.setEnabled('notifications', true);
+    await notifier.setEnabled('ritual', true);
+
+    // Eager sets contribute their definitions immediately, in the order
+    // kBuiltInPlugins declares, and nothing is left for the model to load.
+    expect(_names(container), [
+      'web_search',
+      'web_fetch',
+      'read_notifications',
+      'unread_notifications',
+      'mark_notification_read',
+      'mark_all_notifications_read',
+      'daily_fortune',
+      'today_check_in',
+      'check_in',
+    ]);
+    expect(container.read(pluginSkillsProvider), isEmpty);
+  });
+
+  test('a loaded plugin replaces the server copies of what it does', () async {
+    final container = await _launch();
+
+    // The web set is on out of the box, so from the first run it claims the
+    // two server tools it answers: search, and reading a page.
+    expect(container.read(pluginOverridesProvider), [
+      'read_webpage',
+      'web_search',
+    ]);
+
+    // An on-demand set replaces nothing until the model has loaded it — its
+    // tools are not on the run yet, so the server's copies have to stay.
+    final notifier = container.read(pluginEnablementProvider.notifier);
+    await notifier.setEnabled('social', true);
+    expect(container.read(pluginOverridesProvider), [
+      'read_webpage',
+      'web_search',
+    ]);
+
+    await _load(container, 'social');
+    expect(container.read(pluginOverridesProvider), [
+      'create_post',
+      'get_post',
+      'get_post_replies',
+      'list_feed',
+      'list_post_replies',
+      'list_user_posts',
+      'react_to_post',
+      'read_webpage',
+      'reply_to_post',
+      'search_posts',
+      'web_search',
+    ]);
+  });
+
+  test('an override always names a tool the plugin actually offers', () async {
+    // An override removes the server's tool, so a claim with no local tool
+    // behind it does not move a capability, it deletes one. The value is the
+    // claim written down where it can be held to account.
+    final container = await _launch();
+    final context = container.read(pluginContextProvider);
+    for (final plugin in kBuiltInPlugins) {
+      final built = plugin
+          .buildTools(context)
+          .map((tool) => tool.name)
+          .toSet();
+      for (final entry in plugin.overrides.entries) {
+        expect(
+          entry.key,
+          matches(RegExp(r'^[a-zA-Z0-9_-]+$')),
+          reason: '${plugin.id} overrides a name the wire cannot carry',
+        );
+        expect(
+          entry.key,
+          isNot(startsWith(kLocalToolNamespace)),
+          reason: '${plugin.id} overrides a server name, not a local one',
+        );
+        expect(
+          built,
+          contains(entry.value),
+          reason:
+              '${plugin.id} claims the server\'s ${entry.key} is covered by '
+              '${entry.value}, which it does not offer',
+        );
+      }
+    }
+  });
+
+  test('a Solar set that needs activating is advertised, not sent', () async {
+    final container = await _launch();
+    final notifier = container.read(pluginEnablementProvider.notifier);
+    await notifier.setEnabled('social', true);
+    await notifier.setEnabled('chat', true);
+
+    // Neither set costs more than its name until the model asks for it.
+    expect(_names(container), ['web_search', 'web_fetch', loadSkillToolName]);
+    expect(container.read(pluginSkillsProvider).map((skill) => skill.name), [
+      'social',
+      'chat',
+    ]);
+
+    final loaded = await _load(container, 'chat');
+    expect(loaded, contains('"ok":true'));
+    expect(_names(container), [
+      'web_search',
+      'web_fetch',
+      'read_conversations',
+      'read_conversation',
+      'send_message',
+      'message_someone',
+      'unread_messages',
+      loadSkillToolName,
+    ]);
+  });
+
+  test('every Solar set is off until the user grants it', () async {
+    final container = await _launch();
+
+    // The registry lists them, because settings is where the grant is made...
+    expect(
+      container.read(pluginRegistryProvider).map((plugin) => plugin.id),
+      containsAll([
+        'social',
+        'chat',
+        'notifications',
+        'agenda',
+        'ritual',
+        'profile',
+        'wallet',
+      ]),
+    );
+
+    // ...and none of them is on, or offered, before that.
+    expect(container.read(enabledPluginsProvider).map((plugin) => plugin.id), [
+      'web',
+    ]);
+    expect(_names(container), ['web_search', 'web_fetch']);
+  });
 
   test('offers the web tools by default and holds the device set back', () async {
     final container = await _launch();

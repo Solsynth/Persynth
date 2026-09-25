@@ -62,6 +62,60 @@ a tool set is large or rarely used: its definitions cost context on every
 request whether or not they are called. `Files & commands` is on demand for
 exactly that reason.
 
+### Replacing the server's tools
+
+Some of these tools do what a server-side tool already does — the app's
+`web_search` against the server's, `read_timeline` against its `list_feed`. A
+plugin declares those in `overrides`, and the server drops its own copies for
+the run. The model is offered one tool per job, and the one that survives is
+the one that leaves from the user's own address carrying their token, which is
+the whole point of running it here.
+
+The declaration is a map of the server's tool name to the local tool that
+replaces it, and it is held to that claim: a test requires every name to match
+a tool the plugin actually offers. An override removes the server's tool, so a
+claim with nothing behind it would delete a capability rather than move one.
+
+Only the *loaded* plugins override anything. Enabling an on-demand set changes
+nothing until the model loads it; loading is what tells the server, on the same
+resume that hands over the new tools, to take its copies back.
+
+A skill is hidden from `list_skills` only when every tool it would add has been
+replaced. A half-replaced skill stays listed, because activating it still adds
+the tools the caller did not claim.
+
+### The Solar Network sets
+
+Most of what ships is the user's own Solar Network account, reached from this
+machine with their token. Each set is its own switch, and all of them start
+off: reading someone's messages or posting in their name is a grant they make,
+not one the app assumes.
+
+| Switch | Id | Tools | Load |
+| --- | --- | --- | --- |
+| Moments & feed | `social` | `read_timeline`, `read_post`, `search_posts`, `read_profile`, `create_post`, `reply_to_post`, `react_to_post` | on demand |
+| Messages | `chat` | `read_conversations`, `read_conversation`, `send_message`, `message_someone`, `unread_messages` | on demand |
+| Notifications | `notifications` | `read_notifications`, `unread_notifications`, `mark_notification_read`, `mark_all_notifications_read` | every run |
+| Calendar | `agenda` | `read_agenda`, `next_notable_day`, `create_event` | every run |
+| Daily rituals | `ritual` | `daily_fortune`, `today_check_in`, `check_in` | every run |
+| Profile & standing | `profile` | `whoami`, `read_account`, `social_credits`, `achievements` | on demand |
+| Wallet | `wallet` | `read_wallet`, `wallet_stats` | on demand |
+
+The tool names above are what the plugin calls them. The model reads them under
+the server's `local_` prefix, like every other caller-owned name.
+
+Two of these are worth reading before adding more. **Wallet is read-only by
+construction**: moving money on Solar Network is authorised by the user's local
+payment PIN, which this app does not hold and must not ask for, so there is no
+transfer, order or gift tool anywhere in it. **`achievements` and `read_agenda`
+call their endpoints through `context.solar.dio` rather than the SDK's typed
+methods**, because those methods are wrong: `getAchievementState` reads a path
+the service does not serve, `getMergedCalendar` parses an enum the server sends
+as a number, and `getCheckInResultToday` asserts a payload where its own
+documentation promises null. Responses are still parsed with the SDK's own
+model types, so a field rename upstream is still a compile error here. Those
+three are worth fixing in `solar_network_sdk`.
+
 ### Script plugins
 
 A plugin can also be JavaScript, run in its own sandbox by

@@ -24,14 +24,22 @@ import 'dart:convert';
 import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/plugins/agenda_plugin.dart';
+import 'package:persynth/plugins/chat_plugin.dart';
 import 'package:persynth/plugins/device_tools_plugin.dart';
+import 'package:persynth/plugins/notifications_plugin.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_host.dart';
+import 'package:persynth/plugins/profile_plugin.dart';
+import 'package:persynth/plugins/ritual_plugin.dart';
+import 'package:persynth/plugins/social_plugin.dart';
+import 'package:persynth/plugins/wallet_plugin.dart';
 import 'package:persynth/plugins/web_tools_plugin.dart';
 
 /// The client tool the model calls to load an on-demand plugin's tools.
@@ -47,7 +55,17 @@ const String loadSkillToolName = 'load_skill';
 ///
 /// Order is load-bearing for the tool list: it is what the model reads, and
 /// the tests pin it. Add a plugin at the end unless there is a reason not to.
-const List<SnPlugin> kBuiltInPlugins = [WebToolsPlugin(), DeviceToolsPlugin()];
+const List<SnPlugin> kBuiltInPlugins = [
+  WebToolsPlugin(),
+  DeviceToolsPlugin(),
+  SocialPlugin(),
+  ChatPlugin(),
+  NotificationsPlugin(),
+  AgendaPlugin(),
+  RitualPlugin(),
+  ProfilePlugin(),
+  WalletPlugin(),
+];
 
 /// The plugins this build offers: the compiled-in ones, then the script
 /// plugins the runtime has loaded.
@@ -68,11 +86,17 @@ final pluginHttpClientProvider = Provider<Dio>((ref) {
 });
 
 /// Everything a plugin is built from, resolved once.
+///
+/// The Solar Network client shares the Personality client's Dio rather than
+/// building its own: one connection pool, and — the reason it matters — one
+/// place the account token is attached and refreshed, so a plugin call cannot
+/// drift into using a stale token the rest of the app has already rotated.
 final pluginContextProvider = Provider<SnPluginContext>(
   (ref) => SnPluginContext(
     api: ref.watch(personalityApiClientProvider),
     http: ref.watch(pluginHttpClientProvider),
     mcp: ref.watch(mcpGatewayProvider),
+    solar: SolarNetworkClient.fromDio(ref.watch(personalityApiClientProvider)),
   ),
 );
 
@@ -205,6 +229,24 @@ final pluginToolsProvider = Provider<List<SnLocalTool>>((ref) {
       ...plugin.buildTools(context),
     if (loadable.isNotEmpty) _loadSkillTool(ref, context),
   ];
+});
+
+/// The server-owned tool names the loaded plugins replace.
+///
+/// Sent with the run so the server leaves its own copies out of the tool list
+/// the model reads: one tool per job, and the one that survives is the one
+/// that runs from the user's own address. Derived from the loaded set rather
+/// than the enabled one for the same reason the tools are — a capability the
+/// model has not loaded yet is not replacing anything.
+///
+/// Sorted, so an unchanged set is recognisably unchanged in a run body and in
+/// a diff of one.
+final pluginOverridesProvider = Provider<List<String>>((ref) {
+  final names = <String>{};
+  for (final plugin in ref.watch(loadedPluginsProvider)) {
+    names.addAll(plugin.overrides.keys);
+  }
+  return names.toList()..sort();
 });
 
 /// The system prompt text the loaded plugins contribute, in registry order.

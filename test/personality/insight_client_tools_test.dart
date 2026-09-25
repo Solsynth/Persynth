@@ -8,6 +8,7 @@ import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
+import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _agent = SnPersonalityAgent(id: 'a1', name: 'Michan', enabled: true);
@@ -43,9 +44,11 @@ class _HandoffApi extends PersonalityApi {
   final Map<String, dynamic> callArguments;
   List<SnLocalTool>? receivedClientTools;
   List<SnClientSkill>? receivedClientSkills;
+  List<String>? receivedOverrides;
   List<String>? receivedContext;
   final List<(String, String, String, String)> resumed = [];
   final List<List<SnLocalTool>> resumedTools = [];
+  final List<List<String>> resumedOverrides = [];
 
   @override
   Future<String> createConversation({
@@ -60,11 +63,13 @@ class _HandoffApi extends PersonalityApi {
     List<String> attachmentIds = const [],
     List<SnLocalTool> clientTools = const [],
     List<SnClientSkill> clientSkills = const [],
+    List<String> overrides = const [],
     List<String> context = const [],
     CancelToken? cancelToken,
   }) async* {
     receivedClientTools = clientTools;
     receivedClientSkills = clientSkills;
+    receivedOverrides = overrides;
     receivedContext = context;
     yield PersonalityToolCallClient(
       runId: 'run-1',
@@ -89,9 +94,11 @@ class _HandoffApi extends PersonalityApi {
     required String toolCallId,
     required String result,
     List<SnLocalTool> clientTools = const [],
+    List<String> overrides = const [],
   }) async {
     resumed.add((conversationId, runId, toolCallId, result));
     resumedTools.add(clientTools);
+    resumedOverrides.add(overrides);
   }
 }
 
@@ -108,6 +115,9 @@ ProviderContainer _pluginContainer(SharedPreferences prefs, _HandoffApi api) {
           api: ref.watch(personalityApiClientProvider),
           http: ref.watch(pluginHttpClientProvider),
           mcp: _NoDaemon(),
+          solar: SolarNetworkClient.fromDio(
+            ref.watch(personalityApiClientProvider),
+          ),
         ),
       ),
     ],
@@ -250,6 +260,60 @@ void main() {
       'run_command',
     ]);
     expect(api.resumed.single.$4, contains('"ok":true'));
+  });
+
+  test('the run claims the server tools the loaded plugins replace', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    // A name the app does not have: this test is about what the run carries,
+    // and the default call would otherwise run a real search.
+    final api = _HandoffApi(callName: '${kLocalToolNamespace}nope');
+    final container = _pluginContainer(prefs, api);
+    addTearDown(container.dispose);
+    final controller = container.read(insightChatControllerProvider.notifier);
+    controller.selectAgent('a1');
+
+    await controller.send('anything');
+
+    // The web set is loaded out of the box, so the very first run already
+    // replaces the server's own search and page reader.
+    expect(api.receivedOverrides, ['read_webpage', 'web_search']);
+  });
+
+  test('a capability loaded mid-run hands its replacements over with it', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final api = _HandoffApi(
+      callName: '${kLocalToolNamespace}load_skill',
+      callArguments: const {'skill': 'social'},
+    );
+    final container = _pluginContainer(prefs, api);
+    addTearDown(container.dispose);
+    await container
+        .read(pluginEnablementProvider.notifier)
+        .setEnabled('social', true);
+    final controller = container.read(insightChatControllerProvider.notifier);
+    controller.selectAgent('a1');
+
+    await controller.send('what is happening');
+
+    // Enabled is not loaded: the tools were not on this run, so neither were
+    // the replacements, and the server kept its own copies.
+    expect(api.receivedOverrides, ['read_webpage', 'web_search']);
+
+    // Loading is what moves the job — the resume drops the server's post
+    // tools in the same step that it adds the local ones.
+    expect(api.resumedOverrides.single, [
+      'create_post',
+      'get_post',
+      'get_post_replies',
+      'list_feed',
+      'list_post_replies',
+      'list_user_posts',
+      'react_to_post',
+      'reply_to_post',
+      'search_posts',
+    ]);
   });
 
   test('a server-owned name is never treated as a client tool', () async {

@@ -498,12 +498,17 @@ class PersonalityApi {
   /// capability can say what its tools mean without the deployment having to
   /// know about it. [clientSkills] names the capabilities the caller could
   /// still load, so the server's `list_skills` can offer them beside its own.
+  ///
+  /// [overrides] names the server-owned tools the caller has replaced. The
+  /// server leaves its own copies out of the tool list and stops advertising
+  /// the skills they belong to, so the model is offered one tool per job.
   Stream<PersonalityRunEvent> runConversation({
     required String conversationId,
     required String message,
     List<String> attachmentIds = const [],
     List<SnLocalTool> clientTools = const [],
     List<SnClientSkill> clientSkills = const [],
+    List<String> overrides = const [],
     List<String> context = const [],
     CancelToken? cancelToken,
   }) async* {
@@ -517,6 +522,7 @@ class PersonalityApi {
           'client_tools': [for (final tool in clientTools) tool.toOpenAiTool()],
         if (clientSkills.isNotEmpty)
           'client_skills': [for (final skill in clientSkills) skill.toJson()],
+        if (overrides.isNotEmpty) 'overrides': overrides,
         if (context.isNotEmpty) 'context': context,
       },
       cancelToken: cancelToken,
@@ -543,12 +549,17 @@ class PersonalityApi {
   /// a call to `load_skill` just made callable. The server keeps
   /// them for the rest of the run, so a capability the model loaded mid-turn
   /// is usable in the same turn instead of only from the next message.
+  ///
+  /// [overrides] carries the same addition for the server tools a newly loaded
+  /// plugin replaces: its tools are on the run from here, so the server's own
+  /// copies have to leave it in the same step.
   Future<void> submitClientToolResult({
     required String conversationId,
     required String runId,
     required String toolCallId,
     required String result,
     List<SnLocalTool> clientTools = const [],
+    List<String> overrides = const [],
   }) async {
     await _client.post(
       '/personality/conversations/${Uri.encodeComponent(conversationId)}/runs/'
@@ -558,6 +569,7 @@ class PersonalityApi {
         'result': result,
         if (clientTools.isNotEmpty)
           'client_tools': [for (final tool in clientTools) tool.toOpenAiTool()],
+        if (overrides.isNotEmpty) 'overrides': overrides,
       },
     );
   }
