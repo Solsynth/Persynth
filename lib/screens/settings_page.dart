@@ -4,12 +4,12 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import 'package:synth_pet/auth/solar_auth_controller.dart';
-import 'package:synth_pet/auth/solar_auth_service.dart';
-import 'package:synth_pet/personality/local_tools.dart';
-import 'package:synth_pet/personality/mcp_client.dart';
-import 'package:synth_pet/personality/personality_network.dart';
-import 'package:synth_pet/screens/ai_console_tabs.dart';
+import 'package:persynth/auth/solar_auth_controller.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
+import 'package:persynth/personality/local_tools.dart';
+import 'package:persynth/personality/mcp_client.dart';
+import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/screens/ai_console_tabs.dart';
 
 /// The pushed settings page: the account and server in General, with the AI
 /// console (agents, models, billing, credentials) folded in as its own tabs.

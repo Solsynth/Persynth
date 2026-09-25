@@ -7,9 +7,9 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:synth_pet/personality/personality_api.dart';
-import 'package:synth_pet/personality/personality_network.dart';
-import 'package:synth_pet/screens/authorize_client_info.dart';
+import 'package:persynth/personality/personality_api.dart';
+import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/screens/authorize_client_info.dart';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 

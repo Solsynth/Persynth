@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:synth_pet/personality/local_tool.dart';
+import 'package:persynth/personality/local_tool.dart';
 
 // ---------------------------------------------------------------------------
 // Local web tools (the `SnLocalTool` contract lives in local_tool.dart)

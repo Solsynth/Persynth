@@ -1,11 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:synth_pet/personality/insight_chat_controller.dart';
-import 'package:synth_pet/personality/local_tool.dart';
-import 'package:synth_pet/personality/local_tools.dart';
-import 'package:synth_pet/personality/personality_api.dart';
-import 'package:synth_pet/personality/personality_network.dart';
+import 'package:persynth/personality/insight_chat_controller.dart';
+import 'package:persynth/personality/local_tool.dart';
+import 'package:persynth/personality/local_tools.dart';
+import 'package:persynth/personality/personality_api.dart';
+import 'package:persynth/personality/personality_network.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _agent = SnPersonalityAgent(id: 'a1', name: 'Michan', enabled: true);

@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart';
 import 'package:http/testing.dart';
 
-import 'package:synth_pet/personality/personality_service.dart';
+import 'package:persynth/personality/personality_service.dart';
 
 void main() {
   test('sends an OpenAI-compatible Personality Core chat request', () async {

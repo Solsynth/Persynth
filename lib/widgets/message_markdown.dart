@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:solar_network_foundation/solar_network_foundation.dart';
 
-import 'package:synth_pet/auth/solar_auth_service.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
 
 /// Sticker placeholder convention shared with Solar Network chat:
 /// `:pack-prefix+slug:`.

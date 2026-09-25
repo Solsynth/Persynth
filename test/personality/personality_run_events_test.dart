@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:synth_pet/personality/personality_api.dart';
+import 'package:persynth/personality/personality_api.dart';
 
 Stream<List<int>> _bytes(List<String> chunks) =>
     Stream.fromIterable(chunks.map(utf8.encode));

@@ -7,15 +7,15 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:synth_pet/auth/solar_auth_controller.dart';
-import 'package:synth_pet/auth/solar_auth_service.dart';
-import 'package:synth_pet/personality/local_tool.dart';
-import 'package:synth_pet/personality/mcp_client.dart';
-import 'package:synth_pet/personality/personality_api.dart';
-import 'package:synth_pet/personality/personality_network.dart';
-import 'package:synth_pet/router.dart';
-import 'package:synth_pet/screens/settings_page.dart';
-import 'package:synth_pet/theme/app_theme.dart';
+import 'package:persynth/auth/solar_auth_controller.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
+import 'package:persynth/personality/local_tool.dart';
+import 'package:persynth/personality/mcp_client.dart';
+import 'package:persynth/personality/personality_api.dart';
+import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/router.dart';
+import 'package:persynth/screens/settings_page.dart';
+import 'package:persynth/theme/app_theme.dart';
 
 const _agent = SnPersonalityAgent(id: 'a1', name: 'Michan', enabled: true);
 

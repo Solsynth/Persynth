@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import 'package:synth_pet/personality/local_tool.dart';
-import 'package:synth_pet/personality/mcp_client.dart';
-import 'package:synth_pet/personality/mcp_device_tools.dart';
+import 'package:persynth/personality/local_tool.dart';
+import 'package:persynth/personality/mcp_client.dart';
+import 'package:persynth/personality/mcp_device_tools.dart';
 
 /// A gateway that answers without a server, recording the calls it forwards.
 class _FakeGateway implements McpGateway {

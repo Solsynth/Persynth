@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:synth_pet/theme/app_theme.dart';
+import 'package:persynth/theme/app_theme.dart';
 
 /// The pet's face: an ASCII glyph set in the display face. Mochi is made of
 /// text, so the face is typography, drawn in ink on the island.

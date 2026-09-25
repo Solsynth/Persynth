@@ -105,7 +105,7 @@ class HttpMcpGateway implements McpGateway {
       // either up or not, and a dead one must fail a call in connectTimeout,
       // not hang it behind five back-off retries. The next call reconnects.
       config: McpClientConfig(
-        name: 'synth_pet',
+        name: 'persynth',
         version: '1.0.0',
         maxRetries: 1,
         requestTimeout: connectTimeout,

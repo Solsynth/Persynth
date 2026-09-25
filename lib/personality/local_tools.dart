@@ -1,18 +1,18 @@
 import 'package:dio/dio.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import 'package:synth_pet/personality/local_tool.dart';
-import 'package:synth_pet/personality/local_web_tools.dart';
-import 'package:synth_pet/personality/mcp_device_tools.dart';
-import 'package:synth_pet/personality/personality_network.dart';
+import 'package:persynth/personality/local_tool.dart';
+import 'package:persynth/personality/local_web_tools.dart';
+import 'package:persynth/personality/mcp_device_tools.dart';
+import 'package:persynth/personality/personality_network.dart';
 
 /// SharedPreferences key for the web tool set (`web_search_local`,
 /// `web_fetch_local`).
-const kLocalWebToolsStoreKey = 'synth_pet_local_tools_web';
+const kLocalWebToolsStoreKey = 'persynth_local_tools_web';
 
 /// SharedPreferences key for the device tool set (`mcp_read_file`,
 /// `mcp_list_dir`, `mcp_run_command`).
-const kLocalDeviceToolsStoreKey = 'synth_pet_local_tools_device';
+const kLocalDeviceToolsStoreKey = 'persynth_local_tools_device';
 
 /// Which on-device tool sets are switched on.
 ///

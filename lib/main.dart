@@ -7,10 +7,10 @@ import 'package:material_ui/material_ui.dart' as mui;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'package:synth_pet/personality/personality_network.dart';
-import 'package:synth_pet/router.dart';
-import 'package:synth_pet/shared/desktop_window_service.dart';
-import 'package:synth_pet/theme/app_theme.dart';
+import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/router.dart';
+import 'package:persynth/shared/desktop_window_service.dart';
+import 'package:persynth/theme/app_theme.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();

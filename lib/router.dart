@@ -1,8 +1,8 @@
 import 'package:auto_route/auto_route.dart';
 
-import 'package:synth_pet/screens/conversation_page.dart';
-import 'package:synth_pet/screens/pet_page.dart';
-import 'package:synth_pet/screens/settings_page.dart';
+import 'package:persynth/screens/conversation_page.dart';
+import 'package:persynth/screens/pet_page.dart';
+import 'package:persynth/screens/settings_page.dart';
 
 part 'router.gr.dart';
 

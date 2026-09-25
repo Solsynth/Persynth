@@ -2,15 +2,15 @@ import 'package:dio/dio.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:synth_pet/auth/solar_auth_controller.dart';
-import 'package:synth_pet/auth/solar_auth_service.dart';
-import 'package:synth_pet/personality/personality_api.dart';
+import 'package:persynth/auth/solar_auth_controller.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
+import 'package:persynth/personality/personality_api.dart';
 
 /// The default Personality Core server, matching the app's own API base.
 const kPersonalityServerDefault = 'https://api.solian.app';
 
 /// SharedPreferences key holding an overridden Personality server base URL.
-const kPersonalityServerStoreKey = 'synth_pet_personality_server_url';
+const kPersonalityServerStoreKey = 'persynth_personality_server_url';
 
 /// Overridden by the app (main.dart) and by tests with the mocked instance.
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {

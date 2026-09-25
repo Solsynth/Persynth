@@ -4,11 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:synth_pet/personality/local_tools.dart';
-import 'package:synth_pet/personality/mcp_client.dart';
-import 'package:synth_pet/personality/personality_network.dart';
-import 'package:synth_pet/screens/settings_page.dart';
-import 'package:synth_pet/theme/app_theme.dart';
+import 'package:persynth/personality/local_tools.dart';
+import 'package:persynth/personality/mcp_client.dart';
+import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/screens/settings_page.dart';
+import 'package:persynth/theme/app_theme.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

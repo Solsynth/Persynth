@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:synth_pet/pet/pet_behavior.dart';
+import 'package:persynth/pet/pet_behavior.dart';
 
 void main() {
   test('parses an AI reply and applies only supported behavior fields', () {

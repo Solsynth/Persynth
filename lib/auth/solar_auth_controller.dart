@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import 'package:synth_pet/auth/solar_auth_service.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
 
 /// One shared auth service instance. The secure-storage session is the single
 /// source of truth; this avoids constructing per-call instances and lets the

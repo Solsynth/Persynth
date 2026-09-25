@@ -5,12 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:speech_to_text/speech_to_text.dart';
-import 'package:synth_pet/auth/solar_auth_service.dart';
-import 'package:synth_pet/personality/personality_service.dart';
-import 'package:synth_pet/pet/pet_appearance_settings.dart';
-import 'package:synth_pet/pet/pet_behavior.dart';
-import 'package:synth_pet/theme/app_theme.dart';
-import 'package:synth_pet/widgets/pet_avatar.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
+import 'package:persynth/personality/personality_service.dart';
+import 'package:persynth/pet/pet_appearance_settings.dart';
+import 'package:persynth/pet/pet_behavior.dart';
+import 'package:persynth/theme/app_theme.dart';
+import 'package:persynth/widgets/pet_avatar.dart';
 import 'package:window_manager/window_manager.dart';
 
 // ---------------------------------------------------------------------------

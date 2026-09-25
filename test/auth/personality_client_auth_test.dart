@@ -3,8 +3,8 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:synth_pet/auth/solar_auth_service.dart';
-import 'package:synth_pet/personality/personality_network.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
+import 'package:persynth/personality/personality_network.dart';
 
 /// Serves canned [ResponseBody]s in order and records a snapshot of each
 /// request's headers (the retried request reuses the same options object, so

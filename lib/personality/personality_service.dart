@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
 
-import 'package:synth_pet/auth/solar_auth_service.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
 
 /// A pet agent's affection state for the signed-in account.
 class PetAffection {

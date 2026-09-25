@@ -8,13 +8,13 @@ import 'package:gap/gap.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:synth_pet/auth/solar_auth_controller.dart';
-import 'package:synth_pet/auth/solar_auth_service.dart';
-import 'package:synth_pet/personality/insight_chat_controller.dart';
-import 'package:synth_pet/personality/personality_api.dart';
-import 'package:synth_pet/personality/personality_service.dart';
-import 'package:synth_pet/router.dart';
-import 'package:synth_pet/widgets/message_markdown.dart';
+import 'package:persynth/auth/solar_auth_controller.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
+import 'package:persynth/personality/insight_chat_controller.dart';
+import 'package:persynth/personality/personality_api.dart';
+import 'package:persynth/personality/personality_service.dart';
+import 'package:persynth/router.dart';
+import 'package:persynth/widgets/message_markdown.dart';
 
 /// Insight: a live conversation with a personality agent, with the account's
 /// other threads in a responsive sidebar.

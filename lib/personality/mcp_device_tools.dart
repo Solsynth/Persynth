@@ -16,8 +16,8 @@ library;
 
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import 'package:synth_pet/personality/local_tool.dart';
-import 'package:synth_pet/personality/mcp_client.dart';
+import 'package:persynth/personality/local_tool.dart';
+import 'package:persynth/personality/mcp_client.dart';
 
 /// The prefix on every tool name that forwards to the daemon. The daemon's
 /// wire name is the prefix stripped.

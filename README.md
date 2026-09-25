@@ -1,4 +1,4 @@
-# synth_pet
+# persynth
 
 An Island-style Flutter desktop pet companion.
 

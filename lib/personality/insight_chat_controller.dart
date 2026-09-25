@@ -4,9 +4,9 @@ import 'package:collection/collection.dart';
 import 'package:dio/dio.dart'
     show CancelToken, DioException, DioExceptionType;
 import 'package:flutter/foundation.dart';
-import 'package:synth_pet/personality/local_tools.dart';
-import 'package:synth_pet/personality/personality_api.dart';
-import 'package:synth_pet/personality/personality_network.dart';
+import 'package:persynth/personality/local_tools.dart';
+import 'package:persynth/personality/personality_api.dart';
+import 'package:persynth/personality/personality_network.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'insight_chat_controller.g.dart';

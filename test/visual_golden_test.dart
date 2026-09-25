@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:synth_pet/main.dart';
+import 'package:persynth/main.dart';
 
 /// Registers a mock for the flutter_secure_storage platform channel so that
 /// the secure-storage reads in SolarAuthService return null instead of throwing.
