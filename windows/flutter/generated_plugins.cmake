@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_multi_window
   desktop_webview_window
+  flutter_js
   flutter_secure_storage_windows
   screen_retriever_windows
   speech_to_text_windows

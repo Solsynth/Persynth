@@ -11,11 +11,14 @@ import 'package:persynth/personality/local_tool.dart';
 
 /// The client-executed web tools, in the order the model sees them.
 ///
+/// The names are the app's own; the server puts them under its client
+/// namespace before the model sees them, so the model calls `local_web_search`.
+///
 /// [http] must be a bare client: these requests go to third-party engines and
 /// must not carry the app's `Authorization` header.
 List<SnLocalTool> buildLocalWebTools(Dio http) => [
   SnLocalTool(
-    name: 'web_search_local',
+    name: 'web_search',
     description:
         "Search the web from the user's own connection. Tries credential-free "
         'engines (Bing, DuckDuckGo, Mojeek) in order and returns the first one '
@@ -50,7 +53,7 @@ List<SnLocalTool> buildLocalWebTools(Dio http) => [
     execute: (arguments) => _webSearch(http, arguments),
   ),
   SnLocalTool(
-    name: 'web_fetch_local',
+    name: 'web_fetch',
     description:
         "Fetch one URL from the user's own connection and return its readable "
         'content: HTML becomes markdown with headings, lists and links kept, '

@@ -8,6 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/plugins/plugin.dart';
+import 'package:persynth/plugins/plugin_host.dart';
+import 'package:persynth/plugins/script_tools_api.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/shared/desktop_window_service.dart';
 import 'package:persynth/theme/app_theme.dart';
@@ -15,6 +18,15 @@ import 'package:persynth/theme/app_theme.dart';
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   final preferences = await SharedPreferences.getInstance();
+
+  // The script-plugin runtime starts before the app does, so the plugins the
+  // user has switched on are part of the registry from the first frame rather
+  // than appearing mid-session.
+  final scriptTools = ScriptToolsApi();
+  await initializePluginHost(
+    toolsApi: scriptTools,
+    isEnabled: (id) => preferences.getBool(pluginStoreKey(id)) ?? false,
+  );
 
   var isPetWindow = false;
   if (DesktopWindowFrame.isPlatformDesktop) {
@@ -49,7 +61,10 @@ Future<void> main(List<String> args) async {
 
   runApp(
     ProviderScope(
-      overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(preferences),
+        scriptToolsApiProvider.overrideWithValue(scriptTools),
+      ],
       child: MyApp(isPetWindow: isPetWindow),
     ),
   );

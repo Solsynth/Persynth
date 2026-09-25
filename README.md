@@ -41,6 +41,70 @@ flutter run \
   --dart-define=PERSONALITY_CORE_AGENT=agent
 ```
 
+## Plugins
+
+Everything the companion can do on this machine is a plugin: the on-device web
+tools, the MCP-backed file and shell tools, and any script plugin the user
+installs. A plugin owns three things — the tools the model may call, the system
+prompt text that explains them, and the settings switch the user grants it
+with. Nothing in the chat loop, the run request or the settings page names one:
+they all read `lib/plugins/plugin_registry.dart`, so adding a capability is one
+class plus one line in `kBuiltInPlugins`.
+
+A plugin that is switched off is not offered to the model at all, so the switch
+is a capability boundary rather than a refusal the model could argue past.
+
+### Eager and on-demand tools
+
+A plugin's tools ride on every run, or — if it sets `onDemand` — load only once
+the model asks for them by name, through `list_skills`. That is worth doing when
+a tool set is large or rarely used: its definitions cost context on every
+request whether or not they are called. `Files & commands` is on demand for
+exactly that reason.
+
+### Script plugins
+
+A plugin can also be JavaScript, run in its own sandbox by
+`island_plugin_foundation` (QuickJS), with its own permissions and a quarantine
+for one that crashes on load. Each lives in a folder with a `manifest.json` and
+an entry script:
+
+```
+my_plugin/
+  manifest.json
+  main.js
+```
+
+```javascript
+function on_load() {
+  agent_tools.register_tool(
+    "discount",
+    "Look up the discount on an order.",
+    '{"type":"object","properties":{"order":{"type":"string"}},"required":["order"]}',
+    "lookup_discount"
+  );
+}
+
+function lookup_discount(args) {
+  return { order: args.order, percent: 10 }; // objects go to the model as JSON
+}
+```
+
+Install one by copying the folder into the app's plugin directory
+(`{appSupport}/plugins`) and restarting; it appears in settings with its own
+switch. Handlers run synchronously, the same way the runtime's own commands and
+hooks do — a tool that needs the network should call a host API rather than
+fetch on its own.
+
+### Names
+
+Tool and skill names are the app's own (`web_search`, `discount`). The
+Personality server puts every caller-owned name under its client namespace
+before the model sees it — `local_web_search`, `local_discount` — which is what
+makes a client tool unable to shadow a server tool, and what lets the model
+tell which side a capability runs on. The namespace is the server's to add;
+applying it here too would double it.
+
 ## Development
 
 ```sh

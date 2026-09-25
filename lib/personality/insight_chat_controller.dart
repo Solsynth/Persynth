@@ -4,9 +4,10 @@ import 'package:collection/collection.dart';
 import 'package:dio/dio.dart'
     show CancelToken, DioException, DioExceptionType;
 import 'package:flutter/foundation.dart';
-import 'package:persynth/personality/local_tools.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/plugins/plugin.dart';
+import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'insight_chat_controller.g.dart';
@@ -162,6 +163,7 @@ class InsightChatController extends _$InsightChatController {
 
   void selectAgent(String agentId) {
     if (state.busy || agentId == state.agentId) return;
+    _forgetLoadedPlugins();
     _set(
       state.copyWith(
         agentId: agentId,
@@ -173,6 +175,7 @@ class InsightChatController extends _$InsightChatController {
 
   void newConversation() {
     if (state.busy) return;
+    _forgetLoadedPlugins();
     _set(
       state.copyWith(
         clearConversationId: true,
@@ -182,6 +185,12 @@ class InsightChatController extends _$InsightChatController {
     );
   }
 
+  /// A loaded plugin belongs to the conversation it was loaded in: the next
+  /// one starts with only what the user enabled, not with whatever the model
+  /// asked for while talking to a different agent.
+  void _forgetLoadedPlugins() =>
+      ref.read(activePluginsProvider.notifier).clear();
+
   void dismissError() => _set(state.copyWith(clearError: true));
 
   // ── Conversations ────────────────────────────────────────────────────────
@@ -189,6 +198,7 @@ class InsightChatController extends _$InsightChatController {
   /// Opens a persisted thread and replays its messages into the log.
   Future<void> openConversation(String conversationId) async {
     if (state.busy) return;
+    _forgetLoadedPlugins();
     try {
       final messages = await _api.listMessages(conversationId);
       if (_disposed) return;
@@ -280,16 +290,25 @@ class InsightChatController extends _$InsightChatController {
       _cancelToken = cancelToken;
       _set(state.copyWith(busy: true));
 
+      // The tools offered for this run. A call to `load_skill` can
+      // add to that set mid-run, so what is sent to resume the run is the
+      // difference against this — the tools the server has not seen yet.
+      final offeredTools = {
+        for (final tool in ref.read(pluginToolsProvider)) tool.name,
+      };
+
       await for (final event in _api.runConversation(
         conversationId: conversationId,
         message: content,
         attachmentIds: attachments,
-        clientTools: ref.read(localToolsProvider),
+        clientTools: ref.read(pluginToolsProvider),
+        clientSkills: ref.read(pluginSkillsProvider),
+        context: ref.read(pluginSystemPromptProvider),
         cancelToken: cancelToken,
       )) {
         if (_disposed) return;
         if (event is PersonalityToolCallClient) {
-          await _runClientTool(event, conversationId);
+          await _runClientTool(event, conversationId, offeredTools);
         } else {
           _handleEvent(event, turnId);
         }
@@ -313,12 +332,22 @@ class InsightChatController extends _$InsightChatController {
   /// The server has already persisted the assistant tool-call message and is
   /// waiting on the resume endpoint; the tool bubble renders here and the
   /// server's `tool_call.completed` event (after resume) finishes the trace.
+  ///
+  /// [offeredTools] is what this run has already been told about. Running a
+  /// tool can load a plugin — `load_skill` — so what the resume
+  /// carries is whatever the enabled set has gained since.
   Future<void> _runClientTool(
     PersonalityToolCallClient event,
     String conversationId,
+    Set<String> offeredTools,
   ) async {
-    final tools = ref.read(localToolsProvider);
-    final tool = tools.where((t) => t.name == event.name).firstOrNull;
+    // The model calls a client-owned tool under the server's namespace; the
+    // registry holds it under the name the app gave it.
+    final called = unnamespacedToolName(event.name);
+    final tools = ref.read(pluginToolsProvider);
+    final tool = called == null
+        ? null
+        : tools.where((t) => t.name == called).firstOrNull;
 
     String result;
     if (tool == null) {
@@ -331,6 +360,12 @@ class InsightChatController extends _$InsightChatController {
       }
     }
 
+    final additions = [
+      for (final candidate in ref.read(pluginToolsProvider))
+        if (!offeredTools.contains(candidate.name)) candidate,
+    ];
+    offeredTools.addAll(additions.map((tool) => tool.name));
+
     if (event.runId.isEmpty) return;
     try {
       await _api.submitClientToolResult(
@@ -338,6 +373,7 @@ class InsightChatController extends _$InsightChatController {
         runId: event.runId,
         toolCallId: event.id,
         result: result,
+        clientTools: additions,
       );
     } catch (error) {
       // The run may have already timed out server-side; surface the failure

@@ -51,6 +51,12 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/island_ui_foundation
+  # The JS plugin runtime: a user's script plugin lives in its own sandbox and
+  # contributes its tools to the companion through the API in lib/plugins.
+  island_plugin_foundation:
+    git:
+      url: https://src.solsynth.dev/SoSYS/Solian.git
+      path: packages/island_plugin_foundation
   solar_network_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git

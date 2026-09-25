@@ -6,9 +6,8 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:persynth/auth/solar_auth_controller.dart';
 import 'package:persynth/auth/solar_auth_service.dart';
-import 'package:persynth/personality/local_tools.dart';
-import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/screens/ai_console_tabs.dart';
 
 /// The pushed settings page: the account and server in General, with the AI
@@ -190,102 +189,61 @@ class _GeneralSettingsTab extends HookConsumerWidget {
           ),
         ),
         const SizedBox(height: 20),
-        _SectionHeader('Local tools'),
-        const _LocalToolsSection(),
+        _SectionHeader('Plugins'),
+        const _PluginsSection(),
       ],
     );
   }
 }
 
-/// The switches behind which the companion's on-device tools sit.
+/// The switches behind which the companion's on-device capabilities sit.
 ///
-/// Neither set is a server-side ability: the app runs the calls on this
-/// machine, so the switches are the whole permission model. The device set
-/// starts off and says plainly what turning it on grants.
-class _LocalToolsSection extends ConsumerWidget {
-  const _LocalToolsSection();
+/// A plugin's tools and its prompt text are not a server-side ability: the app
+/// runs the calls on this machine, so the switches are the whole permission
+/// model, and a plugin that is off is never offered to the model at all. Each
+/// plugin supplies its own title and its own account of what turning it on
+/// grants — including the script plugins, which were discovered rather than
+/// compiled in, and appear here without an edit.
+class _PluginsSection extends ConsumerWidget {
+  const _PluginsSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final settings = ref.watch(localToolSettingsProvider);
-    final notifier = ref.read(localToolSettingsProvider.notifier);
+    final plugins = ref.watch(pluginRegistryProvider);
+    final enabled = ref.watch(pluginEnablementProvider);
+    final notifier = ref.read(pluginEnablementProvider.notifier);
+
+    if (plugins.isEmpty) {
+      return const Card(
+        margin: EdgeInsets.zero,
+        child: ListTile(
+          title: Text('No plugins'),
+          subtitle: Text('This build has no companion capabilities to grant.'),
+        ),
+      );
+    }
 
     return Card(
       margin: EdgeInsets.zero,
       child: Column(
         children: [
-          SwitchListTile(
-            value: settings.web,
-            onChanged: notifier.setWeb,
-            title: const Text('Web search & fetch'),
-            subtitle: const Text(
-              'Runs web_search_local and web_fetch_local from this machine\'s '
-              'own connection instead of the server\'s.',
-            ),
-          ),
-          const Divider(height: 1),
-          SwitchListTile(
-            value: settings.device,
-            onChanged: notifier.setDevice,
-            title: const Text('Files & commands'),
-            subtitle: Text(
-              'Lets the companion read this machine\'s files and run shell '
-              'commands through the Persynth MCP daemon. Relative paths '
-              'resolve against your home directory. Anything your account can '
-              'do, it can do too.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+          for (final (index, plugin) in plugins.indexed) ...[
+            if (index > 0) const Divider(height: 1),
+            SwitchListTile(
+              value: enabled.contains(plugin.id),
+              onChanged: (value) => notifier.setEnabled(plugin.id, value),
+              title: Text(plugin.label),
+              subtitle: Text(
+                plugin.description,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
-          ),
-          const Divider(height: 1),
-          const _McpDaemonRow(),
+            ...plugin.settingsRows(ref),
+          ],
         ],
-      ),
-    );
-  }
-}
-
-/// Where the device tools actually run: the MCP daemon is a separate process
-/// because the app is sandboxed, so its reachability is the device set's
-/// lifeline. The row reports it and says how to start it; re-checking
-/// re-probes.
-class _McpDaemonRow extends ConsumerWidget {
-  const _McpDaemonRow();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final status = ref.watch(mcpDaemonStatusProvider);
-    final url = ref.watch(mcpDaemonUrlProvider);
-
-    final running = status.value?.reachable == true;
-    return ListTile(
-      leading: Icon(
-        running ? Symbols.dns_rounded : Symbols.link_off_rounded,
-        color: running
-            ? theme.colorScheme.primary
-            : theme.colorScheme.onSurfaceVariant,
-      ),
-      title: const Text('MCP daemon'),
-      subtitle: Text(
-        switch (status.value) {
-          McpDaemonStatus(reachable: true, toolCount: final count) =>
-            'Running on $url with $count tool${count == 1 ? '' : 's'} '
-                'available.',
-          McpDaemonStatus(reachable: false) =>
-            'Not running. Start it from tool/synthpet_mcp '
-                '(`dart run synthpet_mcp`) for Files & commands to work.',
-          null => 'Checking whether the daemon is running…',
-        },
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-      trailing: TextButton(
-        onPressed: () => ref.invalidate(mcpDaemonStatusProvider),
-        child: const Text('Check again'),
       ),
     );
   }

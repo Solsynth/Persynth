@@ -48,6 +48,27 @@ class SnPersonalityAgent {
       );
 }
 
+/// One capability the client can load on request.
+///
+/// Sent with every run so the server can offer it in `list_skills` next to its
+/// own skills — one catalogue for the model to ask about, whichever side of
+/// the wire the tools end up running on.
+@immutable
+class SnClientSkill {
+  const SnClientSkill({required this.name, required this.description});
+
+  /// The name the model activates it under, e.g. `local_device`.
+  final String name;
+
+  /// One line describing the capability, in the third person.
+  final String description;
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'description': description,
+  };
+}
+
 /// One persisted thread (`GET /personality/conversations`), newest first.
 @immutable
 class SnPersonalityConversation {
@@ -471,11 +492,19 @@ class PersonalityApi {
 
   /// Starts one assistant turn and relays its streamed events. [cancelToken]
   /// aborts the turn; the caller keeps whatever text already arrived.
+  ///
+  /// [context] is system prompt text the caller contributes for this run:
+  /// the server appends it after the agent's own prompt, so a client-side
+  /// capability can say what its tools mean without the deployment having to
+  /// know about it. [clientSkills] names the capabilities the caller could
+  /// still load, so the server's `list_skills` can offer them beside its own.
   Stream<PersonalityRunEvent> runConversation({
     required String conversationId,
     required String message,
     List<String> attachmentIds = const [],
     List<SnLocalTool> clientTools = const [],
+    List<SnClientSkill> clientSkills = const [],
+    List<String> context = const [],
     CancelToken? cancelToken,
   }) async* {
     final response = await _streamClient().post<ResponseBody>(
@@ -486,6 +515,9 @@ class PersonalityApi {
         if (attachmentIds.isNotEmpty) 'attachment_ids': attachmentIds,
         if (clientTools.isNotEmpty)
           'client_tools': [for (final tool in clientTools) tool.toOpenAiTool()],
+        if (clientSkills.isNotEmpty)
+          'client_skills': [for (final skill in clientSkills) skill.toJson()],
+        if (context.isNotEmpty) 'context': context,
       },
       cancelToken: cancelToken,
       options: Options(
@@ -506,16 +538,27 @@ class PersonalityApi {
   /// Resumes a streamed run paused on a client-owned tool call. The result
   /// string is persisted as a tool message and replayed on the run stream
   /// (`tool_call.completed`) exactly like a server tool result.
+  ///
+  /// [clientTools] are definitions to add to the run before it continues: what
+  /// a call to `load_skill` just made callable. The server keeps
+  /// them for the rest of the run, so a capability the model loaded mid-turn
+  /// is usable in the same turn instead of only from the next message.
   Future<void> submitClientToolResult({
     required String conversationId,
     required String runId,
     required String toolCallId,
     required String result,
+    List<SnLocalTool> clientTools = const [],
   }) async {
     await _client.post(
       '/personality/conversations/${Uri.encodeComponent(conversationId)}/runs/'
       '${Uri.encodeComponent(runId)}/tool-results',
-      data: {'tool_call_id': toolCallId, 'result': result},
+      data: {
+        'tool_call_id': toolCallId,
+        'result': result,
+        if (clientTools.isNotEmpty)
+          'client_tools': [for (final tool in clientTools) tool.toOpenAiTool()],
+      },
     );
   }
 }

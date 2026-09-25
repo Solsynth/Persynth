@@ -1,9 +1,11 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/mcp_client.dart';
-import 'package:persynth/personality/mcp_device_tools.dart';
+import 'package:persynth/plugins/device_tools_plugin.dart';
+import 'package:persynth/plugins/plugin.dart';
 
 /// A gateway that answers without a server, recording the calls it forwards.
 class _FakeGateway implements McpGateway {
@@ -41,11 +43,19 @@ class _FakeGateway implements McpGateway {
   void dispose() {}
 }
 
-List<SnLocalTool> _tools(ProviderContainer container) =>
-    container.read(mcpDeviceToolsProvider);
+/// The tools the device plugin offers when it is loaded, built through the
+/// context a plugin is handed.
+List<SnLocalTool> _tools(ProviderContainer container) => const DeviceToolsPlugin()
+    .buildTools(
+      SnPluginContext(
+        api: Dio(),
+        http: Dio(),
+        mcp: container.read(mcpGatewayProvider),
+      ),
+    );
 
 void main() {
-  test('offers the three device tools, mcp_-prefixed, in order', () {
+  test('offers the three device tools, in order, under plain names', () {
     final container = ProviderContainer(
       overrides: [mcpGatewayProvider.overrideWithValue(_FakeGateway())],
     );
@@ -53,11 +63,11 @@ void main() {
 
     expect(
       _tools(container).map((tool) => tool.name).toList(),
-      ['mcp_read_file', 'mcp_list_dir', 'mcp_run_command'],
+      ['read_file', 'list_dir', 'run_command'],
     );
   });
 
-  test('forwards each call to the daemon with the prefix stripped', () async {
+  test('forwards each call to the daemon under the daemon\'s own name', () async {
     final gateway = _FakeGateway();
     final container = ProviderContainer(
       overrides: [mcpGatewayProvider.overrideWithValue(gateway)],
@@ -67,15 +77,15 @@ void main() {
     final tools = {for (final tool in _tools(container)) tool.name: tool};
 
     expect(
-      await tools['mcp_read_file']!.execute({'path': 'x', 'max_chars': 500}),
+      await tools['read_file']!.execute({'path': 'x', 'max_chars': 500}),
       'result of read_file',
     );
     expect(
-      await tools['mcp_list_dir']!.execute({'path': 'y'}),
+      await tools['list_dir']!.execute({'path': 'y'}),
       'result of list_dir',
     );
     expect(
-      await tools['mcp_run_command']!.execute({'command': 'ls'}),
+      await tools['run_command']!.execute({'command': 'ls'}),
       'result of run_command',
     );
 

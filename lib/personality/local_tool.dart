@@ -6,9 +6,9 @@
 /// this — the web tools, the device tools — are switched on and off per set in
 /// settings, so only the enabled ones are ever offered to the model.
 ///
-/// A name must not collide with a server-owned tool (`web_search`,
-/// `web_fetch`, `list_files`, ...): the run is rejected rather than letting a
-/// local tool shadow the server's. Hence the `_local` suffixes.
+/// A name here is the app's own: the server puts every client-owned name under
+/// its client namespace before the model sees it, so a tool cannot shadow a
+/// server-owned one however it is named.
 class SnLocalTool {
   const SnLocalTool({
     required this.name,

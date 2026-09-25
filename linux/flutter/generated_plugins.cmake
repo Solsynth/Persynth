@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_multi_window
   desktop_webview_window
+  flutter_js
   flutter_secure_storage_linux
   screen_retriever_linux
   url_launcher_linux

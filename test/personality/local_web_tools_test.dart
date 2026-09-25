@@ -87,7 +87,7 @@ const _duckDuckGoResultHtml =
     '</div>';
 
 void main() {
-  group('web_search_local', () {
+  group('web_search', () {
     test('parses Bing HTML into the documented result list', () async {
       final adapter = _StubAdapter(
         (_) => const _StubResponse(
@@ -105,7 +105,7 @@ void main() {
         ),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final search = _tool(buildLocalWebTools(dio), 'web_search_local');
+      final search = _tool(buildLocalWebTools(dio), 'web_search');
 
       final text = await search.execute({'query': 'solian pets', 'limit': 3});
 
@@ -149,7 +149,7 @@ void main() {
         return const _StubResponse('', status: 404, statusMessage: 'Not Found');
       });
       final dio = Dio()..httpClientAdapter = adapter;
-      final search = _tool(buildLocalWebTools(dio), 'web_search_local');
+      final search = _tool(buildLocalWebTools(dio), 'web_search');
 
       final text = await search.execute({
         'query': 'solian pets',
@@ -202,7 +202,7 @@ void main() {
         );
       });
       final dio = Dio()..httpClientAdapter = adapter;
-      final search = _tool(buildLocalWebTools(dio), 'web_search_local');
+      final search = _tool(buildLocalWebTools(dio), 'web_search');
 
       final text = await search.execute({
         'query': 'zzzqxxq nosuchterm',
@@ -233,7 +233,7 @@ void main() {
         ),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final search = _tool(buildLocalWebTools(dio), 'web_search_local');
+      final search = _tool(buildLocalWebTools(dio), 'web_search');
 
       final text = await search.execute({'query': 'solian'});
 
@@ -245,14 +245,14 @@ void main() {
 
     test('requires a query', () async {
       final dio = Dio()..httpClientAdapter = _StubAdapter((_) => const _StubResponse(''));
-      final search = _tool(buildLocalWebTools(dio), 'web_search_local');
+      final search = _tool(buildLocalWebTools(dio), 'web_search');
 
       expect(await search.execute({}), 'Error: `query` is required.');
       expect(await search.execute({'query': '   '}), 'Error: `query` is required.');
     });
   });
 
-  group('web_fetch_local', () {
+  group('web_fetch', () {
     test('converts HTML to markdown with absolute links', () async {
       const html =
           '<html><head><title>Solian Pets</title>'
@@ -264,7 +264,7 @@ void main() {
           '<pre>code line</pre></body></html>';
       final adapter = _StubAdapter((_) => const _StubResponse(html));
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch_local');
+      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
 
       final text = await fetch.execute({
         'url': 'https://example.com/docs/page.html',
@@ -294,7 +294,7 @@ void main() {
         ),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch_local');
+      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
 
       final text = await fetch.execute({'url': 'https://api.example.com/data'});
 
@@ -310,7 +310,7 @@ void main() {
         (_) => const _StubResponse('<html><body>hi</body></html>'),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch_local');
+      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
 
       final text = await fetch.execute({
         'url': 'https://example.com/',
@@ -325,7 +325,7 @@ void main() {
         (_) => const _StubResponse('PNGBYTES', contentType: 'image/png'),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch_local');
+      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
 
       final text = await fetch.execute({'url': 'https://example.com/i.png'});
 
@@ -336,7 +336,7 @@ void main() {
     test('refuses non-http(s) and relative URLs', () async {
       final adapter = _StubAdapter((_) => const _StubResponse(''));
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch_local');
+      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
 
       const error = 'Error: `url` must be an absolute http(s) URL.';
       expect(await fetch.execute({'url': 'file:///etc/passwd'}), error);
@@ -351,7 +351,7 @@ void main() {
         (_) => _StubResponse('<p>${'a' * 2000}</p>'),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch_local');
+      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
 
       final text = await fetch.execute({
         'url': 'https://example.com/long',
@@ -367,7 +367,7 @@ void main() {
         ..httpClientAdapter = _ThrowingAdapter(
           const HandshakeException('CERTIFICATE_VERIFY_FAILED: self signed certificate'),
         );
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch_local');
+      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
 
       final text = await fetch.execute({'url': 'https://certs.example.com/page'});
 
@@ -388,7 +388,7 @@ void main() {
         ..httpClientAdapter = _ThrowingAdapter(
           const SocketException('Connection refused'),
         );
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch_local');
+      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
 
       final text = await fetch.execute({'url': 'https://down.example.com/'});
 
@@ -402,8 +402,8 @@ void main() {
     final tools = buildLocalWebTools(Dio());
 
     expect(tools.map((tool) => tool.name).toList(), [
-      'web_search_local',
-      'web_fetch_local',
+      'web_search',
+      'web_fetch',
     ]);
     for (final tool in tools) {
       final entry = tool.toOpenAiTool();

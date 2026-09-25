@@ -31,6 +31,8 @@ class _ScriptedApi extends PersonalityApi {
     required String message,
     List<String> attachmentIds = const [],
     List<SnLocalTool> clientTools = const [],
+    List<SnClientSkill> clientSkills = const [],
+    List<String> context = const [],
     CancelToken? cancelToken,
   }) => events.stream;
 }

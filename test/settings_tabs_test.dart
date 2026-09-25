@@ -4,9 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:persynth/personality/local_tools.dart';
 import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/plugins/device_tools_plugin.dart';
+import 'package:persynth/plugins/plugin_registry.dart';
+import 'package:persynth/plugins/web_tools_plugin.dart';
 import 'package:persynth/screens/settings_page.dart';
 import 'package:persynth/theme/app_theme.dart';
 
@@ -137,10 +139,10 @@ void main() {
       tester.element(find.byType(SettingsPage)),
     );
     List<String> offered() =>
-        container.read(localToolsProvider).map((tool) => tool.name).toList();
+        container.read(pluginToolsProvider).map((tool) => tool.name).toList();
 
-    // The web set is on out of the box; the device set is held back.
-    expect(offered(), ['web_search_local', 'web_fetch_local']);
+    // The web plugin is on out of the box; the device set is held back.
+    expect(offered(), ['web_search', 'web_fetch']);
 
     final device = find.widgetWithText(SwitchListTile, 'Files & commands');
     await tester.ensureVisible(device);
@@ -150,9 +152,11 @@ void main() {
     await tester.tap(device);
     await tester.pumpAndSettle();
 
-    expect(container.read(localToolSettingsProvider).device, isTrue);
-    expect(preferences.getBool(kLocalDeviceToolsStoreKey), isTrue);
-    expect(offered(), contains('mcp_run_command'));
+    expect(container.read(pluginEnablementProvider), contains('device'));
+    expect(preferences.getBool(const DeviceToolsPlugin().storeKey), isTrue);
+    // The device tools are on demand: switching the plugin on offers the way
+    // to load them, and loading is what puts them on the run.
+    expect(offered(), ['web_search', 'web_fetch', loadSkillToolName]);
 
     final web = find.widgetWithText(SwitchListTile, 'Web search & fetch');
     await tester.ensureVisible(web);
@@ -161,7 +165,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Only what is switched on is ever offered to the model.
-    expect(offered(), ['mcp_read_file', 'mcp_list_dir', 'mcp_run_command']);
-    expect(preferences.getBool(kLocalWebToolsStoreKey), isFalse);
+    expect(offered(), [loadSkillToolName]);
+    expect(preferences.getBool(const WebToolsPlugin().storeKey), isFalse);
   });
 }

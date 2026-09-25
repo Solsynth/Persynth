@@ -3,9 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:persynth/personality/insight_chat_controller.dart';
 import 'package:persynth/personality/local_tool.dart';
-import 'package:persynth/personality/local_tools.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/personality/mcp_client.dart';
+import 'package:persynth/plugins/plugin.dart';
+import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _agent = SnPersonalityAgent(id: 'a1', name: 'Michan', enabled: true);
@@ -13,8 +15,10 @@ const _agent = SnPersonalityAgent(id: 'a1', name: 'Michan', enabled: true);
 Future<String> _stubSearch(Map<String, dynamic> arguments) async =>
     'device result for ${arguments['query']}';
 
+/// A tool as a plugin registers it: under the app's own name. The server is
+/// what namespaces it, so nothing here mentions the namespace.
 final _stubTool = SnLocalTool(
-  name: 'web_search_local',
+  name: 'web_search',
   description: 'Executes on this device in tests.',
   parameters: const {
     'type': 'object',
@@ -29,11 +33,19 @@ final _stubTool = SnLocalTool(
 /// Streams one client-tool handoff (optionally for an unknown tool) and then a
 /// finished turn, recording what the controller asked the server to resume.
 class _HandoffApi extends PersonalityApi {
-  _HandoffApi({this.callName = 'web_search_local'}) : super(Dio());
+  /// The name the model calls, which is the namespaced one.
+  _HandoffApi({
+    this.callName = 'local_web_search',
+    this.callArguments = const {'query': 'duckdb'},
+  }) : super(Dio());
 
   final String callName;
+  final Map<String, dynamic> callArguments;
   List<SnLocalTool>? receivedClientTools;
+  List<SnClientSkill>? receivedClientSkills;
+  List<String>? receivedContext;
   final List<(String, String, String, String)> resumed = [];
+  final List<List<SnLocalTool>> resumedTools = [];
 
   @override
   Future<String> createConversation({
@@ -47,19 +59,23 @@ class _HandoffApi extends PersonalityApi {
     required String message,
     List<String> attachmentIds = const [],
     List<SnLocalTool> clientTools = const [],
+    List<SnClientSkill> clientSkills = const [],
+    List<String> context = const [],
     CancelToken? cancelToken,
   }) async* {
     receivedClientTools = clientTools;
+    receivedClientSkills = clientSkills;
+    receivedContext = context;
     yield PersonalityToolCallClient(
       runId: 'run-1',
       id: 'call-local',
       name: callName,
-      arguments: const {'query': 'duckdb'},
+      arguments: callArguments,
     );
-    yield const PersonalityToolCallCompleted(
+    yield PersonalityToolCallCompleted(
       id: 'call-local',
-      name: 'web_search_local',
-      arguments: {'query': 'duckdb'},
+      name: callName,
+      arguments: callArguments,
       result: 'Local search via Bing — 1 result(s)',
     );
     yield const PersonalityMessageDelta('Found it.');
@@ -72,9 +88,42 @@ class _HandoffApi extends PersonalityApi {
     required String runId,
     required String toolCallId,
     required String result,
+    List<SnLocalTool> clientTools = const [],
   }) async {
     resumed.add((conversationId, runId, toolCallId, result));
+    resumedTools.add(clientTools);
   }
+}
+
+/// A container over the real registry, so a run can load a plugin for real
+/// rather than through a stub tool list.
+ProviderContainer _pluginContainer(SharedPreferences prefs, _HandoffApi api) {
+  return ProviderContainer(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      personalityApiProvider.overrideWithValue(api),
+      personalityAgentsProvider.overrideWith((ref) async => [_agent]),
+      pluginContextProvider.overrideWith(
+        (ref) => SnPluginContext(
+          api: ref.watch(personalityApiClientProvider),
+          http: ref.watch(pluginHttpClientProvider),
+          mcp: _NoDaemon(),
+        ),
+      ),
+    ],
+  );
+}
+
+class _NoDaemon implements McpGateway {
+  @override
+  Future<List<McpDaemonTool>> listTools() async => const [];
+
+  @override
+  Future<String> callTool(String name, Map<String, dynamic> arguments) async =>
+      throw StateError('no daemon in this test');
+
+  @override
+  void dispose() {}
 }
 
 ProviderContainer _container(SharedPreferences prefs, _HandoffApi api) {
@@ -83,9 +132,21 @@ ProviderContainer _container(SharedPreferences prefs, _HandoffApi api) {
       sharedPreferencesProvider.overrideWithValue(prefs),
       personalityApiProvider.overrideWithValue(api),
       personalityAgentsProvider.overrideWith((ref) async => [_agent]),
-      localToolsProvider.overrideWithValue([_stubTool]),
+      pluginToolsProvider.overrideWithValue([_stubTool]),
     ],
   );
+}
+
+Future<(ProviderContainer, InsightChatController)> _launch(
+  _HandoffApi api,
+) async {
+  SharedPreferences.setMockInitialValues({});
+  final prefs = await SharedPreferences.getInstance();
+  final container = _container(prefs, api);
+  addTearDown(container.dispose);
+  final controller = container.read(insightChatControllerProvider.notifier);
+  controller.selectAgent('a1');
+  return (container, controller);
 }
 
 void main() {
@@ -95,28 +156,28 @@ void main() {
   });
 
   test('offers the on-device tools on every run', () async {
-    SharedPreferences.setMockInitialValues({});
-    final prefs = await SharedPreferences.getInstance();
     final api = _HandoffApi();
-    final container = _container(prefs, api);
-    addTearDown(container.dispose);
-    final controller = container.read(insightChatControllerProvider.notifier);
-    controller.selectAgent('a1');
+    final (_, controller) = await _launch(api);
 
     await controller.send('hello');
 
     expect(api.receivedClientTools, isNotNull);
-    expect(api.receivedClientTools!.map((t) => t.name), ['web_search_local']);
+    expect(api.receivedClientTools!.map((tool) => tool.name), ['web_search']);
+  });
+
+  test('sends the loaded plugins\' prompt text as the run context', () async {
+    final api = _HandoffApi();
+    final (_, controller) = await _launch(api);
+
+    await controller.send('hello');
+
+    expect(api.receivedContext, isNotNull);
+    expect(api.receivedContext!.single, contains('local_web_search'));
   });
 
   test('executes a client tool on this device and resumes the run', () async {
-    SharedPreferences.setMockInitialValues({});
-    final prefs = await SharedPreferences.getInstance();
     final api = _HandoffApi();
-    final container = _container(prefs, api);
-    addTearDown(container.dispose);
-    final controller = container.read(insightChatControllerProvider.notifier);
-    controller.selectAgent('a1');
+    final (container, controller) = await _launch(api);
 
     await controller.send('search duckdb');
 
@@ -126,6 +187,8 @@ void main() {
     expect(runId, 'run-1');
     expect(toolCallId, 'call-local');
     expect(result, 'device result for duckdb');
+    // Nothing was loaded by that call, so the resume adds no tools.
+    expect(api.resumedTools.single, isEmpty);
 
     // The trace renders and the server's completion finishes it.
     final state = container.read(insightChatControllerProvider);
@@ -140,19 +203,64 @@ void main() {
     expect(state.bubbles.last.text, 'Found it.');
   });
 
-  test('an unknown client tool becomes an error result, not a crash', () async {
-    SharedPreferences.setMockInitialValues({});
-    final prefs = await SharedPreferences.getInstance();
-    final api = _HandoffApi(callName: 'nope_local');
-    final container = _container(prefs, api);
-    addTearDown(container.dispose);
-    final controller = container.read(insightChatControllerProvider.notifier);
-    controller.selectAgent('a1');
+  test('a namespaced tool the app does not have becomes an error result', () async {
+    final api = _HandoffApi(callName: '${kLocalToolNamespace}nope');
+    final (_, controller) = await _launch(api);
 
     await controller.send('do the thing');
 
     expect(api.resumed, hasLength(1));
     expect(api.resumed.single.$4, contains('unknown tool'));
-    expect(api.resumed.single.$4, contains('nope_local'));
+    expect(api.resumed.single.$4, contains('nope'));
+  });
+
+  test('a plugin loaded mid-run is handed to the server on resume', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    // The model loads the device set: the call arrives under the server's
+    // namespace, and the skill is the one the registry advertises.
+    final api = _HandoffApi(
+      callName: '${kLocalToolNamespace}load_skill',
+      callArguments: const {'skill': 'local_device'},
+    );
+    final container = _pluginContainer(prefs, api);
+    addTearDown(container.dispose);
+    await container
+        .read(pluginEnablementProvider.notifier)
+        .setEnabled('device', true);
+    final controller = container.read(insightChatControllerProvider.notifier);
+    controller.selectAgent('a1');
+
+    // Before loading, the device tools are not offered at all.
+    final offeredBefore = api.receivedClientTools;
+    await controller.send('what is on this machine');
+
+    expect(offeredBefore, isNull, reason: 'the fake answers only once');
+    expect(
+      api.receivedClientTools!.map((tool) => tool.name),
+      contains(loadSkillToolName),
+    );
+
+    // Loading happened here, and the resume is what tells the server so: the
+    // tools it just made callable ride with the result.
+    expect(api.resumedTools, hasLength(1));
+    expect(api.resumedTools.single.map((tool) => tool.name), [
+      'read_file',
+      'list_dir',
+      'run_command',
+    ]);
+    expect(api.resumed.single.$4, contains('"ok":true'));
+  });
+
+  test('a server-owned name is never treated as a client tool', () async {
+    // The namespace is the whole of the routing decision: a call without it
+    // belongs to the server, so the app must not answer it.
+    final api = _HandoffApi(callName: 'web_search');
+    final (_, controller) = await _launch(api);
+
+    await controller.send('look it up');
+
+    expect(api.resumed, hasLength(1));
+    expect(api.resumed.single.$4, contains('unknown tool'));
   });
 }
