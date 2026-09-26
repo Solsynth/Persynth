@@ -91,6 +91,23 @@ Future<void> main(List<String> arguments) async {
     const _Route('POST', '/metoer/notifications/all/read', 'notifications.mark_all_notifications_read'),
     const _Route('GET', '/wallet/wallets', 'wallet.read_wallet'),
     const _Route('GET', '/wallet/wallets/stats?period=30&currencies=points', 'wallet.wallet_stats'),
+    const _Route('GET', '/postal/mailboxes', 'mail.read_mailbox'),
+    const _Route('GET', '/postal/emails?offset=0&take=1', 'mail.read_mail'),
+    const _Route('GET', '/postal/emails?mailbox_id=$noRoom&folder=inbox&is_read=false&take=1', 'mail.unread_mail'),
+    _Route('GET', '/postal/emails/$noRoom', 'mail.read_email'),
+    const _Route('POST', '/postal/emails', 'mail.send_email'),
+    _Route('POST', '/postal/emails/$noRoom/read', 'mail.mark_mail'),
+    _Route('POST', '/postal/emails/$noRoom/unread', 'mail.mark_mail'),
+    _Route('POST', '/postal/emails/$noRoom/star', 'mail.mark_mail'),
+    _Route('POST', '/postal/emails/$noRoom/unstar', 'mail.mark_mail'),
+    _Route('POST', '/postal/emails/$noRoom/move', 'mail.move_mail'),
+    const _Route('GET', '/ideask/broads', 'boards.list_boards'),
+    _Route('GET', '/ideask/broads/$noRoom/tasks', 'boards.list_tasks'),
+    _Route('GET', '/ideask/tasks/$noRoom', 'boards.read_task'),
+    _Route('POST', '/ideask/broads/$noRoom/tasks', 'boards.create_task'),
+    _Route('PATCH', '/ideask/tasks/$noRoom', 'boards.update_task'),
+    _Route('GET', '/ideask/tasks/$noRoom/comments', 'boards.list_task_comments'),
+    _Route('POST', '/ideask/tasks/$noRoom/comments', 'boards.add_task_comment'),
   ];
 
   var missing = 0;
@@ -133,9 +150,7 @@ Future<String?> _samplePost(HttpClient client) async {
 Future<int> _status(HttpClient client, _Route route) async {
   try {
     final uri = Uri.parse('$_base${route.path}');
-    final request = route.method == 'GET'
-        ? await client.getUrl(uri)
-        : await client.postUrl(uri);
+    final request = await client.openUrl(route.method, uri);
     if (route.method != 'GET') {
       request.headers.contentType = ContentType.json;
       request.write('{}');

@@ -29,8 +29,10 @@ import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/plugins/agenda_plugin.dart';
+import 'package:persynth/plugins/boards_plugin.dart';
 import 'package:persynth/plugins/chat_plugin.dart';
 import 'package:persynth/plugins/device_tools_plugin.dart';
+import 'package:persynth/plugins/mail_plugin.dart';
 import 'package:persynth/plugins/notifications_plugin.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_host.dart';
@@ -63,6 +65,8 @@ const List<SnPlugin> kBuiltInPlugins = [
   RitualPlugin(),
   ProfilePlugin(),
   WalletPlugin(),
+  MailPlugin(),
+  BoardsPlugin(),
 ];
 
 /// The plugins this build offers: the compiled-in ones, then the script

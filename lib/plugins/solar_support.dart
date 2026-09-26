@@ -59,6 +59,25 @@ Future<Object?> solarGet(
   return response.data;
 }
 
+/// One GET that keeps the response, for the listing endpoints that count
+/// their pages in the `X-Total` header rather than the payload.
+Future<Response<Object?>> solarGetResponse(
+  Dio dio,
+  String path, {
+  Map<String, dynamic>? query,
+}) =>
+    dio.get<Object?>(
+      path,
+      queryParameters: _withoutBlanks(query),
+    );
+
+/// The page count a listing carries in its `X-Total` header, if any.
+///
+/// A service that pages by header tells a reader how many items there are in
+/// all; without it the last page would read like the whole mailbox.
+int solarTotal(Response<Object?> response) =>
+    int.tryParse(response.headers.value('x-total') ?? '') ?? 0;
+
 /// One POST against the gateway, over the app's authenticated connection.
 Future<Object?> solarPost(
   Dio dio,
@@ -73,6 +92,25 @@ Future<Object?> solarPost(
   );
   return response.data;
 }
+
+/// One PATCH against the gateway, over the app's authenticated connection.
+///
+/// A partial update sends only the fields the caller named; the accessors are
+/// what keep a field the model left out out of the body.
+Future<Object?> solarPatch(
+  Dio dio,
+  String path, {
+  Map<String, dynamic>? query,
+  Object? body,
+}) async {
+  final response = await dio.patch<Object?>(
+    path,
+    queryParameters: _withoutBlanks(query),
+    data: body,
+  );
+  return response.data;
+}
+
 
 Map<String, dynamic>? _withoutBlanks(Map<String, dynamic>? query) {
   if (query == null || query.isEmpty) return null;

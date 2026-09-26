@@ -100,6 +100,8 @@ not one the app assumes.
 | Daily rituals | `ritual` | `daily_fortune`, `today_check_in`, `check_in` | every run |
 | Profile & standing | `profile` | `whoami`, `read_account`, `social_credits`, `achievements` | on demand |
 | Wallet | `wallet` | `read_wallet`, `wallet_stats` | on demand |
+| Mail | `mail` | `read_mailbox`, `read_mail`, `read_email`, `unread_mail`, `send_email`, `mark_mail`, `move_mail` | on demand |
+| Boards | `boards` | `list_boards`, `list_tasks`, `read_task`, `create_task`, `update_task`, `list_task_comments`, `add_task_comment` | on demand |
 
 The tool names above are what the plugin calls them. The model reads them under
 the server's `local_` prefix, like every other caller-owned name.
