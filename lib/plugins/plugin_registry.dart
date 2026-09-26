@@ -24,8 +24,6 @@ import 'dart:convert';
 import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:solar_network_sdk/solar_network_sdk.dart';
-
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/personality/personality_api.dart';
@@ -86,17 +84,11 @@ final pluginHttpClientProvider = Provider<Dio>((ref) {
 });
 
 /// Everything a plugin is built from, resolved once.
-///
-/// The Solar Network client shares the Personality client's Dio rather than
-/// building its own: one connection pool, and — the reason it matters — one
-/// place the account token is attached and refreshed, so a plugin call cannot
-/// drift into using a stale token the rest of the app has already rotated.
 final pluginContextProvider = Provider<SnPluginContext>(
   (ref) => SnPluginContext(
     api: ref.watch(personalityApiClientProvider),
     http: ref.watch(pluginHttpClientProvider),
     mcp: ref.watch(mcpGatewayProvider),
-    solar: SolarNetworkClient.fromDio(ref.watch(personalityApiClientProvider)),
   ),
 );
 

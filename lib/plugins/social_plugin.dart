@@ -3,7 +3,7 @@
 /// Reads the timeline, a single thread, a profile, and a search; writes posts,
 /// replies and reactions. This is the plugin the rest of the Solar-backed set
 /// is written against: one `solarToolResult` call per body, one projection
-/// helper per model, and a prompt fragment that says what the tools are for
+/// helper per shape, and a prompt fragment that says what the tools are for
 /// rather than repeating what each description already says.
 ///
 /// Reads and writes live in one plugin because they are one grant. The user
@@ -14,8 +14,6 @@
 /// companion reaches for the timeline in bursts, not constantly. The prompt
 /// fragment below is only sent once the model has loaded the set.
 library;
-
-import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/plugins/plugin.dart';
@@ -30,6 +28,13 @@ const int _postChars = 600;
 /// The most a `reaction` argument may be, counted in runes: one emoji, plus
 /// room for a variation selector or a short zero-width-joiner sequence.
 const int _maxReactionRunes = 8;
+
+/// The attitude the server files a reaction under.
+///
+/// It tracks a reaction by whether it is praise, and the app only ever offers
+/// the emoji — a reader takes a reaction at face value rather than as a vote,
+/// so one that arrives without an attitude is filed as positive.
+const int _positiveAttitude = 0;
 
 class SocialPlugin extends SnPlugin {
   const SocialPlugin();
@@ -74,7 +79,7 @@ class SocialPlugin extends SnPlugin {
 
   @override
   List<SnLocalTool> buildTools(SnPluginContext context) {
-    final sphere = context.solar.sphere;
+    final dio = context.api;
     return [
       SnLocalTool(
         name: 'read_timeline',
@@ -92,16 +97,22 @@ class SocialPlugin extends SnPlugin {
           },
         },
         execute: (arguments) => solarToolResult(() async {
-          final page = await sphere.getHomeTimeline(take: solarTake(arguments));
-          return _page(page);
+          final page = await solarGet(
+            dio,
+            '/sphere/timeline',
+            query: {'offset': 0, 'take': solarTake(arguments)},
+          );
+          return {
+            'posts': [for (final post in solarPage(page)) _post(post)],
+          };
         }),
       ),
       SnLocalTool(
         name: 'read_post',
         description:
             'One Solar Network post and its replies: the full conversation '
-            'around a post id. Returns the post itself, the replies newest '
-            'first, and how many replies exist in total.',
+            'around a post id. Returns the post itself and its replies, '
+            'newest first.',
         parameters: {
           'type': 'object',
           'properties': {
@@ -118,16 +129,17 @@ class SocialPlugin extends SnPlugin {
         },
         execute: (arguments) => solarToolResult(() async {
           final postId = solarText(arguments, 'post_id');
-          if (postId == null) return _missing('post_id');
-          final post = await sphere.getPost(postId);
-          final replies = await sphere.getPostReplies(
-            postId: postId,
-            take: solarTake(arguments),
+          if (postId == null) return solarMissing('post_id');
+          final post = await solarGet(dio, '/sphere/posts/$postId');
+          if (post == null) return {'error': 'There is no post $postId.'};
+          final replies = await solarGet(
+            dio,
+            '/sphere/posts/$postId/replies',
+            query: {'offset': 0, 'take': solarTake(arguments)},
           );
           return {
             'post': _post(post),
-            'replies': replies.items.map(_post).toList(),
-            'replies_total': replies.totalCount,
+            'replies': [for (final reply in solarPage(replies)) _post(reply)],
           };
         }),
       ),
@@ -153,12 +165,17 @@ class SocialPlugin extends SnPlugin {
         },
         execute: (arguments) => solarToolResult(() async {
           final query = solarText(arguments, 'query');
-          if (query == null) return _missing('query');
-          final page = await sphere.searchPosts(
-            query: query,
-            take: solarTake(arguments),
+          if (query == null) return solarMissing('query');
+          final page = await solarGet(
+            dio,
+            '/sphere/posts',
+            // The parameter is `query`: `q` belongs to the search service the
+            // SDK assumed, which this endpoint is not.
+            query: {'query': query, 'offset': 0, 'take': solarTake(arguments)},
           );
-          return _page(page);
+          return {
+            'posts': [for (final post in solarPage(page)) _post(post)],
+          };
         }),
       ),
       SnLocalTool(
@@ -183,25 +200,27 @@ class SocialPlugin extends SnPlugin {
         },
         execute: (arguments) => solarToolResult(() async {
           final username = solarText(arguments, 'username');
-          if (username == null) return _missing('username');
-          final results = await Future.wait([
-            sphere.getPublisher(username),
-            sphere.getPublisherPosts(
-              username: username,
-              take: solarTake(arguments),
-            ),
-          ]);
-          final publisher = results[0] as SnPublisher;
-          final posts = results[1] as PaginatedResult<SnPost>;
+          if (username == null) return solarMissing('username');
+          final encoded = Uri.encodeComponent(username);
+          final publisher = await solarGet(dio, '/sphere/publishers/$encoded');
+          if (publisher == null) {
+            return {'error': 'There is no publisher "$username".'};
+          }
+          // A publisher's posts are the post listing filtered, not a route of
+          // their own: `/publishers/{name}/posts` does not exist.
+          final posts = await solarGet(
+            dio,
+            '/sphere/posts',
+            query: {'pub': username, 'offset': 0, 'take': solarTake(arguments)},
+          );
           return {
-            'publisher': {
-              'username': publisher.name,
-              'display_name': publisher.nick,
-              'bio': solarClip(publisher.bio, limit: 300),
-              'rating': publisher.rating,
-            },
-            'posts': posts.items.map(_post).toList(),
-            'posts_total': posts.totalCount,
+            'publisher': solarCompact({
+              'username': solarString(publisher, 'name'),
+              'display_name': solarString(publisher, 'nick'),
+              'bio': solarClip(solarString(publisher, 'bio'), limit: 300),
+              'rating': solarNumber(publisher, 'rating'),
+            }),
+            'posts': [for (final post in solarPage(posts)) _post(post)],
           };
         }),
       ),
@@ -226,8 +245,10 @@ class SocialPlugin extends SnPlugin {
         },
         execute: (arguments) => solarToolResult(() async {
           final content = solarText(arguments, 'content');
-          if (content == null) return _missing('content');
-          return _post(await sphere.createPost(content: content));
+          if (content == null) return solarMissing('content');
+          return _post(
+            await solarPost(dio, '/sphere/posts', body: {'content': content}),
+          );
         }),
       ),
       SnLocalTool(
@@ -253,10 +274,16 @@ class SocialPlugin extends SnPlugin {
         execute: (arguments) => solarToolResult(() async {
           final postId = solarText(arguments, 'post_id');
           final content = solarText(arguments, 'content');
-          if (postId == null) return _missing('post_id');
-          if (content == null) return _missing('content');
+          if (postId == null) return solarMissing('post_id');
+          if (content == null) return solarMissing('content');
+          // A reply is a post that names its parent: `POST /posts/{id}/replies`
+          // is a read route and answers 405 to a write.
           return _post(
-            await sphere.createReply(postId: postId, content: content),
+            await solarPost(
+              dio,
+              '/sphere/posts',
+              body: {'content': content, 'repliedPostId': postId},
+            ),
           );
         }),
       ),
@@ -282,12 +309,16 @@ class SocialPlugin extends SnPlugin {
         execute: (arguments) => solarToolResult(() async {
           final postId = solarText(arguments, 'post_id');
           final reaction = solarText(arguments, 'reaction');
-          if (postId == null) return _missing('post_id');
-          if (reaction == null) return _missing('reaction');
+          if (postId == null) return solarMissing('post_id');
+          if (reaction == null) return solarMissing('reaction');
           if (reaction.runes.length > _maxReactionRunes) {
             return {'error': 'A reaction is one emoji, not "$reaction".'};
           }
-          await sphere.addReaction(postId: postId, reactionType: reaction);
+          await solarPost(
+            dio,
+            '/sphere/posts/$postId/reactions',
+            body: {'symbol': reaction, 'attitude': _positiveAttitude},
+          );
           return {'ok': true, 'post_id': postId, 'reaction': reaction};
         }),
       ),
@@ -297,9 +328,9 @@ class SocialPlugin extends SnPlugin {
   @override
   List<String> systemPrompt(SnPluginContext context) => const [
     'The user\'s Solar Network social tools are loaded: local_read_timeline, '
-    'local_read_post, local_search_posts, local_read_profile, local_create_post, '
-    'local_reply_to_post and local_react_to_post. They run as the signed-in '
-    'user on their own connection.',
+    'local_read_post, local_search_posts, local_read_profile, '
+    'local_create_post, local_reply_to_post and local_react_to_post. They run '
+    'as the signed-in user on their own connection.',
     'Posting, replying and reacting are visible to other people and attributed '
     'to the user by name. Offer to do them; do them when asked. Never invent '
     'the text of a post or a reply — write only what the user said, and ask for '
@@ -307,46 +338,37 @@ class SocialPlugin extends SnPlugin {
   ];
 }
 
-/// One page of posts, as the model reads it.
-Map<String, dynamic> _page(PaginatedResult<SnPost> page) => {
-  'posts': page.items.map(_post).toList(),
-  'total': page.totalCount,
-};
-
 /// One post projected to the fields that carry meaning.
 ///
 /// A post embeds its author, its own parent, its forwarded original and its
 /// collections; serializing it whole would spend the context window on one
-/// item, so only what a reader needs is kept.
-Map<String, dynamic> _post(SnPost post) => {
-  'id': post.id,
-  'author': post.publisher?.nick.isNotEmpty == true
-      ? post.publisher!.nick
-      : post.publisher?.name,
-  'username': post.publisher?.name,
-  'posted_at': solarStamp(post.publishedAt ?? post.createdAt),
-  'content': solarClip(post.content, limit: _postChars),
-  'replies': post.repliesCount,
-  'reactions': post.reactionsCount,
-  'tags': post.tags.map((tag) => tag.slug).toList(),
-  'replied_to': post.repliedPostId,
+/// item, so only what a reader needs is kept — and a field the wire stops
+/// sending is a missing value here, not a failure.
+Map<String, dynamic> _post(Object? json) {
+  final publisher = solarMap(json, 'publisher');
+  return solarCompact({
+    'id': solarString(json, 'id'),
+    'author':
+        solarString(publisher, 'nick') ?? solarString(publisher, 'name'),
+    'username': solarString(publisher, 'name'),
+    'posted_at':
+        solarTimeField(json, 'published_at') ??
+        solarTimeField(json, 'created_at'),
+    'content': solarClip(solarString(json, 'content'), limit: _postChars),
+    'replies': solarInt(json, 'replies_count'),
+    'reactions': solarMap(json, 'reactions_count'),
+    'tags': _tags(json),
+    'replied_to': solarString(json, 'replied_post_id'),
+  });
 }
-  // A post carries a dozen optional fields and the wire fills them with
-  // zeroes, empty maps and empty lists. The model reads a post once; every
-  // `"reactions": {}` it does not need is context spent on nothing.
-  ..removeWhere(
-    (_, value) =>
-        value == null ||
-        (value is num && value == 0) ||
-        (value is String && value.isEmpty) ||
-        (value is Iterable && value.isEmpty) ||
-        (value is Map && value.isEmpty),
-  );
 
-/// A blank or absent required argument, reported so the model can retry.
+/// A post's tags, however this service spells them.
 ///
-/// Returning this rather than throwing keeps a malformed call a turn the model
-/// can fix, instead of a tool that appears broken.
-Map<String, dynamic> _missing(String argument) => {
-  'error': 'The "$argument" argument is required.',
-};
+/// The listing has carried them as objects with a slug and as bare strings;
+/// a reader wants the names either way.
+List<String> _tags(Object? json) => [
+  for (final tag in solarList(json, 'tags'))
+    ?(tag is Map
+        ? solarString(tag, 'slug') ?? solarString(tag, 'name')
+        : solarString({'tag': tag}, 'tag')),
+];

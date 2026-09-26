@@ -1,36 +1,47 @@
-/// The user's own Solar Network calendar, as tools.
+/// The user's Solar Network calendar, as tools.
 ///
-/// Reads a month of events and the next notable day, and adds an event.
-/// Reading and writing are one grant for the same reason the social plugin
-/// keeps them together: switching this on says "this assistant may look at my
-/// calendar and act on it", and a second switch for the write would suggest
-/// the read is harmless.
+/// Reads a month's events and the notable days coming up, and adds an event.
+/// It runs on demand: the companion is asked what is on the calendar now and
+/// then, not constantly, and its definitions are worth little on a run that
+/// never mentions a date.
 ///
-/// Eager: three short definitions, and "what does my week look like" is a
-/// question asked without preamble, so the tools ride on every run.
+/// ## Two endpoints that are not what they look like
 ///
-/// The month comes from the per-day calendar endpoint rather than the merged
-/// one. The SDK's merged model declares `merged_events[].type` as a string
-/// where the service emits the enum's number, so a month that contains
-/// anything at all fails to parse before a plugin can project it. The per-day
-/// response is the one the app's own calendar screen reads, and it carries the
-/// same events.
+/// `calendar/merged` is the month view the app's own calendar screen reads, and
+/// it answers with one object holding the month's events rather than a day
+/// keyed by date. Its `merged_events` carry a `type` that the service writes as
+/// the enum's number, which is why nothing here parses that field as a word.
+///
+/// Notable days are a **global, anonymous list** — there is no per-account
+/// "next notable day" endpoint anywhere, and the client used to ask one that
+/// does not exist. A client that got a 404 back turned it into `null` and
+/// answered "no notable day" forever, which is the kind of wrong answer that is
+/// worse than an error. The tool computes the next one from the list instead,
+/// and says whose calendar that list is.
 library;
-
-import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/solar_support.dart';
 
-/// How many characters of an event description the model is given.
-///
-/// Long enough for directions or an agenda in full, short enough that a
-/// pasted document does not crowd out the rest of the calendar.
-const int _descriptionChars = 400;
+/// How much of an event's note the model is given.
+const int _noteChars = 300;
 
-/// How many characters of an event location the model is given.
-const int _locationChars = 200;
+/// The region the notable-day list is read for.
+///
+/// The endpoint defaults to `CN` and the seeded days are Chinese; the request
+/// names it rather than relying on a default that could change under us.
+const String _region = 'CN';
+
+/// The `CalendarEventType` the service numbers its merged events with.
+///
+/// The wire carries the number, so the reader is told what it means.
+const Map<int, String> _kindByType = {
+  0: 'user_event',
+  1: 'check_in',
+  2: 'status',
+  3: 'notable_day',
+};
 
 class AgendaPlugin extends SnPlugin {
   const AgendaPlugin();
@@ -50,123 +61,126 @@ class AgendaPlugin extends SnPlugin {
 
   @override
   List<SnLocalTool> buildTools(SnPluginContext context) {
-    final accounts = context.solar.accounts;
+    final dio = context.api;
     return [
       SnLocalTool(
         name: 'read_agenda',
         description:
-            'The user\'s Solar Network calendar for one month: the events on '
-            'it, in date order, with their times, locations and notes. It '
-            'includes what friends and accounts they subscribe to have shared '
-            'with them, so an event may not be theirs to change. Defaults to '
-            'the current month when no year or month is given. Times are UTC.',
+            'What is on the user\'s Solar Network calendar for a month: their '
+            'own events, and the notable days that fall in it. Defaults to the '
+            'current month and year.',
         parameters: {
           'type': 'object',
           'properties': {
             'year': {
               'type': 'integer',
-              'description': 'The year to read (default: the current year).',
+              'description': 'The year to read, e.g. 2026.',
             },
             'month': {
               'type': 'integer',
-              'description':
-                  'The month to read, 1-12 (default: the current month).',
+              'description': 'The month to read, 1-12.',
             },
           },
         },
         execute: (arguments) => solarToolResult(() async {
           final month = _month(arguments);
           if (month == null) {
-            return {
-              'error': 'The "month" argument must be a number from 1 to 12.',
-            };
+            return {'error': 'The "month" argument must be 1-12.'};
           }
           final year = _year(arguments);
           if (year == null) {
-            return {'error': 'The "year" argument must be a year as a number.'};
+            return {'error': 'The "year" argument must be a positive year.'};
           }
-          final days = await accounts.getEventCalendar(
-            year: year,
-            month: month,
+          final body = await solarGet(
+            dio,
+            '/passport/accounts/me/calendar/merged',
+            query: {'year': year, 'month': month},
           );
-          return {
-            'year': year,
-            'month': month,
-            'events': [
-              for (final day in days)
-                for (final event in day.userEvents) _event(event),
-            ],
-          };
+          // The events list is kept even when empty: "nothing on that month"
+          // is what the caller asked, and an omitted key reads as unknown.
+          return {'year': year, 'month': month, 'events': _events(body)};
         }),
       ),
       SnLocalTool(
         name: 'next_notable_day',
         description:
-            'The next holiday or notable day on the user\'s Solar Network '
-            'calendar: its date and name, in the region their account is set '
-            'to. Answers with nothing when there is none, which is not a '
-            'failure.',
+            'The next notable day (holiday or observance) coming up in the '
+            'user\'s region, and how many days away it is. Reads the global '
+            'list for $_region; the user may observe different days than the '
+            'list holds.',
         parameters: {'type': 'object', 'properties': <String, dynamic>{}},
         execute: (arguments) => solarToolResult(() async {
-          // `getNextNotableDay` answers null for every failure, a session that
-          // has expired included, so "there is none" and "the call did not
-          // land" read the same here. The tool still answers rather than
-          // erroring: having no notable day ahead is a normal answer, and the
-          // model can read the calendar itself when it needs to be sure.
-          final day = await accounts.getNextNotableDay();
-          return {'notable_day': day == null ? null : _notableDay(day)};
+          final now = DateTime.now().toUtc();
+          final body = await solarGet(
+            dio,
+            '/passport/notable-days',
+            // The list is per year and mixes recurring entries; a year of
+            // headroom is what covers "the next one" across a year boundary.
+            query: {'region': _region, 'year': now.year, 'take': 50},
+          );
+          final upcoming = _upcomingNotableDays(body, now);
+          return {'notable_day': upcoming.isEmpty ? null : upcoming.first};
         }),
       ),
       SnLocalTool(
         name: 'create_event',
         description:
-            'Adds an event to the user\'s Solar Network calendar. It lands on '
-            'their real calendar, so it appears on every device they are '
-            'signed in on and other people they share it with. Timestamps are '
-            'ISO-8601, e.g. "2026-09-21T09:00:00+08:00".',
+            'Adds an event to the user\'s Solar Network calendar. It is their '
+            'real calendar, so the event shows up on their other devices. Give '
+            'the times as ISO-8601 timestamps.',
         parameters: {
           'type': 'object',
           'properties': {
-            'title': {
-              'type': 'string',
-              'description': 'The event title.',
-            },
+            'title': {'type': 'string', 'description': 'What the event is.'},
             'start': {
               'type': 'string',
-              'description': 'When the event starts, as an ISO-8601 timestamp.',
+              'description': 'Start, ISO-8601, e.g. 2026-10-01T09:00:00Z.',
             },
-            'end': {
-              'type': 'string',
-              'description': 'When the event ends, as an ISO-8601 timestamp.',
-            },
+            'end': {'type': 'string', 'description': 'End, ISO-8601.'},
             'description': {
               'type': 'string',
-              'description':
-                  'Notes for the event, in the user\'s own words. Omit it '
-                  'rather than inventing details.',
+              'description': 'Optional note about the event.',
+            },
+            'all_day': {
+              'type': 'boolean',
+              'description': 'True for an event with no particular time.',
             },
           },
           'required': ['title', 'start', 'end'],
         },
         execute: (arguments) => solarToolResult(() async {
           final title = solarText(arguments, 'title');
-          if (title == null) return _missing('title');
+          if (title == null) return solarMissing('title');
           final start = solarText(arguments, 'start');
-          if (start == null) return _missing('start');
-          final startTime = _timestamp(start);
-          if (startTime == null) return _badTimestamp('start');
           final end = solarText(arguments, 'end');
-          if (end == null) return _missing('end');
-          final endTime = _timestamp(end);
-          if (endTime == null) return _badTimestamp('end');
-          return _event(
-            await accounts.createCalendarEvent(
-              title: title,
-              startTime: startTime,
-              endTime: endTime,
-              description: solarText(arguments, 'description'),
-            ),
+          if (start == null) return solarMissing('start');
+          if (end == null) return solarMissing('end');
+          // Parsed before the request rather than by the server: a timestamp
+          // the model wrote as prose is a turn it can fix, not a failed call.
+          final startTime = DateTime.tryParse(start);
+          final endTime = DateTime.tryParse(end);
+          if (startTime == null || endTime == null) {
+            return {
+              'error':
+                  'The times must be ISO-8601 timestamps, e.g. '
+                  '2026-10-01T09:00:00Z.',
+            };
+          }
+          if (endTime.isBefore(startTime)) {
+            return {'error': 'The event ends before it starts.'};
+          }
+          final created = await solarPost(
+            dio,
+            '/passport/accounts/me/calendar/events',
+            body: {
+              'title': title,
+              'startTime': startTime.toUtc().toIso8601String(),
+              'endTime': endTime.toUtc().toIso8601String(),
+              'isAllDay': arguments['all_day'] == true,
+              'description': solarText(arguments, 'description'),
+            },
           );
+          return _event(created);
         }),
       ),
     ];
@@ -174,86 +188,114 @@ class AgendaPlugin extends SnPlugin {
 
   @override
   List<String> systemPrompt(SnPluginContext context) => const [
-    'The calendar tools read and write the user\'s real Solar Network '
-    'calendar: an event added there is on their calendar, visible on their '
-    'other devices, and not something they have to confirm again.',
-    'Quote the dates the user gave rather than guessing one. When they name a '
-    'day without a year, ask, or use the year they are plainly talking about — '
-    'an event filed under the wrong year is one they will miss.',
+    'The user\'s Solar Network calendar tools are loaded: local_read_agenda, '
+    'local_next_notable_day and local_create_event. The calendar is their real '
+    'one, so an event added here is visible on their other devices.',
+    'Quote the dates the user gave rather than guessing a year, and give the '
+    'times as ISO-8601. Notable days come from a global list for $_region, so '
+    'present them as what the list holds rather than as what the user '
+    'necessarily observes.',
   ];
 }
 
-/// The month to read, or null when the model gave something that is not one.
-///
-/// A month outside 1-12 would come back as a rejected request the model can do
-/// nothing with; catching it here names the argument and the range instead.
+/// The month to read, defaulting to now, or null when the model gave nonsense.
 int? _month(Map<String, dynamic> arguments) {
-  final raw = arguments['month'];
-  if (raw == null) return DateTime.now().month;
-  final month = raw is int ? raw : int.tryParse('$raw');
-  return month == null || month < 1 || month > 12 ? null : month;
+  final asked = solarNumber(arguments, 'month')?.toInt();
+  if (asked == null) return DateTime.now().month;
+  return asked >= 1 && asked <= 12 ? asked : null;
 }
 
-/// The year to read, defaulting to the current one, or null when the model
-/// gave something that is not a year.
+/// The year to read, defaulting to now.
 int? _year(Map<String, dynamic> arguments) {
-  final raw = arguments['year'];
-  if (raw == null) return DateTime.now().year;
-  final year = raw is int ? raw : int.tryParse('$raw');
-  return year == null || year < 1 ? null : year;
+  final asked = solarNumber(arguments, 'year')?.toInt();
+  if (asked == null) return DateTime.now().year;
+  return asked > 0 ? asked : null;
 }
 
-/// The moment a timestamp the model wrote names, or null when it is not a
-/// timestamp at all.
+/// The month's events, from whichever list the response actually carries.
 ///
-/// `DateTime.parse` throws on prose, and a throw here would end the run rather
-/// than the call: the model gets one turn to write a real time instead.
-DateTime? _timestamp(String text) => DateTime.tryParse(text);
-
-/// One calendar event projected to the fields a reader would see.
-///
-/// A user event arrives with its account, its icon and background file
-/// references, its tags and its recurrence rule. The model needs the event,
-/// not the account graph around it.
-Map<String, dynamic> _event(SnUserCalendarEvent event) => {
-  'id': event.id,
-  'title': event.title,
-  'start': solarStamp(event.startTime),
-  'end': solarStamp(event.endTime),
-  'all_day': event.isAllDay,
-  'location': solarClip(event.location, limit: _locationChars),
-  'description': solarClip(event.description, limit: _descriptionChars),
+/// `merged_events` is the union the service builds — the user's own events
+/// beside check-ins, statuses and notable days — and `user_events` is the
+/// narrower list. Reading the union first means an answer that includes the
+/// events the calendar screen shows.
+List<Map<String, dynamic>> _events(Object? body) {
+  final merged = solarList(body, 'merged_events');
+  final source = merged.isNotEmpty ? merged : solarList(body, 'user_events');
+  return [for (final event in source) _event(event)];
 }
-  // Optional fields arrive as nulls and empty strings; `all_day: false` is the
-  // default rather than a fact worth spending context on.
-  ..removeWhere(_saysNothing);
 
-/// A notable day without its holiday-type codes: they are the server's enum
-/// numbers, which name nothing to a reader.
-Map<String, dynamic> _notableDay(SnNotableDay day) => {
-  'date': solarStamp(day.date),
-  'name': day.localName,
-  'global_name': day.globalName,
-  'country_code': day.countryCode,
-}..removeWhere(_saysNothing);
+/// One event projected to what a reader needs.
+Map<String, dynamic> _event(Object? json) => solarCompact({
+  'id': solarString(json, 'id'),
+  'kind': _kindByType[solarInt(json, 'type')],
+  'title': solarString(json, 'title'),
+  'start': solarTimeField(json, 'start_time'),
+  'end': solarTimeField(json, 'end_time'),
+  'all_day': solarField(json, 'is_all_day') == true ? true : null,
+  'location': solarClip(solarString(json, 'location'), limit: _noteChars),
+  'description': solarClip(solarString(json, 'description'), limit: _noteChars),
+});
 
-/// Whether a projected field carries nothing: absent, empty, or off.
-bool _saysNothing(String key, Object? value) =>
-    value == null ||
-    (value is bool && !value) ||
-    (value is num && value == 0) ||
-    (value is String && value.isEmpty) ||
-    (value is Iterable && value.isEmpty) ||
-    (value is Map && value.isEmpty);
+/// The notable days at or after [now], soonest first.
+///
+/// A recurring entry carries the anchor date it recurs from rather than this
+/// year's occurrence, so its month and day are projected onto the year being
+/// read — otherwise a holiday would sort by the year it was seeded in.
+List<Map<String, dynamic>> _upcomingNotableDays(Object? body, DateTime now) {
+  final days = <Map<String, dynamic>>[];
+  for (final entry in solarList(body, 'notable_days').isEmpty
+      ? solarPage(body)
+      : solarList(body, 'notable_days')) {
+    final start = _occurrence(entry, now);
+    if (start == null || start.isBefore(now.subtract(const Duration(days: 1)))) {
+      continue;
+    }
+    days.add(
+      solarCompact({
+        'date': solarTime(start),
+        'name':
+            solarString(entry, 'local_name') ?? solarString(entry, 'name'),
+        'english_name': solarString(entry, 'name'),
+        'description': solarClip(
+          solarString(entry, 'description'),
+          limit: _noteChars,
+        ),
+        // Days away is the part a reader acts on, and it saves the model from
+        // doing date arithmetic it is bad at.
+        'days_away': start.difference(now).inDays,
+      }),
+    );
+  }
+  days.sort((a, b) => '${a['date']}'.compareTo('${b['date']}'));
+  return days;
+}
 
-/// A blank or absent required argument, reported so the model can retry.
-Map<String, dynamic> _missing(String argument) => {
-  'error': 'The "$argument" argument is required.',
-};
-
-/// A time the model wrote as prose, or made up, reported with the shape to use.
-Map<String, dynamic> _badTimestamp(String argument) => {
-  'error':
-      'The "$argument" argument must be an ISO-8601 timestamp, such as '
-      '"2026-09-21T09:00:00+08:00".',
-};
+/// When a notable day next occurs at or after [now].
+DateTime? _occurrence(Object? entry, DateTime now) {
+  final start = solarTime(solarField(entry, 'start_date'));
+  if (start == null) return null;
+  final parsed = DateTime.tryParse(start);
+  if (parsed == null) return null;
+  if (solarField(entry, 'is_recurring') != true) {
+    return parsed.isBefore(now) ? null : parsed;
+  }
+  // A recurring day is anchored to a reference year: keep its month and day,
+  // and move them to the current one, or the next when they have passed.
+  var occurrence = DateTime.utc(
+    now.year,
+    parsed.month,
+    parsed.day,
+    parsed.hour,
+    parsed.minute,
+  );
+  if (occurrence.isBefore(now)) {
+    occurrence = DateTime.utc(
+      now.year + 1,
+      parsed.month,
+      parsed.day,
+      parsed.hour,
+      parsed.minute,
+    );
+  }
+  return occurrence;
+}

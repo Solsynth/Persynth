@@ -20,13 +20,15 @@ void main() {
     return solarResult(await built.execute(arguments));
   }
 
-  test('whoami reads the signed-in account and answers with its identity', () async {
+  test('whoami reads the signed-in account and answers with it whole', () async {
     final adapter = SolarStubAdapter({
       'GET /stargate/accounts/me': accountJson(),
     });
 
     final result = await run(adapter, 'whoami');
 
+    // One request: the merged account already embeds the profile the level and
+    // the balance come from.
     final request = adapter.requests.single;
     expect(request.method, 'GET');
     expect(request.path, '/stargate/accounts/me');
@@ -35,6 +37,10 @@ void main() {
       'username': 'littleSheep',
       'display_name': 'Little Sheep',
       'bio': 'builds things',
+      'level': 12,
+      'credits': 180.5,
+      'credits_level': 2,
+      'verified': false,
       'created_at': '2024-03-01T08:00:00Z',
     });
   });
@@ -62,12 +68,12 @@ void main() {
       'username': 'littleSheep',
       'display_name': 'Little Sheep',
       'bio': 'builds things',
-      'created_at': '2024-03-01T08:00:00Z',
       'level': 12,
       'credits': 180.5,
       'credits_level': 2,
       'verified': true,
       'badge': 'Early Bird',
+      'created_at': '2024-03-01T08:00:00Z',
     });
   });
 
@@ -116,17 +122,31 @@ void main() {
     expect((result['bio'] as String).length, lessThan(400));
   });
 
-  test('social_credits reads the balance from the account endpoint', () async {
+  test('social_credits reads the balance from the account profile', () async {
     final adapter = SolarStubAdapter({
-      'GET /passport/accounts/me/credits': 180.5,
+      'GET /stargate/accounts/me': accountJson(credits: 180.5, creditsLevel: 2),
     });
 
     final result = await run(adapter, 'social_credits');
 
+    // `/passport/accounts/me/credits` is the route the SDK used: it answers
+    // `ActionResult<bool>`, not a total, so the tool must not be there.
     final request = adapter.requests.single;
     expect(request.method, 'GET');
-    expect(request.path, '/passport/accounts/me/credits');
-    expect(result, {'credits': 180.5});
+    expect(request.path, '/stargate/accounts/me');
+    expect(result, {'credits': 180.5, 'credits_level': 2});
+  });
+
+  test('a zero balance is reported as zero, not as a missing key', () async {
+    final adapter = SolarStubAdapter({
+      'GET /stargate/accounts/me': accountJson(credits: 0, creditsLevel: 0),
+    });
+
+    final result = await run(adapter, 'social_credits');
+
+    // Zero is the answer "nothing left to spend", which is not the same as a
+    // balance the tool could not find.
+    expect(result, {'credits': 0.0, 'credits_level': 0});
   });
 
   test('achievements splits unlocked from in progress and reports the totals', () async {
@@ -163,6 +183,8 @@ void main() {
 
     final result = await run(adapter, 'achievements');
 
+    // The list is the first request and the totals the second, in that order:
+    // a refused list is answered without a stats call in flight behind it.
     expect(adapter.requests.map((request) => '${request.method} ${request.path}'), [
       'GET /passport/accounts/me/progression/achievements',
       'GET /passport/accounts/me/progression/achievements/stats',
@@ -200,6 +222,53 @@ void main() {
     );
   });
 
+  test('an achievement record with nulls and absent fields still projects', () async {
+    // The failure this replaced: each record was parsed into a model whose
+    // fields are non-nullable, so one null ended the call with a cast error. A
+    // projection reads what arrived and leaves out what did not.
+    final adapter = SolarStubAdapter({
+      'GET /passport/accounts/me/progression/achievements': [
+        {
+          'identifier': 'night_owl',
+          'title': null,
+          'target_count': null,
+          'progress_count': null,
+          'is_completed': null,
+          'completed_at': null,
+          'series_title': null,
+        },
+        // No keys at all, and not even an object: neither is a record, and
+        // neither may take the answer down with it.
+        <String, dynamic>{},
+        null,
+      ],
+      'GET /passport/accounts/me/progression/achievements/stats': <String, dynamic>{},
+    });
+
+    final result = await run(adapter, 'achievements');
+
+    expect(result['unlocked'], isEmpty);
+    expect(result['in_progress'], [
+      {'identifier': 'night_owl'},
+    ]);
+    expect(result['counts'], isEmpty);
+  });
+
+  test('an achievement the wire did not mark as done counts as in progress', () async {
+    final adapter = SolarStubAdapter({
+      'GET /passport/accounts/me/progression/achievements': [
+        {'identifier': 'streak_7', 'title': 'Seven Days', 'target_count': 7},
+      ],
+      'GET /passport/accounts/me/progression/achievements/stats': <String, dynamic>{},
+    });
+
+    final result = await run(adapter, 'achievements');
+
+    expect(result['in_progress'], [
+      {'identifier': 'streak_7', 'title': 'Seven Days', 'progress': '0/7'},
+    ]);
+  });
+
   test('a refused progression read is reported, and stops after one request', () async {
     final adapter = SolarStubAdapter(
       {
@@ -219,25 +288,41 @@ void main() {
 
   test('the plugin is on demand and read-only end to end', () {
     final context = solarContext(solarDio(SolarStubAdapter({})));
+    final tools = plugin.buildTools(context);
 
     expect(plugin.id, 'profile');
     expect(plugin.label, 'Profile & standing');
     expect(plugin.onDemand, isTrue);
     expect(plugin.enabledByDefault, isFalse);
+    expect(plugin.overrides, {
+      'get_current_user_profile': 'whoami',
+      'get_user_profile': 'read_account',
+    });
     expect(
       plugin.description,
       'Reads the signed-in Solar Network account, other accounts, social '
       'credits and achievements.',
     );
+    expect(tools.map((tool) => tool.name), [
+      'whoami',
+      'read_account',
+      'social_credits',
+      'achievements',
+    ]);
+
+    // A balance the model cannot place is a balance it will not trust, so the
+    // credits tool says where the number lives.
     expect(
-      plugin.buildTools(context).map((tool) => tool.name),
-      ['whoami', 'read_account', 'social_credits', 'achievements'],
+      solarTool(tools, 'social_credits').description,
+      contains('account profile'),
     );
 
     final prompt = plugin.systemPrompt(context);
     expect(prompt, hasLength(2));
     expect(prompt.first, contains('read-only'));
     expect(prompt.first, contains('change nothing'));
+    expect(prompt.first, contains('other people\'s public profiles'));
+    expect(prompt.first, contains('credit balance'));
     expect(prompt.last, contains('username'));
     expect(prompt.last, contains('not an id'));
   });

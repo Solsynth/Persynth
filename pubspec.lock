@@ -1093,15 +1093,6 @@ packages:
       url: "https://src.solsynth.dev/SoSYS/Solian.git"
     source: git
     version: "0.1.0"
-  solar_network_sdk:
-    dependency: "direct main"
-    description:
-      path: "packages/solar_network_sdk"
-      ref: HEAD
-      resolved-ref: c1e24a5d31289faa7877b69fd4197960e8f25082
-      url: "https://src.solsynth.dev/SoSYS/Solian.git"
-    source: git
-    version: "1.0.0"
   source_gen:
     dependency: transitive
     description:

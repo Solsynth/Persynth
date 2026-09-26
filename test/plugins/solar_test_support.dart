@@ -14,9 +14,12 @@ import 'package:dio/dio.dart';
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/plugins/plugin.dart';
-import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 /// The gateway the app talks to, as the default server URL does.
+///
+/// The paths the tools call are checked against the live gateway by
+/// `tool/verify_solar_routes.dart`; these tests check that each tool calls the
+/// path it is supposed to.
 const String testSolarBaseUrl = 'https://api.solian.app';
 
 /// Serves one canned JSON body per `METHOD /path` and records the requests.
@@ -83,11 +86,21 @@ Dio solarDio(SolarStubAdapter adapter) {
   return dio;
 }
 
-/// A context whose Solar client is [dio] and whose other dependencies are
+/// A context whose Solar connection is [dio] and whose other dependencies are
 /// present but never reached — a plugin that touches them in a test about
 /// Solar Network is a bug the test should surface.
 SnPluginContext solarContext(Dio dio) =>
-    SnPluginContext(api: dio, http: dio, mcp: _UnusedGateway(), solar: SolarNetworkClient.fromDio(dio));
+    SnPluginContext(api: dio, http: dio, mcp: _UnusedGateway());
+
+/// A listing as the gateway answers one: an envelope with the items inside.
+///
+/// The timeline is the endpoint that does this, and a tool reading it has to
+/// cope with both shapes.
+Map<String, dynamic> pageJson(List<Object?> items) => {
+  'items': items,
+  'next_cursor': null,
+  'mode': 'personalized',
+};
 
 /// A gateway that fails loudly, so a test cannot pass by quietly using it.
 class _UnusedGateway implements McpGateway {

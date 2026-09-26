@@ -6,7 +6,6 @@ import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/plugins/device_tools_plugin.dart';
 import 'package:persynth/plugins/plugin.dart';
-import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 /// A gateway that answers without a server, recording the calls it forwards.
 class _FakeGateway implements McpGateway {
@@ -53,7 +52,6 @@ List<SnLocalTool> _tools(ProviderContainer container) {
       api: dio,
       http: dio,
       mcp: container.read(mcpGatewayProvider),
-      solar: SolarNetworkClient.fromDio(dio),
     ),
   );
 }

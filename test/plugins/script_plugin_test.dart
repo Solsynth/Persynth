@@ -6,7 +6,6 @@ import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/script_plugin.dart';
 import 'package:persynth/plugins/script_tools_api.dart';
-import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 /// A script that registers one tool and answers it, in the same shape a plugin
 /// author writes.
@@ -145,7 +144,6 @@ SnPluginContext _context() {
     api: dio,
     http: dio,
     mcp: _NoGateway(),
-    solar: SolarNetworkClient.fromDio(dio),
   );
 }
 

@@ -241,7 +241,6 @@ void main() {
       'web_fetch',
       'read_notifications',
       'unread_notifications',
-      'mark_notification_read',
       'mark_all_notifications_read',
     ]);
     expect(preferences.getBool('persynth_plugin_notifications'), isTrue);

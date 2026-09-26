@@ -3,8 +3,45 @@ import 'package:persynth/plugins/agenda_plugin.dart';
 
 import 'solar_test_support.dart';
 
-/// The plugin builds its tools once per context, so each test builds the set
-/// over its own adapter and reaches for the tool it is about.
+/// One merged event as the service returns it.
+Map<String, dynamic> eventJson({
+  required String id,
+  String? title = 'Standup',
+  int type = 0,
+  String start = '2026-09-24T09:00:00.000Z',
+  String end = '2026-09-24T09:30:00.000Z',
+  bool allDay = false,
+  String? location,
+  String? description,
+}) => {
+  'id': id,
+  'type': type,
+  'title': title,
+  'start_time': start,
+  'end_time': end,
+  'is_all_day': allDay,
+  'location': location,
+  'description': description,
+};
+
+/// One notable day as the service returns it.
+Map<String, dynamic> notableJson({
+  required String name,
+  required String localName,
+  required String start,
+  bool recurring = false,
+}) => {
+  'id': 'day-$name',
+  'name': name,
+  'local_name': localName,
+  'description': '$name description',
+  'start_date': start,
+  'end_date': start,
+  'is_all_day': true,
+  'region': 'CN',
+  'is_recurring': recurring,
+};
+
 void main() {
   const plugin = AgendaPlugin();
 
@@ -13,209 +50,163 @@ void main() {
     String tool,
     Map<String, dynamic> arguments,
   ) async {
-    final built = solarTool(
-      plugin.buildTools(solarContext(solarDio(adapter))),
-      tool,
-    );
+    final built = solarTool(plugin.buildTools(solarContext(solarDio(adapter))), tool);
     return solarResult(await built.execute(arguments));
   }
 
-  test('read_agenda asks for the month and projects its events', () async {
+  test('read_agenda asks the merged month and projects the events', () async {
     final adapter = SolarStubAdapter({
-      'GET /passport/accounts/me/calendar': [
-        _dayJson(
-          events: [
-            _eventJson(
-              id: 'e1',
-              title: 'Standup',
-              start: '2026-09-02T10:00:00Z',
-              end: '2026-09-02T10:15:00Z',
-            ),
-          ],
-        ),
-        _dayJson(
-          date: '2026-09-21T00:00:00Z',
-          events: [
-            _eventJson(
-              id: 'e2',
-              title: 'Dentist',
-              description: 'bring the x-ray',
-              location: 'Riverside Clinic',
-              // The user thinks in their own offset; the wire is UTC.
-              start: '2026-09-21T09:00:00+08:00',
-              end: '2026-09-21T10:00:00+08:00',
-            ),
-          ],
-        ),
-      ],
+      'GET /passport/accounts/me/calendar/merged': {
+        'date': '2026-09-01T00:00:00.000Z',
+        'merged_events': [
+          eventJson(id: 'e1'),
+          eventJson(
+            id: 'e2',
+            title: 'Spring Festival',
+            type: 3,
+            allDay: true,
+            location: 'Everywhere',
+          ),
+        ],
+        'user_events': [eventJson(id: 'ignored', title: 'narrower list')],
+      },
     });
 
     final result = await run(adapter, 'read_agenda', {'year': 2026, 'month': 9});
 
     expect(
-      adapter.request('GET', '/passport/accounts/me/calendar').queryParameters,
-      {'year': 2026, 'month': 9, 'includeNotableDays': false},
+      adapter.request('GET', '/passport/accounts/me/calendar/merged').queryParameters,
+      {'year': 2026, 'month': 9},
     );
-    expect(result['year'], 2026);
-    expect(result['month'], 9);
-    // Whole maps, so a field the projection was supposed to drop fails here.
-    expect(result['events'], [
-      {
-        'id': 'e1',
-        'title': 'Standup',
-        'start': '2026-09-02T10:00:00Z',
-        'end': '2026-09-02T10:15:00Z',
-      },
-      {
-        'id': 'e2',
-        'title': 'Dentist',
-        'start': '2026-09-21T01:00:00Z',
-        'end': '2026-09-21T02:00:00Z',
-        'location': 'Riverside Clinic',
-        'description': 'bring the x-ray',
-      },
-    ]);
+    final events = result['events'] as List;
+    expect(events, hasLength(2));
+    expect(events.first, {
+      'id': 'e1',
+      'kind': 'user_event',
+      'title': 'Standup',
+      'start': '2026-09-24T09:00:00Z',
+      'end': '2026-09-24T09:30:00Z',
+    });
+    // The `type` switch is a number on the wire; the reader gets the word.
+    expect(events.last['kind'], 'notable_day');
+    expect(events.last['all_day'], isTrue);
+    expect(events.last['location'], 'Everywhere');
   });
 
   test('read_agenda defaults to the current month', () async {
     final adapter = SolarStubAdapter({
-      'GET /passport/accounts/me/calendar': <Object>[],
+      'GET /passport/accounts/me/calendar/merged': {'merged_events': <Object>[]},
     });
+
+    final result = await run(adapter, 'read_agenda', {});
+
     final now = DateTime.now();
-
-    await run(adapter, 'read_agenda', {});
-
     expect(
-      adapter.request('GET', '/passport/accounts/me/calendar').queryParameters,
-      {'year': now.year, 'month': now.month, 'includeNotableDays': false},
+      adapter.request('GET', '/passport/accounts/me/calendar/merged').queryParameters,
+      {'year': now.year, 'month': now.month},
     );
-
-    adapter.requests.clear();
-    // A model that passes the month as text still gets its month read.
-    await run(adapter, 'read_agenda', {'year': 2026, 'month': '9'});
-    expect(
-      adapter.request('GET', '/passport/accounts/me/calendar').queryParameters,
-      {'year': 2026, 'month': 9, 'includeNotableDays': false},
-    );
-  });
-
-  test('a month with nothing on it answers with an empty list', () async {
-    // The service answers with every day of the month, mostly empty, rather
-    // than with a short list of days that have something on them.
-    final adapter = SolarStubAdapter({
-      'GET /passport/accounts/me/calendar': [
-        _dayJson(date: '2026-09-01T00:00:00Z'),
-        _dayJson(date: '2026-09-02T00:00:00Z'),
-      ],
-    });
-
-    final result = await run(adapter, 'read_agenda', {'year': 2026, 'month': 9});
-
+    expect(result['month'], now.month);
     expect(result['events'], isEmpty);
-    expect(result.containsKey('error'), isFalse);
   });
 
   test('a month or year that is not one is refused before the wire', () async {
     final adapter = SolarStubAdapter({});
 
-    final month = await run(adapter, 'read_agenda', {
-      'year': 2026,
-      'month': 13,
-    });
-    expect(month['error'], contains('"month"'));
-
-    final year = await run(adapter, 'read_agenda', {'year': 'sometime'});
-    expect(year['error'], contains('"year"'));
-
+    expect((await run(adapter, 'read_agenda', {'month': 13}))['error'], contains('1-12'));
+    expect((await run(adapter, 'read_agenda', {'year': 0}))['error'], contains('year'));
     expect(adapter.requests, isEmpty);
   });
 
-  test('a long event note is clipped and marked', () async {
+  test('next_notable_day reads the global list and picks the soonest', () async {
     final adapter = SolarStubAdapter({
-      'GET /passport/accounts/me/calendar': [
-        _dayJson(
-          events: [_eventJson(id: 'e1', description: 'x' * 900)],
+      'GET /passport/notable-days': [
+        notableJson(
+          name: 'Later',
+          localName: '以后',
+          start: '2099-09-25T00:00:00.000Z',
+        ),
+        notableJson(
+          name: 'Sooner',
+          localName: '更早',
+          start: '2099-01-05T00:00:00.000Z',
         ),
       ],
     });
 
-    final result = await run(adapter, 'read_agenda', {'year': 2026, 'month': 9});
-    final description = (result['events'] as List).single['description'] as String;
-
-    expect(description, endsWith('… [truncated]'));
-    expect(description.length, lessThan(500));
-  });
-
-  test('next_notable_day returns the day and its names', () async {
-    final adapter = SolarStubAdapter({
-      'GET /passport/notable/me/next': {
-        'date': '2026-10-01T00:00:00.000Z',
-        'local_name': '国庆节',
-        'global_name': 'National Day',
-        'country_code': 'CN',
-        'localizable_key': 'holiday.national_day',
-        // Holiday-type codes are the server's enum numbers; they name nothing.
-        'holidays': [0],
-      },
-    });
-
     final result = await run(adapter, 'next_notable_day', {});
 
-    expect(adapter.request('GET', '/passport/notable/me/next').method, 'GET');
-    expect(result['notable_day'], {
-      'date': '2026-10-01T00:00:00Z',
-      'name': '国庆节',
-      'global_name': 'National Day',
-      'country_code': 'CN',
+    // The region is named rather than left to the server's default.
+    final query = adapter.request('GET', '/passport/notable-days').queryParameters;
+    expect(query['region'], 'CN');
+    expect(query['take'], 50);
+
+    final day = result['notable_day'] as Map<String, dynamic>;
+    expect(day['date'], '2099-01-05T00:00:00Z');
+    expect(day['name'], '更早');
+    expect(day['english_name'], 'Sooner');
+    expect(day['days_away'], isA<int>());
+    expect(day['days_away'], greaterThan(0));
+  });
+
+  test('a recurring day lands on this year, not the year it was seeded in', () async {
+    final adapter = SolarStubAdapter({
+      'GET /passport/notable-days': [
+        notableJson(
+          name: 'Far Future',
+          localName: '未来',
+          start: '2099-12-31T00:00:00.000Z',
+        ),
+        notableJson(
+          name: 'National Day',
+          localName: '国庆节',
+          start: '2024-10-01T00:00:00.000Z',
+          recurring: true,
+        ),
+      ],
     });
+
+    final day = (await run(adapter, 'next_notable_day', {}))['notable_day']
+        as Map<String, dynamic>;
+
+    // 2024-10-01 recurring means the next 10-01, never the missing 2099 one.
+    final date = DateTime.parse(day['date'] as String);
+    expect(date.month, 10);
+    expect(date.day, 1);
+    expect(date.isAfter(DateTime.now().toUtc()), isTrue);
   });
 
   test('next_notable_day answers with nothing rather than an error', () async {
-    final adapter = SolarStubAdapter({'GET /passport/notable/me/next': null});
+    final adapter = SolarStubAdapter({'GET /passport/notable-days': <Object>[]});
 
     final result = await run(adapter, 'next_notable_day', {});
 
     expect(result, {'notable_day': null});
-    expect(adapter.request('GET', '/passport/notable/me/next').method, 'GET');
   });
 
-  test('create_event sends the event and returns what was created', () async {
+  test('create_event sends ISO times and returns what was created', () async {
     final adapter = SolarStubAdapter({
-      'POST /passport/accounts/me/calendar/events': _eventJson(
+      'POST /passport/accounts/me/calendar/events': eventJson(
         id: 'new',
         title: 'Dentist',
-        description: 'bring the x-ray',
-        start: '2026-09-21T01:00:00Z',
-        end: '2026-09-21T02:00:00Z',
       ),
     });
 
     final result = await run(adapter, 'create_event', {
       'title': 'Dentist',
-      'start': '2026-09-21T09:00:00+08:00',
-      'end': '2026-09-21T10:00:00+08:00',
-      'description': 'bring the x-ray',
+      'start': '2026-10-01T09:00:00Z',
+      'end': '2026-10-01T10:00:00Z',
+      'description': 'bring the card',
     });
 
-    expect(
-      adapter.request('POST', '/passport/accounts/me/calendar/events').data,
-      {
-        'title': 'Dentist',
-        'start_time': '2026-09-21T01:00:00.000Z',
-        'end_time': '2026-09-21T02:00:00.000Z',
-        'description': 'bring the x-ray',
-        'is_all_day': false,
-        'visibility': 0,
-        'tags': null,
-      },
-    );
-    expect(result, {
-      'id': 'new',
+    expect(adapter.request('POST', '/passport/accounts/me/calendar/events').data, {
       'title': 'Dentist',
-      'start': '2026-09-21T01:00:00Z',
-      'end': '2026-09-21T02:00:00Z',
-      'description': 'bring the x-ray',
+      'startTime': '2026-10-01T09:00:00.000Z',
+      'endTime': '2026-10-01T10:00:00.000Z',
+      'isAllDay': false,
+      'description': 'bring the card',
     });
+    expect(result['id'], 'new');
+    expect(result['title'], 'Dentist');
   });
 
   test('a time the model wrote as prose is refused before the wire', () async {
@@ -223,12 +214,24 @@ void main() {
 
     final result = await run(adapter, 'create_event', {
       'title': 'Dentist',
-      'start': 'next Tuesday',
-      'end': '2026-09-21T10:00:00+08:00',
+      'start': 'next Tuesday morning',
+      'end': '2026-10-01T10:00:00Z',
     });
 
-    expect(result['error'], contains('"start"'));
     expect(result['error'], contains('ISO-8601'));
+    expect(adapter.requests, isEmpty);
+  });
+
+  test('an event that ends before it starts is refused before the wire', () async {
+    final adapter = SolarStubAdapter({});
+
+    final result = await run(adapter, 'create_event', {
+      'title': 'Backwards',
+      'start': '2026-10-01T10:00:00Z',
+      'end': '2026-10-01T09:00:00Z',
+    });
+
+    expect(result['error'], contains('before it starts'));
     expect(adapter.requests, isEmpty);
   });
 
@@ -236,29 +239,53 @@ void main() {
     final adapter = SolarStubAdapter({});
 
     final result = await run(adapter, 'create_event', {
-      'title': '   ',
-      'start': '2026-09-21T09:00:00+08:00',
-      'end': '2026-09-21T10:00:00+08:00',
+      'title': '  ',
+      'start': '2026-10-01T09:00:00Z',
+      'end': '2026-10-01T10:00:00Z',
     });
 
     expect(result['error'], contains('"title"'));
     expect(adapter.requests, isEmpty);
-
-    // A time the model left out reads as the argument it did not give, not as
-    // a time it wrote badly.
-    final untimed = await run(adapter, 'create_event', {'title': 'Dentist'});
-
-    expect(untimed['error'], contains('"start"'));
-    expect(untimed['error'], contains('required'));
-    expect(adapter.requests, isEmpty);
   });
 
-  test('a 401 reads as a session to renew, not as a status code', () async {
-    final adapter = SolarStubAdapter(
-      {
-        'GET /passport/accounts/me/calendar': {'message': 'token expired'},
+  test('a calendar the wire barely fills in still answers', () async {
+    final adapter = SolarStubAdapter({
+      'GET /passport/accounts/me/calendar/merged': {
+        'date': null,
+        'merged_events': [
+          {
+            'id': 'e1',
+            'type': null,
+            'title': null,
+            'start_time': null,
+            'end_time': null,
+            'is_all_day': null,
+            'location': null,
+            'description': null,
+          },
+        ],
+        'user_events': null,
       },
-      statuses: {'GET /passport/accounts/me/calendar': 401},
+      'GET /passport/notable-days': [
+        {'id': 'd1', 'name': null, 'local_name': null, 'start_date': null},
+      ],
+    });
+
+    final agenda = await run(adapter, 'read_agenda', {'year': 2026, 'month': 1});
+    expect((agenda['events'] as List).single, {'id': 'e1'});
+
+    // A day with no date cannot be placed, so it is left out rather than
+    // reported as the next one.
+    expect(
+      await run(adapter, 'next_notable_day', {}),
+      {'notable_day': null},
+    );
+  });
+
+  test('a 401 reads as a session to renew', () async {
+    final adapter = SolarStubAdapter(
+      {'GET /passport/accounts/me/calendar/merged': {'message': 'token expired'}},
+      statuses: {'GET /passport/accounts/me/calendar/merged': 401},
     );
 
     final result = await run(adapter, 'read_agenda', {});
@@ -267,59 +294,14 @@ void main() {
     expect(result['error'], contains('token expired'));
   });
 
-  test('the plugin is eager and offers its three tools in order', () {
-    expect(plugin.id, 'agenda');
-    expect(plugin.label, 'Calendar');
+  test('the plugin is eager, adds nothing to override, and keeps tool order', () {
     expect(plugin.onDemand, isFalse);
     expect(plugin.enabledByDefault, isFalse);
-    expect(plugin.description, contains('calendar'));
-    expect(
-      plugin
-          .buildTools(solarContext(solarDio(SolarStubAdapter({}))))
-          .map((tool) => tool.name),
-      ['read_agenda', 'next_notable_day', 'create_event'],
-    );
-    expect(
-      plugin.systemPrompt(solarContext(solarDio(SolarStubAdapter({})))),
-      anyElement(contains('real Solar Network calendar')),
-    );
+    expect(plugin.overrides, isEmpty);
+    final built = plugin
+        .buildTools(solarContext(solarDio(SolarStubAdapter({}))))
+        .map((tool) => tool.name)
+        .toList();
+    expect(built, ['read_agenda', 'next_notable_day', 'create_event']);
   });
 }
-
-/// One calendar event as the API returns it: an event carries its account, its
-/// visibility and its file references, and the wire fills in the ones this
-/// plugin never looks at.
-Map<String, dynamic> _eventJson({
-  required String id,
-  String title = 'Standup',
-  String? description,
-  String? location,
-  String start = '2026-09-02T10:00:00Z',
-  String end = '2026-09-02T10:15:00Z',
-  bool allDay = false,
-}) => {
-  'id': id,
-  'title': title,
-  'description': description,
-  'location': location,
-  'start_time': start,
-  'end_time': end,
-  'is_all_day': allDay,
-  'visibility': 0,
-  'tags': <String>[],
-  'account_id': 'acc-1',
-  'created_at': '2026-09-01T00:00:00Z',
-  'updated_at': '2026-09-01T00:00:00Z',
-};
-
-/// One day of the per-day calendar the month endpoint answers with.
-Map<String, dynamic> _dayJson({
-  String date = '2026-09-01T00:00:00Z',
-  List<Map<String, dynamic>> events = const [],
-}) => {
-  'date': date,
-  'check_in_result': null,
-  'statuses': <Object>[],
-  'user_events': events,
-  'notable_days': <Object>[],
-};

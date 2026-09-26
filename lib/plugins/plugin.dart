@@ -34,8 +34,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import 'package:solar_network_sdk/solar_network_sdk.dart';
-
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/mcp_client.dart';
 
@@ -50,7 +48,6 @@ class SnPluginContext {
     required this.api,
     required this.http,
     required this.mcp,
-    required this.solar,
   });
 
   /// The account-authenticated client for Solar Network. A plugin that reads
@@ -67,15 +64,6 @@ class SnPluginContext {
   /// files, shell commands.
   final McpGateway mcp;
 
-  /// The typed Solar Network client, over the same authenticated connection as
-  /// [api]: same base URL, same bearer token, same single refresh on a 401.
-  ///
-  /// A plugin whose tools read or write the user's own Solar Network data —
-  /// posts, chats, wallet, calendar — calls through this rather than
-  /// hand-rolling paths, so the shapes it reads are the ones the SDK declares
-  /// and a field rename upstream is a compile error here rather than a silent
-  /// empty result.
-  final SolarNetworkClient solar;
 }
 
 /// The namespace the server puts in front of every client-owned tool and skill

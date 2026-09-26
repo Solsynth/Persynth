@@ -9,7 +9,6 @@ import 'package:persynth/plugins/device_tools_plugin.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/plugins/web_tools_plugin.dart';
-import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 /// A plugin that exists only in the test: proof that a capability added to the
 /// registry is offered, loadable and explained without anything else changing.
@@ -82,9 +81,6 @@ ProviderContainer _containerWith(
           api: ref.watch(personalityApiClientProvider),
           http: ref.watch(pluginHttpClientProvider),
           mcp: _UnreachableGateway(),
-          solar: SolarNetworkClient.fromDio(
-            ref.watch(personalityApiClientProvider),
-          ),
         ),
       ),
     ],
@@ -132,7 +128,6 @@ void main() {
       'web_fetch',
       'read_notifications',
       'unread_notifications',
-      'mark_notification_read',
       'mark_all_notifications_read',
       'daily_fortune',
       'today_check_in',

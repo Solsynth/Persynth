@@ -61,13 +61,6 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/solar_network_foundation
-  # The typed Solar Network client. Every plugin whose tools read or write
-  # Solar Network goes through it, over the app's own authenticated Dio, so the
-  # request leaves from this machine carrying the signed-in user's own token.
-  solar_network_sdk:
-    git:
-      url: https://src.solsynth.dev/SoSYS/Solian.git
-      path: packages/solar_network_sdk
   hooks_riverpod: ^3.4.3
   window_manager:
     git:

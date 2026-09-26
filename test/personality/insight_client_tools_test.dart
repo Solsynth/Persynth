@@ -8,7 +8,6 @@ import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
-import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _agent = SnPersonalityAgent(id: 'a1', name: 'Michan', enabled: true);
@@ -115,9 +114,6 @@ ProviderContainer _pluginContainer(SharedPreferences prefs, _HandoffApi api) {
           api: ref.watch(personalityApiClientProvider),
           http: ref.watch(pluginHttpClientProvider),
           mcp: _NoDaemon(),
-          solar: SolarNetworkClient.fromDio(
-            ref.watch(personalityApiClientProvider),
-          ),
         ),
       ),
     ],

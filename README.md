@@ -95,7 +95,7 @@ not one the app assumes.
 | --- | --- | --- | --- |
 | Moments & feed | `social` | `read_timeline`, `read_post`, `search_posts`, `read_profile`, `create_post`, `reply_to_post`, `react_to_post` | on demand |
 | Messages | `chat` | `read_conversations`, `read_conversation`, `send_message`, `message_someone`, `unread_messages` | on demand |
-| Notifications | `notifications` | `read_notifications`, `unread_notifications`, `mark_notification_read`, `mark_all_notifications_read` | every run |
+| Notifications | `notifications` | `read_notifications`, `unread_notifications`, `mark_all_notifications_read` | every run |
 | Calendar | `agenda` | `read_agenda`, `next_notable_day`, `create_event` | every run |
 | Daily rituals | `ritual` | `daily_fortune`, `today_check_in`, `check_in` | every run |
 | Profile & standing | `profile` | `whoami`, `read_account`, `social_credits`, `achievements` | on demand |
@@ -104,17 +104,36 @@ not one the app assumes.
 The tool names above are what the plugin calls them. The model reads them under
 the server's `local_` prefix, like every other caller-owned name.
 
-Two of these are worth reading before adding more. **Wallet is read-only by
+### Why the tools name their own paths
+
+They do not go through `solar_network_sdk`. That client's routes and response
+models have both drifted from the services they describe, and the drift only
+shows up at runtime: the home feed, post search, a publisher's posts, the daily
+fortune, every room-scoped chat call and both notification writes answered
+`404`, one method swallowed a `404` into `null` so its tool reported "nothing
+there" forever, and parsing a response threw
+`type 'Null' is not a subtype of type 'num'` on a field the server had stopped
+sending.
+
+So a tool names its path and projects only the fields it reports, which makes a
+field that disappears a missing value rather than an exception. To check the
+paths are still there after a service upgrade:
+
+```sh
+dart run tool/verify_solar_routes.dart
+```
+
+It exercises every path the tools call against the live gateway — an endpoint
+that exists answers `401` without a token, a path that has moved answers `404` —
+and exits non-zero if any is gone.
+
+Two of the sets are worth reading before adding more. **Wallet is read-only by
 construction**: moving money on Solar Network is authorised by the user's local
 payment PIN, which this app does not hold and must not ask for, so there is no
-transfer, order or gift tool anywhere in it. **`achievements` and `read_agenda`
-call their endpoints through `context.solar.dio` rather than the SDK's typed
-methods**, because those methods are wrong: `getAchievementState` reads a path
-the service does not serve, `getMergedCalendar` parses an enum the server sends
-as a number, and `getCheckInResultToday` asserts a payload where its own
-documentation promises null. Responses are still parsed with the SDK's own
-model types, so a field rename upstream is still a compile error here. Those
-three are worth fixing in `solar_network_sdk`.
+transfer, order or gift tool anywhere in it. And **there is no per-notification
+mark-read**: the service has no route for one, and listing notifications is what
+marks them viewed — which is why `read_notifications` sends `unmark=true`, so
+reading the inbox leaves it exactly as it was.
 
 ### Script plugins
 

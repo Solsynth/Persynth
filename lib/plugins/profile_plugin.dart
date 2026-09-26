@@ -6,11 +6,18 @@
 /// grant is the reading of account data, so switching this on cannot change an
 /// account, and the prompt says so rather than leaving the model to infer it.
 ///
+/// Each request names the route it calls and projects the decoded JSON down to
+/// the fields the answer is about, rather than going through the SDK's account
+/// methods. Two of those are wrong at runtime: `getSocialCredits` reads
+/// `/passport/accounts/me/credits`, which serves `ActionResult<bool>` — a
+/// receipt for the read, not a balance — and the progression models behind the
+/// achievements lag the service's DTOs far enough that one field the wire
+/// stopped sending ends the call with a cast error. The routes here are the
+/// ones the app's own account and progression pages read.
+///
 /// On demand: four definitions cost context on every request, and an identity
 /// fact is needed occasionally rather than in a burst.
 library;
-
-import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/plugins/plugin.dart';
@@ -23,16 +30,20 @@ import 'package:persynth/plugins/solar_support.dart';
 /// on the context window.
 const int _bioChars = 300;
 
+/// The signed-in account, merged with its profile, badges, perk and contacts.
+///
+/// One request answers identity and standing together: the profile is
+/// embedded, so the level, the credit balance and the active badge ride along
+/// with the name, and a second lookup would re-fetch what is already in hand.
+const String _accountPath = '/stargate/accounts/me';
+
 /// Where the account's progression lives.
 ///
-/// The typed client's `getAchievementState` reads
-/// `/passport/progression/achievements` as a single record, which the service
-/// does not serve: the achievements list and its totals sit under
-/// `/passport/accounts/me/progression/achievements` (and `/stats`), the same
-/// paths the app's own progression page reads. The paths are written out here,
-/// and both answers are still parsed into the SDK's own models, so an upstream
-/// field rename stays a compile error rather than a silent empty result.
-const String _achievementsPath = '/passport/accounts/me/progression/achievements';
+/// The states are a bare array and the totals are the `/stats` sibling; the
+/// service does not serve the single-record shape the typed client reads. The
+/// list route also takes an optional `query`, which no tool here needs.
+const String _achievementsPath =
+    '/passport/accounts/me/progression/achievements';
 
 class ProfilePlugin extends SnPlugin {
   const ProfilePlugin();
@@ -68,19 +79,18 @@ class ProfilePlugin extends SnPlugin {
 
   @override
   List<SnLocalTool> buildTools(SnPluginContext context) {
-    final accounts = context.solar.accounts;
-    final dio = context.solar.dio;
+    final dio = context.api;
     return [
       SnLocalTool(
         name: 'whoami',
         description:
             'The signed-in Solar Network account: the username to address the '
-            'user by, their display name and the date they joined. Read it '
-            'whenever an answer depends on who the user is, rather than '
-            'assuming a name.',
+            'user by, their display name, bio, level, social credit balance '
+            'and the date they joined. Read it whenever an answer depends on '
+            'who the user is, rather than assuming a name.',
         parameters: {'type': 'object', 'properties': <String, dynamic>{}},
         execute: (arguments) => solarToolResult(() async {
-          return _identity(await accounts.getCurrentAccount());
+          return _account(await solarGet(dio, _accountPath));
         }),
       ),
       SnLocalTool(
@@ -102,21 +112,46 @@ class ProfilePlugin extends SnPlugin {
         },
         execute: (arguments) => solarToolResult(() async {
           final username = solarText(arguments, 'username');
-          if (username == null) return _missing('username');
-          final account = await accounts.getAccountByUsername(username);
-          return {..._identity(account), ..._standing(account.profile)};
+          if (username == null) return solarMissing('username');
+          final account = await solarGet(
+            dio,
+            '/stargate/accounts/${Uri.encodeComponent(username)}',
+          );
+          // An account the service does not know is a 404, which reads as
+          // "there is no such item"; a route that answers an empty body is
+          // named here so the model is not handed an empty object.
+          if (account == null) {
+            return {'error': 'There is no account "$username".'};
+          }
+          return _account(account);
         }),
       ),
       SnLocalTool(
         name: 'social_credits',
         description:
-            'The user\'s current Solar Network social credit balance: one '
-            'number that rises and falls with their activity on the network. '
-            'Read it when they ask about their score, rather than estimating '
-            'one from anything else.',
+            'The user\'s Solar Network social credit balance and credit level, '
+            'as their own account profile reports them: the balance is a field '
+            'of the profile rather than a counter of its own. Read it when they '
+            'ask about their score, rather than estimating one from anything '
+            'else.',
         parameters: {'type': 'object', 'properties': <String, dynamic>{}},
         execute: (arguments) => solarToolResult(() async {
-          return {'credits': await accounts.getSocialCredits()};
+          final profile = solarMap(await solarGet(dio, _accountPath), 'profile');
+          final credits = solarNumber(profile, 'social_credits');
+          // A balance of zero is the answer "zero"; only a profile that does
+          // not carry the field at all is a gap worth naming, because the
+          // whole of what this tool reports is that number.
+          if (credits == null) {
+            return {
+              'error': 'The account profile does not report a social credit '
+                  'balance.',
+            };
+          }
+          final level = solarInt(profile, 'social_credits_level');
+          return {
+            'credits': credits,
+            'credits_level': ?level,
+          };
         }),
       ),
       SnLocalTool(
@@ -132,16 +167,8 @@ class ProfilePlugin extends SnPlugin {
           // flight whose error nobody reads, which surfaces as a crash the run
           // has to absorb. One extra round trip on a rarely-called read is the
           // cheaper trade.
-          final states = (await dio.get<List<dynamic>>(_achievementsPath)).data!
-              .map(
-                (json) =>
-                    SnAchievementState.fromJson(json as Map<String, dynamic>),
-              )
-              .toList();
-          final counts = SnAchievementStats.fromJson(
-            (await dio.get<Map<String, dynamic>>('$_achievementsPath/stats'))
-                .data!,
-          );
+          final states = solarPage(await solarGet(dio, _achievementsPath));
+          final counts = await solarGet(dio, '$_achievementsPath/stats');
           return _progress(states, counts);
         }),
       ),
@@ -152,79 +179,87 @@ class ProfilePlugin extends SnPlugin {
   List<String> systemPrompt(SnPluginContext context) => const [
     'The user\'s Solar Network account tools are loaded: local_whoami, '
     'local_read_account, local_social_credits and local_achievements. They are '
-    'read-only facts about the user\'s own account and other people\'s public '
-    'profiles, and they change nothing.',
+    'read-only facts about the user\'s own account — including the credit '
+    'balance its profile carries — and other people\'s public profiles, and '
+    'they change nothing.',
     'A username is not an id: use the username a tool returned, as the server '
     'spells it, rather than inventing one or reading an id as a name.',
   ];
 }
 
-/// One account as the model reads it: who this is, and how to name them.
-Map<String, dynamic> _identity(SnAccount account) => {
-  'id': account.id,
-  'username': account.name,
-  'display_name': account.nick,
-  'bio': solarClip(account.profile.bio, limit: _bioChars),
-  'created_at': solarStamp(account.createdAt),
-};
-
-/// The standing the account's profile already carries.
+/// One account as the model reads it: who this is, how to name them, and the
+/// standing the profile carries.
 ///
-/// Both account endpoints answer with the profile embedded, so the level, the
-/// balance and the active badge arrive with the name in one request — a second
-/// profile lookup would fetch fields that are already in hand.
-Map<String, dynamic> _standing(SnAccountProfile profile) {
-  final badge = profile.activeBadge?.label;
-  return {
-    'level': profile.level,
-    'credits': profile.socialCredits,
-    'credits_level': profile.socialCreditsLevel,
-    'verified': profile.verification != null,
-    if (badge != null && badge.isNotEmpty) 'badge': badge,
-  };
+/// The profile is embedded in both account answers, so the level, the credits
+/// and the active badge come with the name in the same request. Every field is
+/// read tolerantly and a key the wire omits is simply absent from the answer:
+/// a name without a bio is still a name, and it is not a cast failure.
+Map<String, dynamic> _account(Object? json) {
+  final profile = solarMap(json, 'profile');
+  final badge = solarMap(profile, 'active_badge');
+  return solarCompact({
+    'id': solarString(json, 'id'),
+    'username': solarString(json, 'name'),
+    'display_name': solarString(json, 'nick'),
+    'bio': solarClip(solarString(profile, 'bio'), limit: _bioChars),
+    'level': solarInt(profile, 'level'),
+    'credits': solarNumber(profile, 'social_credits'),
+    'credits_level': solarInt(profile, 'social_credits_level'),
+    'verified': solarField(profile, 'verification') != null,
+    'badge': solarString(badge, 'label'),
+    'created_at':
+        solarTimeField(json, 'created_at') ??
+        solarTimeField(profile, 'created_at'),
+  });
 }
 
 /// The achievement state as the model reads it.
 ///
 /// Every record carries its reward definition and its whole series of stages;
 /// a long-lived account has dozens of them, and none of that detail changes
-/// the answer to "what have I unlocked". Only the title, where it stands and
-/// when it completed are kept, split by whether it is done.
-Map<String, dynamic> _progress(
-  List<SnAchievementState> achievements,
-  SnAchievementStats counts,
-) => {
-  'counts': {
-    'total': counts.totalCount,
-    'completed': counts.completedCount,
-    'hidden_total': counts.hiddenTotalCount,
-    'hidden_completed': counts.hiddenCompletedCount,
-    'completion_percent': counts.completionPercentage,
-  },
-  'unlocked': [
-    for (final achievement in achievements)
-      if (achievement.isCompleted) _achievement(achievement),
-  ],
-  'in_progress': [
-    for (final achievement in achievements)
-      if (!achievement.isCompleted) _achievement(achievement),
-  ],
-};
+/// the answer to "what have I unlocked". Only what identifies a record and how
+/// far along it is is kept, split by whether it is done.
+Map<String, dynamic> _progress(List<Object?> achievements, Object? counts) {
+  final unlocked = <Map<String, dynamic>>[];
+  final inProgress = <Map<String, dynamic>>[];
+  for (final achievement in achievements) {
+    final projected = _achievement(achievement);
+    // An element that identifies nothing is not a record the model can act on.
+    if (projected.isEmpty) continue;
+    // A record the wire did not mark as completed is in progress: unknown is
+    // told apart from done, and never from a cast.
+    (solarField(achievement, 'is_completed') == true ? unlocked : inProgress)
+        .add(projected);
+  }
+  return {
+    'counts': solarCompact({
+      'total': solarInt(counts, 'total_count'),
+      'completed': solarInt(counts, 'completed_count'),
+      'hidden_total': solarInt(counts, 'hidden_total_count'),
+      'hidden_completed': solarInt(counts, 'hidden_completed_count'),
+      'completion_percent': solarNumber(counts, 'completion_percentage'),
+    }),
+    // Both lists are always present: an empty one answers "nothing here",
+    // which is not the same as a key the model has to guess about.
+    'unlocked': unlocked,
+    'in_progress': inProgress,
+  };
+}
 
 /// One achievement, down to where it stands.
-Map<String, dynamic> _achievement(SnAchievementState achievement) => {
-  'identifier': achievement.identifier,
-  'title': achievement.title,
-  'progress': '${achievement.progressCount}/${achievement.targetCount}',
-  if (achievement.completedAt != null)
-    'completed_at': solarStamp(achievement.completedAt),
-  if (achievement.seriesTitle != null) 'series': achievement.seriesTitle,
-};
-
-/// A blank or absent required argument, reported so the model can retry.
 ///
-/// Returning this rather than throwing keeps a malformed call a turn the model
-/// can fix, instead of a tool that appears broken.
-Map<String, dynamic> _missing(String argument) => {
-  'error': 'The "$argument" argument is required.',
-};
+/// The two counters are read one at a time: a record the wire barely fills in
+/// still names itself and still reports the half of its progress that arrived.
+Map<String, dynamic> _achievement(Object? json) {
+  final progress = solarInt(json, 'progress_count');
+  final target = solarInt(json, 'target_count');
+  return solarCompact({
+    'identifier': solarString(json, 'identifier'),
+    'title': solarString(json, 'title'),
+    'progress': progress == null && target == null
+        ? null
+        : '${progress ?? 0}/${target ?? 0}',
+    'completed_at': solarTimeField(json, 'completed_at'),
+    'series': solarString(json, 'series_title'),
+  });
+}
