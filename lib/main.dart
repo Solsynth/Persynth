@@ -1,6 +1,8 @@
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_ui/material_ui.dart' as mui;
@@ -68,6 +70,16 @@ Future<void> main(List<String> args) async {
       child: MyApp(isPetWindow: isPetWindow),
     ),
   );
+
+  // Android and iOS drop the native launch screen when the engine paints its
+  // first frame, which the work above already sits behind. The web splash is
+  // a DOM overlay the package only retires on request, so ask for it once
+  // that first frame has landed.
+  if (kIsWeb) {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => FlutterNativeSplash.remove(),
+    );
+  }
 }
 
 class MyApp extends StatelessWidget {

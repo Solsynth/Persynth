@@ -35,6 +35,9 @@ dependencies:
   desktop_multi_window: ^0.3.1
   dio: ^5.11.1
   flutter_hooks: ^0.21.3+1
+  # Imported by lib/main.dart to retire the web splash; see the
+  # flutter_native_splash section at the bottom of this file.
+  flutter_native_splash: ^2.4.8
   gap: ^3.0.1
   http: ^1.6.0
   crypto: ^3.0.7
@@ -155,3 +158,24 @@ flutter_launcher_icons:
     generate: true
     image_path: "assets/icons/icon.png"
     icon_size: 256
+
+# Native launch screens for Android, iOS and web, same shape as the Solian
+# config: the app icon centred on the app's canvas colour, dark variant
+# included. The artwork is a full-bleed poster, so it reads as a framed tile
+# rather than a cut-out glyph, and the palette's canvas steps stand in for
+# Solian's neutral white/near-black. Android 12+ draws the poster inside the
+# system's circular mask, over the icon's own background pink so the mask edge
+# lands on the artwork's field instead of the canvas.
+# Regenerate after changing the icon or palette:
+#   dart run flutter_native_splash:create
+flutter_native_splash:
+  image: "assets/icons/icon.png"
+  color: "#e9edf1"
+  color_dark: "#14171b"
+  web: true
+  android_12:
+    image: "assets/icons/icon.png"
+    color: "#e9edf1"
+    color_dark: "#14171b"
+    icon_background_color: "#f5b9c0"
+    icon_background_color_dark: "#f5b9c0"
