@@ -9,13 +9,12 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:persynth/auth/solar_auth_controller.dart';
-import 'package:persynth/auth/solar_auth_service.dart';
+import 'package:persynth/auth/solar_sign_in_panel.dart';
 import 'package:persynth/personality/insight_chat_controller.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_service.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/widgets/message_markdown.dart';
-import 'package:persynth/widgets/solar_device_code_card.dart';
 
 /// Insight: a live conversation with a personality agent, with the account's
 /// other threads in a responsive sidebar.
@@ -33,8 +32,16 @@ class ConversationPage extends HookConsumerWidget {
     final scheme = theme.colorScheme;
     final chat = ref.watch(insightChatControllerProvider);
     final controller = ref.read(insightChatControllerProvider.notifier);
-    final authState = ref.watch(solarAuthStateProvider);
-    final signingIn = useState(false);
+    final authStatus = ref.watch(
+      solarAuthStateProvider.select((state) => state.status),
+    );
+    // A session the server no longer honours — or none at all — is a status of
+    // this screen, not a banner over it: nothing here can send until the
+    // account is signed in again, so the chat surface is replaced by the
+    // sign-in that fixes it. A sign-in under way is one of those states: the
+    // panel holding its code stays where the reader is, which is the point.
+    final unauthorized =
+        authStatus != SolarAuthStatus.signedIn || chat.unauthorized;
     final agents =
         ref.watch(personalityAgentsProvider).value ??
         const <SnPersonalityAgent>[];
@@ -89,57 +96,44 @@ class ConversationPage extends HookConsumerWidget {
       }
     }
 
-    Future<void> signIn() async {
-      if (signingIn.value) return;
-      signingIn.value = true;
-      try {
-        await ref.read(solarAuthStateProvider.notifier).signIn();
-        // The session is fresh; reload agents and threads that 401'd.
-        ref.invalidate(personalityAgentsProvider);
-        ref.invalidate(personalityConversationsProvider);
-      } on SolarAuthException catch (error) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Sign in failed: ${error.message}')),
-          );
-        }
-      } finally {
-        signingIn.value = false;
-      }
-    }
-
     final mainContent = Column(
       children: [
-        if (authState.deviceCode case final code?)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            child: SolarDeviceCodeCard(authorization: code),
-          ),
-        if (authState.status == SolarAuthStatus.signedOut)
-          _AuthBanner(busy: signingIn.value, onSignIn: signIn),
-        if (chat.error != null)
+        if (!unauthorized && chat.error != null)
           _ErrorBanner(
             message: chat.error!,
             onDismiss: controller.dismissError,
           ),
         Expanded(
-          child: _InsightThread(
-            bubbles: chat.bubbles,
-            agentName: agentName,
-            onToggleTrace: controller.toggleTrace,
+          child: unauthorized
+              ? _UnauthorizedState(
+                  // Without a session, what ended is the session; the refusal
+                  // copy belongs to one that is still there and was turned away.
+                  signedOut: authStatus != SolarAuthStatus.signedIn,
+                  agentName: agentName,
+                  // A refusal that does not hold is the reader's to dismiss;
+                  // without a session there is nothing here to retry.
+                  onRetry: chat.unauthorized
+                      ? controller.clearUnauthorized
+                      : null,
+                )
+              : _InsightThread(
+                  bubbles: chat.bubbles,
+                  agentName: agentName,
+                  onToggleTrace: controller.toggleTrace,
+                ),
+        ),
+        if (!unauthorized)
+          _Composer(
+            controller: inputController,
+            focusNode: focusNode,
+            attachments: chat.pendingAttachments,
+            busy: chat.busy,
+            enterToSend: enterToSend,
+            onSend: handleSend,
+            onStop: controller.stop,
+            onPickAttachments: uploading.value ? null : pickAttachments,
+            onRemoveAttachment: controller.removePendingAttachment,
           ),
-        ),
-        _Composer(
-          controller: inputController,
-          focusNode: focusNode,
-          attachments: chat.pendingAttachments,
-          busy: chat.busy,
-          enterToSend: enterToSend,
-          onSend: handleSend,
-          onStop: controller.stop,
-          onPickAttachments: uploading.value ? null : pickAttachments,
-          onRemoveAttachment: controller.removePendingAttachment,
-        ),
       ],
     );
 
@@ -386,58 +380,74 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
-class _AuthBanner extends StatelessWidget {
-  const _AuthBanner({required this.busy, required this.onSignIn});
+/// The chat's unauthorized status: what stands in the thread's place when
+/// Solar Network will not answer for this session.
+///
+/// It takes the composer with it — there is nothing to send until the account
+/// is signed in again — and carries the sign-in itself, so an expired session
+/// costs the reader the turn they were on rather than the whole screen.
+class _UnauthorizedState extends StatelessWidget {
+  const _UnauthorizedState({
+    required this.signedOut,
+    required this.agentName,
+    this.onRetry,
+  });
 
-  final bool busy;
-  final VoidCallback onSignIn;
+  /// Whether there is no session at all, as opposed to one the server refused.
+  final bool signedOut;
+
+  /// The companion the conversation was with, for the copy.
+  final String agentName;
+
+  /// Dismisses the status when the refusal did not hold. Null when there is no
+  /// session to retry with.
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: Material(
-        color: scheme.errorContainer,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          child: Row(
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Icon(
-                Symbols.login_rounded,
-                size: 18,
-                color: scheme.onErrorContainer,
+                Symbols.lock_rounded,
+                size: 44,
+                color: scheme.onSurfaceVariant,
               ),
-              const Gap(8),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    'You\'re signed out. Sign in to chat with your companion.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onErrorContainer,
-                    ),
-                  ),
+              const Gap(12),
+              Text(
+                'Unauthorized',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium,
+              ),
+              const Gap(6),
+              Text(
+                signedOut
+                    ? 'Your Solar Network session ended. Sign in to keep '
+                          'talking to $agentName.'
+                    : 'Solar Network refused the last request. Sign in again '
+                          'to keep talking to $agentName.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
-              if (busy)
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: SizedBox.square(
-                    dimension: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-              else
+              const Gap(20),
+              const SolarSignInPanel(),
+              if (onRetry != null) ...[
+                const Gap(8),
                 TextButton(
-                  onPressed: onSignIn,
-                  style: TextButton.styleFrom(
-                    foregroundColor: scheme.onErrorContainer,
-                  ),
-                  child: const Text('Sign in'),
+                  onPressed: onRetry,
+                  child: const Text('Try again'),
                 ),
+              ],
             ],
           ),
         ),

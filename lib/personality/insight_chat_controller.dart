@@ -99,6 +99,14 @@ class InsightChatState {
   final bool busy;
   final String? error;
 
+  /// Solar Network refused an operation outright: no session, an expired one,
+  /// or no right to what was asked for.
+  ///
+  /// Kept apart from [error] because it is not a failure the reader can carry
+  /// on past — retrying re-sends the same refusal — so the page shows a status
+  /// with the sign-in rather than a dismissible banner over a dead composer.
+  final bool unauthorized;
+
   const InsightChatState({
     this.bubbles = const [],
     this.pendingAttachments = const [],
@@ -106,6 +114,7 @@ class InsightChatState {
     this.agentId,
     this.busy = false,
     this.error,
+    this.unauthorized = false,
   });
 
   InsightChatState copyWith({
@@ -117,6 +126,7 @@ class InsightChatState {
     bool? busy,
     String? error,
     bool clearError = false,
+    bool? unauthorized,
   }) => InsightChatState(
     bubbles: bubbles ?? this.bubbles,
     pendingAttachments: pendingAttachments ?? this.pendingAttachments,
@@ -126,6 +136,7 @@ class InsightChatState {
     agentId: agentId ?? this.agentId,
     busy: busy ?? this.busy,
     error: clearError ? null : error ?? this.error,
+    unauthorized: unauthorized ?? this.unauthorized,
   );
 }
 
@@ -193,6 +204,25 @@ class InsightChatController extends _$InsightChatController {
 
   void dismissError() => _set(state.copyWith(clearError: true));
 
+  /// Dismisses the unauthorized status: a fresh sign-in, or a refusal that did
+  /// not hold, has left the surface usable again.
+  void clearUnauthorized() => _set(state.copyWith(unauthorized: false));
+
+  /// Records a failed operation.
+  ///
+  /// An authorization refusal becomes the page's status and takes the error
+  /// banner's message off screen with it, so one failure is never reported
+  /// twice; everything else is a message the reader can dismiss.
+  void _fail(Object error) {
+    // An aborted turn keeps its partial text and ends silently.
+    if (_isAbort(error)) return;
+    if (isPersonalityUnauthorized(error)) {
+      _set(state.copyWith(unauthorized: true, clearError: true));
+      return;
+    }
+    _set(state.copyWith(error: personalityErrorMessage(error)));
+  }
+
   // ── Conversations ────────────────────────────────────────────────────────
 
   /// Opens a persisted thread and replays its messages into the log.
@@ -217,10 +247,11 @@ class InsightChatController extends _$InsightChatController {
             for (final message in messages) ..._bubblesFromMessage(message),
           ],
           clearError: true,
+          unauthorized: false,
         ),
       );
     } catch (e) {
-      _set(state.copyWith(error: personalityErrorMessage(e)));
+      _fail(e);
     }
   }
 
@@ -321,10 +352,7 @@ class InsightChatController extends _$InsightChatController {
         }
       }
     } catch (e) {
-      // An aborted turn keeps its partial text and ends silently.
-      if (!_isAbort(e)) {
-        _set(state.copyWith(error: personalityErrorMessage(e)));
-      }
+      _fail(e);
     } finally {
       _cancelToken = null;
       if (!_disposed) {
@@ -394,9 +422,7 @@ class InsightChatController extends _$InsightChatController {
     } catch (error) {
       // The run may have already timed out server-side; surface the failure
       // rather than leaving the trace spinning.
-      if (!_isAbort(error) && !_disposed) {
-        _set(state.copyWith(error: personalityErrorMessage(error)));
-      }
+      if (!_disposed) _fail(error);
     }
   }
 

@@ -272,6 +272,20 @@ String personalityErrorMessage(Object error) {
   return error.toString();
 }
 
+/// Whether [error] is Solar Network refusing the request itself: no session,
+/// an expired one, or an account without the right to what was asked for.
+///
+/// The distinction matters to the UI. A refused request is not a hiccup the
+/// user can retry past, so the surfaces show an unauthorized status — with the
+/// sign-in — instead of an error banner over a dead composer.
+bool isPersonalityUnauthorized(Object error) {
+  if (error is DioException) {
+    final status = error.response?.statusCode;
+    return status == 401 || status == 403;
+  }
+  return false;
+}
+
 /// Parses the run endpoint's `text/event-stream` framing into events.
 ///
 /// `event:` names the type, `data:` carries one JSON payload, and a blank line

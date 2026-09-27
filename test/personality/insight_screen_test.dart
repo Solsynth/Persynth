@@ -19,11 +19,18 @@ import 'package:persynth/theme/app_theme.dart';
 const _agent = SnPersonalityAgent(id: 'a1', name: 'Michan', enabled: true);
 
 class _FakePersonalityApi extends PersonalityApi {
-  _FakePersonalityApi({this.reply = const [], this.history = const []})
-    : super(Dio());
+  _FakePersonalityApi({
+    this.reply = const [],
+    this.history = const [],
+    this.failure,
+  }) : super(Dio());
 
   final List<PersonalityRunEvent> reply;
   final List<SnPersonalityMessage> history;
+
+  /// When set, a run fails with it instead of streaming [reply].
+  final Object? failure;
+
   final List<String> sentMessages = [];
   List<SnLocalTool> lastClientTools = const [];
 
@@ -63,10 +70,12 @@ class _FakePersonalityApi extends PersonalityApi {
     List<String> overrides = const [],
     List<String> context = const [],
     CancelToken? cancelToken,
-  }) {
+  }) async* {
     sentMessages.add(message);
     lastClientTools = clientTools;
-    return Stream.fromIterable(reply);
+    final error = failure;
+    if (error != null) throw error;
+    yield* Stream.fromIterable(reply);
   }
 }
 
@@ -271,7 +280,7 @@ void main() {
     expect(find.text('Credentials'), findsOneWidget);
   });
 
-  testWidgets('invites a signed-out user to sign in and recovers', (
+  testWidgets('shows its unauthorized status, and recovers, when signed out', (
     tester,
   ) async {
     await _pumpConversationPage(
@@ -280,17 +289,44 @@ void main() {
       authState: const SolarAuthState(SolarAuthStatus.signedOut, null),
     );
 
-    expect(
-      find.textContaining("You're signed out"),
-      findsOneWidget,
-    );
-    expect(find.text('Sign in'), findsOneWidget);
+    // No session is a status of the screen, not a banner over a chat that
+    // cannot send: the composer is gone and the sign-in is in its place.
+    expect(find.text('Unauthorized'), findsOneWidget);
+    expect(find.textContaining('Solar Network session ended'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Continue with Solar Network'), findsOneWidget);
 
-    await tester.tap(find.text('Sign in'));
+    await tester.tap(find.text('Continue with Solar Network'));
     await tester.pumpAndSettle();
 
-    // The fresh session hides the banner; the chat surface is usable again.
-    expect(find.textContaining("You're signed out"), findsNothing);
+    // The fresh session brings the chat surface back.
+    expect(find.text('Unauthorized'), findsNothing);
+    expect(find.byType(TextField), findsOneWidget);
+  });
+
+  testWidgets('shows its unauthorized status when the server refuses a turn', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(failure: _forbidden());
+    await _pumpConversationPage(tester, api);
+
+    await tester.enterText(find.byType(TextField), 'hi there');
+    await tester.pump();
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+
+    // A refusal is not a hiccup to retry past, so it does not read like one:
+    // the chat surface gives way to the status and the sign-in it needs.
+    expect(find.text('Unauthorized'), findsOneWidget);
+    expect(find.textContaining('refused the last request'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+
+    // The session is still there, so the reader can put the chat back.
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unauthorized'), findsNothing);
+    expect(find.byType(TextField), findsOneWidget);
   });
 
   testWidgets('replays a persisted thread into the same rows', (tester) async {
@@ -336,3 +372,12 @@ void main() {
 Finder _plainText(String data) => find.byWidgetPredicate(
   (widget) => widget is Text && widget.data == data,
 );
+
+/// A server refusal of the request the app was authenticated for.
+DioException _forbidden() {
+  final options = RequestOptions(path: '/personality/conversations/c1/runs');
+  return DioException(
+    requestOptions: options,
+    response: Response(requestOptions: options, statusCode: 403),
+  );
+}

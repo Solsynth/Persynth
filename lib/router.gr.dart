@@ -27,6 +27,22 @@ class ConversationRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [GatePage]
+class GateRoute extends PageRouteInfo<void> {
+  const GateRoute({List<PageRouteInfo>? children})
+    : super(GateRoute.name, initialChildren: children);
+
+  static const String name = 'GateRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const GatePage();
+    },
+  );
+}
+
+/// generated route for
 /// [PetPage]
 class PetRoute extends PageRouteInfo<void> {
   const PetRoute({List<PageRouteInfo>? children})

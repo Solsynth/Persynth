@@ -5,12 +5,12 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:persynth/auth/solar_auth_controller.dart';
-import 'package:persynth/auth/solar_auth_service.dart';
+import 'package:persynth/auth/solar_sign_in_panel.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/personality/personality_session.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/screens/ai_console_tabs.dart';
-import 'package:persynth/widgets/solar_device_code_card.dart';
 
 /// The pushed settings page: the account and server in General, with the AI
 /// console (agents, models, billing, credentials) folded in as its own tabs.
@@ -67,20 +67,11 @@ class _GeneralSettingsTab extends HookConsumerWidget {
       text: ref.read(personalityServerUrlProvider),
     );
 
-    Future<void> signIn() async {
-      try {
-        await ref.read(solarAuthStateProvider.notifier).signIn();
-      } on SolarAuthException catch (error) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(error.message)));
-        }
-      }
-    }
-
     Future<void> signOut() async {
       await ref.read(solarAuthStateProvider.notifier).signOut();
+      // The account's agents, threads and open conversation go with the
+      // session, so the next one never draws the last one's.
+      invalidatePersonalitySession(ref);
     }
 
     Future<void> saveServerUrl() async {
@@ -137,22 +128,21 @@ class _GeneralSettingsTab extends HookConsumerWidget {
                           ],
                         ),
                 ),
-                if (authState.status == SolarAuthStatus.checking)
+                if (authState.status == SolarAuthStatus.checking ||
+                    authState.status == SolarAuthStatus.signingIn)
                   const SizedBox.square(
                     dimension: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                else if (authState.user == null)
-                  FilledButton(onPressed: signIn, child: const Text('Sign in'))
-                else
+                else if (authState.user != null)
                   TextButton(onPressed: signOut, child: const Text('Sign out')),
               ],
             ),
           ),
         ),
-        if (authState.deviceCode case final code?) ...[
+        if (authState.user == null) ...[
           const SizedBox(height: 12),
-          SolarDeviceCodeCard(authorization: code),
+          const SolarSignInPanel(),
         ],
         const SizedBox(height: 20),
         _SectionHeader('Server'),

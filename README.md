@@ -11,7 +11,8 @@ An Island-style Flutter desktop pet companion.
 - AI behavior harness lets Personality Core change mood, face, status, and animation through a validated JSON directive.
 - Programmatic simulation owns energy, affection, idle decay, and feed/play/rest reactions.
 - Pet chat accepts typed messages on every target and speech-to-text on Android, iOS, and web when available.
-- Solar Network OAuth with PKCE, secure token storage, refresh, and sign-out.
+- Solar Network OAuth with PKCE, secure token storage, refresh, and sign-out,
+  behind a sign-in gate the app opens on.
 - Desktop-only multi-window support through `desktop_multi_window`.
 - Pet-only agent listing: the companion picker and dashboard show only `pet`-capable
   agents (`GET /agents?pet=true`).
@@ -23,9 +24,23 @@ An Island-style Flutter desktop pet companion.
 
 Mobile builds use the regular single-window Flutter app shell.
 
-Sign in from the main configuration window. The app passes the refreshed Solar
-Network user access token to Personality Core; it never asks for a separate
-Personality Core token.
+The app opens on its gate (`lib/gate/gate_page.dart`): the Solar Network
+sign-in is the front door, and the conversation is only reachable from it, so a
+launch with no session never lands on a chat surface that cannot send anything.
+Nothing else owns a sign-in — the gate and the conversation both render
+`SolarSignInPanel`, which is also what shows the code a web sign-in has to have
+approved.
+
+The conversation carries its own unauthorized status. A session the server
+refuses mid-use — a 401 that could not be refreshed, or a 403 — replaces the
+thread and its composer with that status rather than an error banner over a
+dead input, and the sign-in sits in it: the reader keeps the screen instead of
+being pulled back to the gate. Signing in from anywhere drops the last
+account's agents, threads and open conversation
+(`lib/personality/personality_session.dart`).
+
+The app passes the refreshed Solar Network user access token to Personality
+Core; it never asks for a separate Personality Core token.
 
 Register the callback for every target that uses one with the Solar Network
 OAuth client:

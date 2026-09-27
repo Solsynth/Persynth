@@ -10,7 +10,14 @@ final solarAuthProvider = Provider<SolarAuthService>(
   (ref) => SolarAuthService(),
 );
 
-enum SolarAuthStatus { checking, signedIn, signedOut }
+/// What the stored session says right now.
+///
+/// [checking] and [signingIn] are both "no answer yet", but they are not the
+/// same screen: a launch reads the session before anything may be drawn, while
+/// a sign-in is already under way and owns what is on screen — the gate keeps
+/// the sign-in panel up through it, code and failure included, instead of
+/// swapping it for a spinner that would take the code away.
+enum SolarAuthStatus { checking, signingIn, signedIn, signedOut }
 
 @immutable
 class SolarAuthState {
@@ -26,9 +33,10 @@ class SolarAuthState {
   bool get signedIn => status == SolarAuthStatus.signedIn;
 }
 
-/// App-wide sign-in state. The conversation page and settings page watch this;
-/// the Personality API client calls [markSignedOut] when a 401 could not be
-/// refreshed, which turns the banner into a sign-in prompt.
+/// App-wide sign-in state. The gate, the conversation page and the settings
+/// page watch this; the Personality API client calls [markSignedOut] when a 401
+/// could not be refreshed, which turns the surface in front of the user into
+/// the sign-in that fixes it.
 class SolarAuthNotifier extends Notifier<SolarAuthState> {
   @override
   SolarAuthState build() {
@@ -53,14 +61,14 @@ class SolarAuthNotifier extends Notifier<SolarAuthState> {
   /// Runs the Solar OAuth flow; throws [SolarAuthException] on failure so the
   /// caller can surface the reason.
   Future<SolarUser> signIn() async {
-    state = const SolarAuthState(SolarAuthStatus.checking, null);
+    state = const SolarAuthState(SolarAuthStatus.signingIn, null);
     try {
       final user = await ref.read(solarAuthProvider).signIn(
         // The web needs a code approved while this waits; publishing it is what
         // puts it on screen. The other platforms never call this.
         onDeviceCode: (authorization) {
           state = SolarAuthState(
-            SolarAuthStatus.checking,
+            SolarAuthStatus.signingIn,
             null,
             deviceCode: authorization,
           );
@@ -82,13 +90,16 @@ class SolarAuthNotifier extends Notifier<SolarAuthState> {
   /// Called by the API client when a 401 could not be refreshed: the session
   /// is gone, so the UI should invite the user to sign in again.
   ///
-  /// A sign-in already under way owns the state and is left alone: every call
-  /// the app makes while it waits is unauthenticated, so the 401s that arrive
-  /// are about the session being replaced, not about the attempt replacing it.
-  /// Overwriting the state here would take the device code off the screen
-  /// mid-flow.
+  /// A wait already under way — the launch's session read, or a sign-in — owns
+  /// the state and is left alone: every call the app makes while it waits is
+  /// unauthenticated, so the 401s that arrive are about the session being
+  /// replaced, not about the attempt replacing it. Overwriting the state here
+  /// would take the device code off the screen mid-flow.
   void markSignedOut() {
-    if (state.status == SolarAuthStatus.checking) return;
+    if (state.status == SolarAuthStatus.checking ||
+        state.status == SolarAuthStatus.signingIn) {
+      return;
+    }
     state = const SolarAuthState(SolarAuthStatus.signedOut, null);
   }
 }
