@@ -27,10 +27,19 @@ Sign in from the main configuration window. The app passes the refreshed Solar
 Network user access token to Personality Core; it never asks for a separate
 Personality Core token.
 
-Register both `synthpet://oauth/callback` and
-`http://127.0.0.1:42872/oauth/callback` with the Solar Network OAuth client.
-Windows and Linux use the fixed loopback callback through the system browser;
-mobile and macOS use the `synthpet` callback scheme.
+Register the callback for every target that uses one with the Solar Network
+OAuth client:
+
+- `synthpet://oauth/callback` — Android, iOS and macOS.
+- `http://127.0.0.1:42872/oauth/callback` — Windows and Linux, which cannot
+  register a scheme and listen on that fixed loopback port instead.
+
+The web build needs no callback and no registration: a browser cannot hand an
+HTTPS redirect back into the page the app is running in, so the web signs in
+with the OAuth **device flow** instead. It shows a code, opens
+`id.solian.app/auth/device`, and polls until the account approves it — which
+also means a web sign-in works from any origin, including a dev server on a
+random port.
 
 If the registered OAuth client or Personality Core agent differs from the
 defaults, configure them at build/run time:

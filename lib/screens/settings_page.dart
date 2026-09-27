@@ -10,6 +10,7 @@ import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/screens/ai_console_tabs.dart';
+import 'package:persynth/widgets/solar_device_code_card.dart';
 
 /// The pushed settings page: the account and server in General, with the AI
 /// console (agents, models, billing, credentials) folded in as its own tabs.
@@ -149,6 +150,10 @@ class _GeneralSettingsTab extends HookConsumerWidget {
             ),
           ),
         ),
+        if (authState.deviceCode case final code?) ...[
+          const SizedBox(height: 12),
+          SolarDeviceCodeCard(authorization: code),
+        ],
         const SizedBox(height: 20),
         _SectionHeader('Server'),
         Card(

@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Release packaging output (buildtools/appimagetool-*.AppImage stays tracked)
+/Installer/
+/Persynth*.AppImage
+Persynth.AppDir/
+
 # Symbolication related
 app.*.symbols
 
@@ -43,3 +48,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local path overrides for the sibling Solian checkout.
+pubspec_overrides.yaml

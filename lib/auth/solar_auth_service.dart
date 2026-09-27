@@ -8,6 +8,24 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
 
+/// What the user has to approve before a device-flow sign-in can finish: the
+/// code, and the page that takes it. [verificationUriComplete] carries the code
+/// in the URL, so opening it saves typing it.
+@immutable
+class SolarDeviceAuthorization {
+  const SolarDeviceAuthorization({
+    required this.userCode,
+    required this.verificationUri,
+    required this.verificationUriComplete,
+    required this.expiresAt,
+  });
+
+  final String userCode;
+  final Uri verificationUri;
+  final Uri verificationUriComplete;
+  final DateTime expiresAt;
+}
+
 class SolarUser {
   const SolarUser({required this.name, required this.handle});
 
@@ -26,9 +44,13 @@ class SolarUser {
 }
 
 class SolarAuthService {
-  SolarAuthService({FlutterSecureStorage? storage, http.Client? client})
-    : _storage = storage ?? const FlutterSecureStorage(),
-      _client = client ?? http.Client();
+  SolarAuthService({
+    FlutterSecureStorage? storage,
+    http.Client? client,
+    bool? isWeb,
+  }) : _storage = storage ?? const FlutterSecureStorage(),
+       _client = client ?? http.Client(),
+       _isWeb = isWeb ?? kIsWeb;
 
   static const apiBase = 'https://api.solian.app';
   static const clientId = String.fromEnvironment(
@@ -41,10 +63,24 @@ class SolarAuthService {
   static const loopbackCallbackUrlScheme = 'http://127.0.0.1:$loopbackPort';
   static const loopbackRedirectUri =
       '$loopbackCallbackUrlScheme/oauth/callback';
+
+  /// The grant the web build signs in with: RFC 8628's device flow, which
+  /// needs no callback at all. A browser cannot hand a custom scheme back to a
+  /// page, and the package that could receive an HTTPS redirect needs a page
+  /// on the app's own origin to forward it — a page and a registered redirect
+  /// per origin, for a flow the provider already answers without either.
+  static const deviceCodeGrant =
+      'urn:ietf:params:oauth:grant-type:device_code';
+
   static const sessionKey = 'synthpet_solar_network_oauth_session';
 
   final FlutterSecureStorage _storage;
   final http.Client _client;
+
+  /// Whether this build signs in with the device flow, which the web has to:
+  /// nothing in a browser can hand the provider's callback back into the page.
+  /// Injected rather than read from [kIsWeb] so a test can run either flow.
+  final bool _isWeb;
 
   Future<SolarUser?> currentUser() async {
     final session = await _validSession();
@@ -90,8 +126,18 @@ class SolarAuthService {
     }
   }
 
-  Future<SolarUser> signIn() async {
-    final session = await _authorize();
+  /// Signs in, returning the account.
+  ///
+  /// [onDeviceCode] is how the web build tells the user what to approve: the
+  /// device flow has no callback to bounce through, so the provider hands out
+  /// a code and the app polls until the user has entered it in a browser. The
+  /// other platforms open a browser window and never call it.
+  Future<SolarUser> signIn({
+    void Function(SolarDeviceAuthorization authorization)? onDeviceCode,
+  }) async {
+    final session = _isWeb
+        ? await _authorizeDevice(onDeviceCode)
+        : await _authorize();
     final user = await _currentUser(session);
     if (user == null) {
       throw const SolarAuthException('Unable to load the signed-in account.');
@@ -121,12 +167,12 @@ class SolarAuthService {
       sha256.convert(utf8.encode(verifier)).bytes,
     ).replaceAll('=', '');
     final useLoopback = _usesLoopback;
-    final redirect = useLoopback ? loopbackRedirectUri : redirectUri;
+    final redirect = _redirect;
     final authorizationUrl = configuration.authorizationEndpoint.replace(
       queryParameters: {
         'response_type': 'code',
         'client_id': clientId,
-        'redirect_uri': redirect,
+        'redirect_uri': redirect.toString(),
         'scope': '*',
         'state': state,
         'code_challenge': challenge,
@@ -136,6 +182,8 @@ class SolarAuthService {
     final callback = Uri.parse(
       await FlutterWebAuth2.authenticate(
         url: authorizationUrl.toString(),
+        // Unused on the web, where the package resolves the callback from the
+        // origin the app runs on rather than from a scheme.
         callbackUrlScheme: useLoopback
             ? loopbackCallbackUrlScheme
             : callbackScheme,
@@ -163,7 +211,7 @@ class SolarAuthService {
       'grant_type': 'authorization_code',
       'client_id': clientId,
       'code': code,
-      'redirect_uri': redirect,
+      'redirect_uri': redirect.toString(),
       'code_verifier': verifier,
     });
     await _saveSession(session);
@@ -195,6 +243,122 @@ class SolarAuthService {
     }
   }
 
+  /// Signs in with RFC 8628's device flow: take a code, hand it to the user,
+  /// poll the token endpoint until they have approved it in a browser.
+  ///
+  /// This is the web's flow, and the reason is the redirect: nothing in a
+  /// browser can hand the provider's callback back into the page, which is
+  /// what the scheme and loopback redirects both assume. A code the user types
+  /// on their own screen needs no callback at all.
+  Future<_SolarSession> _authorizeDevice(
+    void Function(SolarDeviceAuthorization authorization)? onDeviceCode,
+  ) async {
+    final configuration = await _discover();
+    final endpoint = configuration.deviceAuthorizationEndpoint;
+    if (!endpoint.hasScheme) {
+      throw const SolarAuthException(
+        'This Solar Network deployment does not offer device sign-in.',
+      );
+    }
+    final response = await _client.post(
+      endpoint,
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: {'client_id': clientId, 'scope': '*'},
+    );
+    final body = _decode(response.body);
+    _checkResponse(response.statusCode, body);
+    if (body is! Map) {
+      throw const SolarAuthException('Invalid device authorization response.');
+    }
+    final deviceCode = body['device_code']?.toString() ?? '';
+    final userCode = body['user_code']?.toString() ?? '';
+    final verificationUri = Uri.tryParse(
+      body['verification_uri']?.toString() ?? '',
+    );
+    if (deviceCode.isEmpty ||
+        userCode.isEmpty ||
+        verificationUri == null ||
+        !verificationUri.hasScheme) {
+      throw const SolarAuthException('Invalid device authorization response.');
+    }
+    // The provider may send a URI that carries the code, which saves the user
+    // typing it. Where it does not, the code itself is the whole instruction.
+    final completeUri = Uri.tryParse(
+      body['verification_uri_complete']?.toString() ?? '',
+    );
+    final expiresIn = (body['expires_in'] as num?)?.toInt() ?? 600;
+    onDeviceCode?.call(
+      SolarDeviceAuthorization(
+        userCode: userCode,
+        verificationUri: verificationUri,
+        verificationUriComplete: completeUri != null && completeUri.hasScheme
+            ? completeUri
+            : verificationUri,
+        expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
+      ),
+    );
+    final session = await _awaitDeviceApproval(
+      configuration.tokenEndpoint,
+      deviceCode,
+      interval: (body['interval'] as num?)?.toInt() ?? 5,
+      deadline: DateTime.now().add(Duration(seconds: expiresIn)),
+    );
+    await _saveSession(session);
+    return session;
+  }
+
+  /// Polls [tokenEndpoint] until the user has approved [deviceCode].
+  ///
+  /// RFC 8628's two "not yet" answers are not failures: `authorization_pending`
+  /// means the user has not got there yet, `slow_down` means the provider
+  /// wants the next poll further out. Anything else — approval, refusal, an
+  /// expired code — is the answer, and the loop ends either way.
+  Future<_SolarSession> _awaitDeviceApproval(
+    Uri tokenEndpoint,
+    String deviceCode, {
+    required int interval,
+    required DateTime deadline,
+  }) async {
+    var wait = interval;
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(Duration(seconds: wait));
+      final response = await _client.post(
+        tokenEndpoint,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {
+          'grant_type': deviceCodeGrant,
+          'device_code': deviceCode,
+          'client_id': clientId,
+        },
+      );
+      final body = _decode(response.body);
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return _sessionFrom(body);
+      }
+      final error = body is Map ? body['error']?.toString() : null;
+      if (error == 'authorization_pending') continue;
+      if (error == 'slow_down') {
+        wait += 5;
+        continue;
+      }
+      if (error == 'expired_token') {
+        throw const SolarAuthException(
+          'The sign-in code expired before it was approved. Try again.',
+        );
+      }
+      if (error == 'access_denied') {
+        throw const SolarAuthException('The sign-in was declined.');
+      }
+      _checkResponse(response.statusCode, body);
+      throw SolarAuthException(
+        'Solar Network sign-in failed (HTTP ${response.statusCode}).',
+      );
+    }
+    throw const SolarAuthException(
+      'The sign-in code expired before it was approved. Try again.',
+    );
+  }
+
   Future<_SolarSession> _exchange(
     Uri endpoint,
     Map<String, String> fields, {
@@ -207,6 +371,11 @@ class SolarAuthService {
     );
     final body = _decode(response.body);
     _checkResponse(response.statusCode, body);
+    return _sessionFrom(body, previous: previous);
+  }
+
+  /// The session a token response describes.
+  _SolarSession _sessionFrom(Object? body, {_SolarSession? previous}) {
     if (body is! Map) {
       throw const SolarAuthException('Invalid OAuth token response.');
     }
@@ -238,6 +407,7 @@ class SolarAuthService {
     return _OidcConfiguration(
       Uri.parse(body['authorization_endpoint']?.toString() ?? ''),
       Uri.parse(body['token_endpoint']?.toString() ?? ''),
+      Uri.parse(body['device_authorization_endpoint']?.toString() ?? ''),
     );
   }
 
@@ -319,16 +489,33 @@ class SolarAuthService {
             defaultTargetPlatform == TargetPlatform.linux);
   }
 
+  /// Where the provider returns the authorization code.
+  ///
+  /// Android, iOS and macOS answer the `synthpet` scheme; Windows and Linux
+  /// cannot register one and listen on a loopback port instead. The web does
+  /// neither — it never reaches this, because it signs in with the device flow
+  /// in [_authorizeDevice].
+  Uri get _redirect =>
+      _usesLoopback ? Uri.parse(loopbackRedirectUri) : Uri.parse(redirectUri);
+
   String _randomUrlSafe(int length) => base64UrlEncode(
     List<int>.generate(length, (_) => Random.secure().nextInt(256)),
   ).replaceAll('=', '');
 }
 
 class _OidcConfiguration {
-  const _OidcConfiguration(this.authorizationEndpoint, this.tokenEndpoint);
+  const _OidcConfiguration(
+    this.authorizationEndpoint,
+    this.tokenEndpoint,
+    this.deviceAuthorizationEndpoint,
+  );
 
   final Uri authorizationEndpoint;
   final Uri tokenEndpoint;
+
+  /// Where a device-flow sign-in asks for its code. Empty when the deployment
+  /// does not offer one.
+  final Uri deviceAuthorizationEndpoint;
 }
 
 class _SolarSession {

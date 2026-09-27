@@ -15,6 +15,7 @@ import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_service.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/widgets/message_markdown.dart';
+import 'package:persynth/widgets/solar_device_code_card.dart';
 
 /// Insight: a live conversation with a personality agent, with the account's
 /// other threads in a responsive sidebar.
@@ -109,6 +110,11 @@ class ConversationPage extends HookConsumerWidget {
 
     final mainContent = Column(
       children: [
+        if (authState.deviceCode case final code?)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: SolarDeviceCodeCard(authorization: code),
+          ),
         if (authState.status == SolarAuthStatus.signedOut)
           _AuthBanner(busy: signingIn.value, onSignIn: signIn),
         if (chat.error != null)

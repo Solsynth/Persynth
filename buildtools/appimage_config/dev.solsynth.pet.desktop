@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Persynth
+GenericName=Desktop Companion
+Comment=A quiet Island-style desktop pet companion.
+
+Exec=persynth %U
+Icon=persynth
+Terminal=false
+Categories=Utility;
+StartupNotify=true
+StartupWMClass=dev.solsynth.pet
+
+# Helps with search in application menus
+Keywords=persynth;pet;companion;island;solar network;

@@ -641,7 +641,7 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/island_plugin_foundation"
-      ref: HEAD
+      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
       resolved-ref: c1e24a5d31289faa7877b69fd4197960e8f25082
       url: "https://src.solsynth.dev/SoSYS/Solian.git"
     source: git
@@ -650,7 +650,7 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/island_ui_foundation"
-      ref: HEAD
+      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
       resolved-ref: c1e24a5d31289faa7877b69fd4197960e8f25082
       url: "https://src.solsynth.dev/SoSYS/Solian.git"
     source: git
@@ -1120,7 +1120,7 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/solar_network_foundation"
-      ref: HEAD
+      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
       resolved-ref: c1e24a5d31289faa7877b69fd4197960e8f25082
       url: "https://src.solsynth.dev/SoSYS/Solian.git"
     source: git
@@ -1294,7 +1294,7 @@ packages:
     source: hosted
     version: "1.4.0"
   url_launcher:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: url_launcher
       sha256: f6a7e5c4835bb4e3026a04793a4199ca2d14c739ec378fdfe23fc8075d0439f8

@@ -43,6 +43,7 @@ dependencies:
   material_symbols_icons: ^4.2960.0
   riverpod_annotation: ^4.0.7
   shared_preferences: ^2.5.5
+  url_launcher: ^6.3.2
   speech_to_text: ^7.5.0
   # The island_ui_foundation window frame renders with this Material fork's
   # widgets; theme it directly so the titlebar follows the app theme.
@@ -51,16 +52,23 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/island_ui_foundation
+      # All three Solian packages carry the same ref: pub identifies a git
+      # dependency by url + path + ref, and the packages depend on each other by
+      # path inside that checkout, so a floating HEAD resolves one package from
+      # two sources and version solving fails. Bump all three together.
+      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
   # The JS plugin runtime: a user's script plugin lives in its own sandbox and
   # contributes its tools to the companion through the API in lib/plugins.
   island_plugin_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/island_plugin_foundation
+      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
   solar_network_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/solar_network_foundation
+      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
   hooks_riverpod: ^3.4.3
   window_manager:
     git:

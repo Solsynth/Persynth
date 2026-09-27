@@ -14,10 +14,14 @@ enum SolarAuthStatus { checking, signedIn, signedOut }
 
 @immutable
 class SolarAuthState {
-  const SolarAuthState(this.status, this.user);
+  const SolarAuthState(this.status, this.user, {this.deviceCode});
 
   final SolarAuthStatus status;
   final SolarUser? user;
+
+  /// The code a device-flow sign-in is waiting on, or null when no sign-in is
+  /// waiting for one. Only the web build produces it.
+  final SolarDeviceAuthorization? deviceCode;
 
   bool get signedIn => status == SolarAuthStatus.signedIn;
 }
@@ -51,7 +55,17 @@ class SolarAuthNotifier extends Notifier<SolarAuthState> {
   Future<SolarUser> signIn() async {
     state = const SolarAuthState(SolarAuthStatus.checking, null);
     try {
-      final user = await ref.read(solarAuthProvider).signIn();
+      final user = await ref.read(solarAuthProvider).signIn(
+        // The web needs a code approved while this waits; publishing it is what
+        // puts it on screen. The other platforms never call this.
+        onDeviceCode: (authorization) {
+          state = SolarAuthState(
+            SolarAuthStatus.checking,
+            null,
+            deviceCode: authorization,
+          );
+        },
+      );
       state = SolarAuthState(SolarAuthStatus.signedIn, user);
       return user;
     } on SolarAuthException {
@@ -67,7 +81,14 @@ class SolarAuthNotifier extends Notifier<SolarAuthState> {
 
   /// Called by the API client when a 401 could not be refreshed: the session
   /// is gone, so the UI should invite the user to sign in again.
+  ///
+  /// A sign-in already under way owns the state and is left alone: every call
+  /// the app makes while it waits is unauthenticated, so the 401s that arrive
+  /// are about the session being replaced, not about the attempt replacing it.
+  /// Overwriting the state here would take the device code off the screen
+  /// mid-flow.
   void markSignedOut() {
+    if (state.status == SolarAuthStatus.checking) return;
     state = const SolarAuthState(SolarAuthStatus.signedOut, null);
   }
 }
