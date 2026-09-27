@@ -25,13 +25,11 @@ import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:persynth/personality/local_tool.dart';
-import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/plugins/agenda_plugin.dart';
 import 'package:persynth/plugins/boards_plugin.dart';
 import 'package:persynth/plugins/chat_plugin.dart';
-import 'package:persynth/plugins/device_tools_plugin.dart';
 import 'package:persynth/plugins/mail_plugin.dart';
 import 'package:persynth/plugins/notifications_plugin.dart';
 import 'package:persynth/plugins/plugin.dart';
@@ -57,7 +55,6 @@ const String loadSkillToolName = 'load_skill';
 /// the tests pin it. Add a plugin at the end unless there is a reason not to.
 const List<SnPlugin> kBuiltInPlugins = [
   WebToolsPlugin(),
-  DeviceToolsPlugin(),
   SocialPlugin(),
   ChatPlugin(),
   NotificationsPlugin(),
@@ -92,7 +89,6 @@ final pluginContextProvider = Provider<SnPluginContext>(
   (ref) => SnPluginContext(
     api: ref.watch(personalityApiClientProvider),
     http: ref.watch(pluginHttpClientProvider),
-    mcp: ref.watch(mcpGatewayProvider),
   ),
 );
 

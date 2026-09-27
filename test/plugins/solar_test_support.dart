@@ -12,7 +12,6 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:persynth/personality/local_tool.dart';
-import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/plugins/plugin.dart';
 
 /// The gateway the app talks to, as the default server URL does.
@@ -89,8 +88,7 @@ Dio solarDio(SolarStubAdapter adapter) {
 /// A context whose Solar connection is [dio] and whose other dependencies are
 /// present but never reached — a plugin that touches them in a test about
 /// Solar Network is a bug the test should surface.
-SnPluginContext solarContext(Dio dio) =>
-    SnPluginContext(api: dio, http: dio, mcp: _UnusedGateway());
+SnPluginContext solarContext(Dio dio) => SnPluginContext(api: dio, http: dio);
 
 /// A listing as the gateway answers one: an envelope with the items inside.
 ///
@@ -101,20 +99,6 @@ Map<String, dynamic> pageJson(List<Object?> items) => {
   'next_cursor': null,
   'mode': 'personalized',
 };
-
-/// A gateway that fails loudly, so a test cannot pass by quietly using it.
-class _UnusedGateway implements McpGateway {
-  @override
-  Future<List<McpDaemonTool>> listTools() async =>
-      throw StateError('this test does not use the MCP daemon');
-
-  @override
-  Future<String> callTool(String name, Map<String, dynamic> arguments) async =>
-      throw StateError('this test does not use the MCP daemon');
-
-  @override
-  void dispose() {}
-}
 
 /// The one tool named [name] in [tools].
 SnLocalTool solarTool(List<SnLocalTool> tools, String name) => tools.firstWhere(

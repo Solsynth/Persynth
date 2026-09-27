@@ -44,12 +44,12 @@ flutter run \
 ## Plugins
 
 Everything the companion can do on this machine is a plugin: the on-device web
-tools, the MCP-backed file and shell tools, and any script plugin the user
-installs. A plugin owns three things — the tools the model may call, the system
-prompt text that explains them, and the settings switch the user grants it
-with. Nothing in the chat loop, the run request or the settings page names one:
-they all read `lib/plugins/plugin_registry.dart`, so adding a capability is one
-class plus one line in `kBuiltInPlugins`.
+tools, the Solar Network sets, and any script plugin the user installs. A
+plugin owns three things — the tools the model may call, the system prompt text
+that explains them, and the settings switch the user grants it with. Nothing in
+the chat loop, the run request or the settings page names one: they all read
+`lib/plugins/plugin_registry.dart`, so adding a capability is one class plus one
+line in `kBuiltInPlugins`.
 
 A plugin that is switched off is not offered to the model at all, so the switch
 is a capability boundary rather than a refusal the model could argue past.
@@ -59,7 +59,7 @@ is a capability boundary rather than a refusal the model could argue past.
 A plugin's tools ride on every run, or — if it sets `onDemand` — load only once
 the model asks for them by name, through `list_skills`. That is worth doing when
 a tool set is large or rarely used: its definitions cost context on every
-request whether or not they are called. `Files & commands` is on demand for
+request whether or not they are called. `Moments & feed` is on demand for
 exactly that reason.
 
 ### Replacing the server's tools
@@ -189,15 +189,15 @@ flutter analyze
 flutter test
 ```
 
-The app is sandboxed, so its file and command tools (`Files & commands` in
-settings) run in the Persynth MCP daemon — a separate, unsandboxed process
-under `tool/synthpet_mcp`:
+The app no longer talks to the Persynth MCP daemon: `tool/synthpet_mcp`, the
+standalone out-of-process MCP server that used to back its `Files & commands`
+tools, is still in the repo and still builds on its own:
 
 ```sh
 cd tool/synthpet_mcp && dart pub get && dart run synthpet_mcp
 ```
 
-The daemon listens on `127.0.0.1:4317/mcp` (override with `--port`, or point
-the app at another URL with `--dart-define=SYNTHPET_MCP_URL=...`). Compile it
-with `dart compile exe bin/synthpet_mcp.dart` for a standalone binary; grant
-that binary Full Disk Access to reach macOS-protected folders.
+It listens on `127.0.0.1:4317/mcp` only (`--port` to move it), and nothing in
+the app connects to it. Compile it with `dart compile exe
+bin/synthpet_mcp.dart` for a standalone binary; grant that binary Full Disk
+Access to reach macOS-protected folders.

@@ -5,7 +5,6 @@ import 'package:persynth/personality/insight_chat_controller.dart';
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
-import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -113,23 +112,10 @@ ProviderContainer _pluginContainer(SharedPreferences prefs, _HandoffApi api) {
         (ref) => SnPluginContext(
           api: ref.watch(personalityApiClientProvider),
           http: ref.watch(pluginHttpClientProvider),
-          mcp: _NoDaemon(),
         ),
       ),
     ],
   );
-}
-
-class _NoDaemon implements McpGateway {
-  @override
-  Future<List<McpDaemonTool>> listTools() async => const [];
-
-  @override
-  Future<String> callTool(String name, Map<String, dynamic> arguments) async =>
-      throw StateError('no daemon in this test');
-
-  @override
-  void dispose() {}
 }
 
 ProviderContainer _container(SharedPreferences prefs, _HandoffApi api) {
@@ -223,23 +209,23 @@ void main() {
   test('a plugin loaded mid-run is handed to the server on resume', () async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
-    // The model loads the device set: the call arrives under the server's
+    // The model loads the social set: the call arrives under the server's
     // namespace, and the skill is the one the registry advertises.
     final api = _HandoffApi(
       callName: '${kLocalToolNamespace}load_skill',
-      callArguments: const {'skill': 'local_device'},
+      callArguments: const {'skill': 'local_social'},
     );
     final container = _pluginContainer(prefs, api);
     addTearDown(container.dispose);
     await container
         .read(pluginEnablementProvider.notifier)
-        .setEnabled('device', true);
+        .setEnabled('social', true);
     final controller = container.read(insightChatControllerProvider.notifier);
     controller.selectAgent('a1');
 
-    // Before loading, the device tools are not offered at all.
+    // Before loading, the social tools are not offered at all.
     final offeredBefore = api.receivedClientTools;
-    await controller.send('what is on this machine');
+    await controller.send('what is happening on Solar Network');
 
     expect(offeredBefore, isNull, reason: 'the fake answers only once');
     expect(
@@ -251,9 +237,13 @@ void main() {
     // tools it just made callable ride with the result.
     expect(api.resumedTools, hasLength(1));
     expect(api.resumedTools.single.map((tool) => tool.name), [
-      'read_file',
-      'list_dir',
-      'run_command',
+      'read_timeline',
+      'read_post',
+      'search_posts',
+      'read_profile',
+      'create_post',
+      'reply_to_post',
+      'react_to_post',
     ]);
     expect(api.resumed.single.$4, contains('"ok":true'));
   });

@@ -2,15 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Sandboxed, as the Mac App Store requires. The companion's file and
-	     command tools no longer run in-process: the sandbox would confine
-	     every one of their paths to this app's own container, and a child
-	     process of a sandboxed app inherits the sandbox, so there is no
-	     in-bundle helper that could reach the disk either. They now live in
-	     the Persynth MCP daemon (tool/synthpet_mcp), a separate, unsandboxed
-	     process, and this app talks to it as an MCP client over loopback
-	     HTTP — which is why outgoing network is on (it also serves the
-	     Personality server). Incoming connections stay off. -->
+	<!-- Sandboxed, as the Mac App Store requires. Outgoing network is on for
+	     the Personality server the app talks to; incoming connections stay
+	     off. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<key>com.apple.security.network.client</key>

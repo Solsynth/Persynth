@@ -4,10 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/personality/personality_network.dart';
-import 'package:persynth/plugins/device_tools_plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
+import 'package:persynth/plugins/social_plugin.dart';
 import 'package:persynth/plugins/web_tools_plugin.dart';
 import 'package:persynth/screens/settings_page.dart';
 import 'package:persynth/theme/app_theme.dart';
@@ -32,11 +31,6 @@ void main() {
       ProviderScope(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(preferences),
-          // The row probes the daemon over the network; tests answer for it
-          // instead of going near the loopback.
-          mcpDaemonStatusProvider.overrideWith(
-            (ref) async => const McpDaemonStatus(reachable: false),
-          ),
         ],
         child: MaterialApp(
           theme: buildPersynthTheme(Brightness.light),
@@ -55,64 +49,6 @@ void main() {
     }
   });
 
-  testWidgets('the MCP daemon the device tools lean on is reported', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({});
-    final preferences = await SharedPreferences.getInstance();
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(preferences),
-          mcpDaemonStatusProvider.overrideWith(
-            (ref) async => const McpDaemonStatus(
-              reachable: true,
-              toolCount: 3,
-            ),
-          ),
-        ],
-        child: MaterialApp(
-          theme: buildPersynthTheme(Brightness.light),
-          home: const SettingsPage(),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('MCP daemon'), findsOneWidget);
-    expect(find.textContaining('Running on'), findsOneWidget);
-    expect(find.textContaining('3 tools'), findsOneWidget);
-    expect(find.text('Check again'), findsOneWidget);
-  });
-
-  testWidgets('an unreachable daemon is reported with how to start it', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({});
-    final preferences = await SharedPreferences.getInstance();
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(preferences),
-          mcpDaemonStatusProvider.overrideWith(
-            (ref) async => const McpDaemonStatus(reachable: false),
-          ),
-        ],
-        child: MaterialApp(
-          theme: buildPersynthTheme(Brightness.light),
-          home: const SettingsPage(),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('MCP daemon'), findsOneWidget);
-    expect(find.textContaining('Not running'), findsOneWidget);
-    expect(find.textContaining('dart run synthpet_mcp'), findsOneWidget);
-  });
-
   testWidgets('the local tool switches decide what the companion may call', (
     tester,
   ) async {
@@ -123,9 +59,6 @@ void main() {
       ProviderScope(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(preferences),
-          mcpDaemonStatusProvider.overrideWith(
-            (ref) async => const McpDaemonStatus(reachable: false),
-          ),
         ],
         child: MaterialApp(
           theme: buildPersynthTheme(Brightness.light),
@@ -141,20 +74,20 @@ void main() {
     List<String> offered() =>
         container.read(pluginToolsProvider).map((tool) => tool.name).toList();
 
-    // The web plugin is on out of the box; the device set is held back.
+    // The web plugin is on out of the box; the social set is held back.
     expect(offered(), ['web_search', 'web_fetch']);
 
-    final device = find.widgetWithText(SwitchListTile, 'Files & commands');
-    await tester.ensureVisible(device);
+    final social = find.widgetWithText(SwitchListTile, 'Moments & feed');
+    await tester.ensureVisible(social);
     await tester.pumpAndSettle();
-    expect(tester.widget<SwitchListTile>(device).value, isFalse);
+    expect(tester.widget<SwitchListTile>(social).value, isFalse);
 
-    await tester.tap(device);
+    await tester.tap(social);
     await tester.pumpAndSettle();
 
-    expect(container.read(pluginEnablementProvider), contains('device'));
-    expect(preferences.getBool(const DeviceToolsPlugin().storeKey), isTrue);
-    // The device tools are on demand: switching the plugin on offers the way
+    expect(container.read(pluginEnablementProvider), contains('social'));
+    expect(preferences.getBool(const SocialPlugin().storeKey), isTrue);
+    // The social tools are on demand: switching the plugin on offers the way
     // to load them, and loading is what puts them on the run.
     expect(offered(), ['web_search', 'web_fetch', loadSkillToolName]);
 
@@ -179,9 +112,6 @@ void main() {
       ProviderScope(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(preferences),
-          mcpDaemonStatusProvider.overrideWith(
-            (ref) async => const McpDaemonStatus(reachable: false),
-          ),
         ],
         child: MaterialApp(
           theme: buildPersynthTheme(Brightness.light),

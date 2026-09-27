@@ -35,7 +35,6 @@ import 'package:flutter/widgets.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import 'package:persynth/personality/local_tool.dart';
-import 'package:persynth/personality/mcp_client.dart';
 
 /// What a plugin is handed when the app asks it for its tools and prompt text.
 ///
@@ -44,11 +43,7 @@ import 'package:persynth/personality/mcp_client.dart';
 /// for anything the context does not offer.
 @immutable
 class SnPluginContext {
-  const SnPluginContext({
-    required this.api,
-    required this.http,
-    required this.mcp,
-  });
+  const SnPluginContext({required this.api, required this.http});
 
   /// The account-authenticated client for Solar Network. A plugin that reads
   /// Solar Network resources calls through this, so the request leaves from
@@ -59,11 +54,6 @@ class SnPluginContext {
   /// A bare client with no `Authorization` header, for third-party hosts that
   /// must never see the account token.
   final Dio http;
-
-  /// The Persynth MCP daemon, for bodies that have to leave the app's sandbox:
-  /// files, shell commands.
-  final McpGateway mcp;
-
 }
 
 /// The namespace the server puts in front of every client-owned tool and skill

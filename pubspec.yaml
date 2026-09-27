@@ -69,7 +69,6 @@ dependencies:
       ref: 6fae92d21b4c80ce1b8f71c1190d7970cf722bd4
   file_picker: ^13.1.0
   http_parser: ^4.1.2
-  mcp_client: ^2.2.1
 
 dev_dependencies:
   auto_route_generator: ^10.6.0

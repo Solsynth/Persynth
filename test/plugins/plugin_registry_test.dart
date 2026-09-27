@@ -3,11 +3,10 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:persynth/personality/local_tool.dart';
-import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/personality/personality_network.dart';
-import 'package:persynth/plugins/device_tools_plugin.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
+import 'package:persynth/plugins/social_plugin.dart';
 import 'package:persynth/plugins/web_tools_plugin.dart';
 
 /// A plugin that exists only in the test: proof that a capability added to the
@@ -74,33 +73,10 @@ ProviderContainer _containerWith(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(preferences),
       if (registry != null) pluginRegistryProvider.overrideWithValue(registry),
-      // The device plugin's tools are built from the daemon gateway; nothing
-      // here starts one, because nothing here calls a tool through it.
-      pluginContextProvider.overrideWith(
-        (ref) => SnPluginContext(
-          api: ref.watch(personalityApiClientProvider),
-          http: ref.watch(pluginHttpClientProvider),
-          mcp: _UnreachableGateway(),
-        ),
-      ),
     ],
   );
   addTearDown(container.dispose);
   return container;
-}
-
-/// Answers nothing, so a test that reaches the daemon fails loudly rather than
-/// hanging.
-class _UnreachableGateway implements McpGateway {
-  @override
-  Future<List<McpDaemonTool>> listTools() async => const [];
-
-  @override
-  Future<String> callTool(String name, Map<String, dynamic> arguments) async =>
-      throw StateError('the test gateway must not be called');
-
-  @override
-  void dispose() {}
 }
 
 /// Runs the activation tool the registry advertises, by the name the model
@@ -255,7 +231,7 @@ void main() {
     expect(_names(container), ['web_search', 'web_fetch']);
   });
 
-  test('offers the web tools by default and holds the device set back', () async {
+  test('offers the web tools by default and holds the social set back', () async {
     final container = await _launch();
 
     expect(_names(container), ['web_search', 'web_fetch']);
@@ -266,16 +242,16 @@ void main() {
     final container = await _launch();
     await container
         .read(pluginEnablementProvider.notifier)
-        .setEnabled('device', true);
+        .setEnabled('social', true);
 
-    // The device tools are not offered — only the way to load them, and the
+    // The social tools are not offered — only the way to load them, and the
     // name the model would ask for.
     expect(_names(container), ['web_search', 'web_fetch', loadSkillToolName]);
     expect(container.read(pluginSkillsProvider).map((skill) => skill.name), [
-      'device',
+      'social',
     ]);
 
-    final loaded = await _load(container, 'device');
+    final loaded = await _load(container, 'social');
     expect(loaded, contains('"ok":true'));
 
     // Loading is what puts them on the run, in registry order, with the
@@ -283,9 +259,13 @@ void main() {
     expect(_names(container), [
       'web_search',
       'web_fetch',
-      'read_file',
-      'list_dir',
-      'run_command',
+      'read_timeline',
+      'read_post',
+      'search_posts',
+      'read_profile',
+      'create_post',
+      'reply_to_post',
+      'react_to_post',
     ]);
     expect(container.read(pluginSkillsProvider), isEmpty);
   });
@@ -301,39 +281,39 @@ void main() {
 
     await container
         .read(pluginEnablementProvider.notifier)
-        .setEnabled('device', true);
+        .setEnabled('social', true);
     expect(
       container.read(pluginSystemPromptProvider).length,
       1,
       reason: 'an unloaded plugin has said nothing yet',
     );
 
-    await _load(container, 'device');
+    await _load(container, 'social');
     final fragments = container.read(pluginSystemPromptProvider);
-    expect(fragments.length, 2);
-    expect(fragments.last, contains('local_run_command'));
+    expect(fragments.length, 3);
+    expect(fragments[1], contains('local_read_timeline'));
   });
 
   test('an unknown skill is answered with what can be loaded', () async {
     final container = await _launch();
     await container
         .read(pluginEnablementProvider.notifier)
-        .setEnabled('device', true);
+        .setEnabled('social', true);
 
     final answer = await _load(container, 'nope');
 
     expect(answer, contains('"ok":false'));
-    expect(answer, contains('local_device'));
+    expect(answer, contains('local_social'));
   });
 
   test('switching a plugin off takes its tools off the run', () async {
     final container = await _launch();
     final enablement = container.read(pluginEnablementProvider.notifier);
-    await enablement.setEnabled('device', true);
-    await _load(container, 'device');
-    expect(_names(container), contains('run_command'));
+    await enablement.setEnabled('social', true);
+    await _load(container, 'social');
+    expect(_names(container), contains('search_posts'));
 
-    await enablement.setEnabled('device', false);
+    await enablement.setEnabled('social', false);
 
     // The grant is withdrawn, not merely declined: the tools are no longer
     // offered at all, and the model is never told they exist.
@@ -345,7 +325,7 @@ void main() {
     final container = await _launch();
     final enablement = container.read(pluginEnablementProvider.notifier);
     await enablement.setEnabled('web', false);
-    await enablement.setEnabled('device', false);
+    await enablement.setEnabled('social', false);
 
     expect(_names(container), isEmpty);
     expect(container.read(pluginSystemPromptProvider), isEmpty);
@@ -355,11 +335,11 @@ void main() {
     final container = await _launch();
     await container
         .read(pluginEnablementProvider.notifier)
-        .setEnabled('device', true);
+        .setEnabled('social', true);
 
     final preferences = container.read(sharedPreferencesProvider);
     expect(
-      preferences.getBool(const DeviceToolsPlugin().storeKey),
+      preferences.getBool(const SocialPlugin().storeKey),
       isTrue,
       reason: 'the switch must keep the key it has always used',
     );
@@ -368,7 +348,7 @@ void main() {
 
     // The next launch reads the same switches back.
     final relaunched = _containerWith(preferences, null);
-    expect(relaunched.read(pluginEnablementProvider), contains('device'));
+    expect(relaunched.read(pluginEnablementProvider), contains('social'));
     expect(relaunched.read(pluginEnablementProvider), contains('web'));
   });
 

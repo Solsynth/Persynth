@@ -2,7 +2,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:island_plugin_foundation/island_plugin_foundation.dart';
 
-import 'package:persynth/personality/mcp_client.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/script_plugin.dart';
 import 'package:persynth/plugins/script_tools_api.dart';
@@ -140,21 +139,5 @@ function on_load() {
 /// A context with no app behind it: nothing these tools reach for is used.
 SnPluginContext _context() {
   final dio = Dio();
-  return SnPluginContext(
-    api: dio,
-    http: dio,
-    mcp: _NoGateway(),
-  );
-}
-
-class _NoGateway implements McpGateway {
-  @override
-  Future<List<McpDaemonTool>> listTools() async => const [];
-
-  @override
-  Future<String> callTool(String name, Map<String, dynamic> arguments) async =>
-      throw StateError('no daemon in this test');
-
-  @override
-  void dispose() {}
+  return SnPluginContext(api: dio, http: dio);
 }
