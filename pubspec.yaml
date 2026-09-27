@@ -74,6 +74,7 @@ dependencies:
 dev_dependencies:
   auto_route_generator: ^10.6.0
   build_runner: ^2.16.1
+  flutter_launcher_icons: ^0.14.4
   flutter_lints: ^6.0.0
   riverpod_generator: ^4.0.9
   flutter_test:
@@ -127,3 +128,23 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# iOS and macOS both take their icon from the Icon Composer bundle at
+# ios/AppIcon.icon (referenced by both Xcode projects), so this config only
+# regenerates the remaining platforms. assets/icons/icon.png is that same
+# artwork flattened (layer at its 1.03 scale over the icon's background fill).
+# Run it after changing the icon art:
+#   dart run flutter_launcher_icons
+flutter_launcher_icons:
+  image_path: "assets/icons/icon.png"
+  android: true
+  min_sdk_android: 21
+  web:
+    generate: true
+    image_path: "assets/icons/icon.png"
+    background_color: "#f5b9c0"
+    theme_color: "#f5b9c0"
+  windows:
+    generate: true
+    image_path: "assets/icons/icon.png"
+    icon_size: 256
