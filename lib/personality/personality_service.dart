@@ -4,34 +4,6 @@ import 'package:http_parser/http_parser.dart' show MediaType;
 
 import 'package:persynth/auth/solar_auth_service.dart';
 
-/// A pet agent's affection state for the signed-in account.
-class PetAffection {
-  const PetAffection({
-    required this.agentId,
-    required this.affection,
-    required this.level,
-    this.reason,
-  });
-
-  final String agentId;
-  final int affection;
-  final String level;
-  final String? reason;
-
-  /// A stable 0-100 score; the server clamps it.
-  double get fraction => (affection / 100).clamp(0, 1);
-
-  factory PetAffection.fromJson(Map<String, dynamic> json) {
-    final reason = json['reason']?.toString();
-    return PetAffection(
-      agentId: json['agent_id']?.toString() ?? '',
-      affection: (json['affection'] as num?)?.toInt() ?? 50,
-      level: json['level']?.toString() ?? 'familiar',
-      reason: reason == null || reason.trim().isEmpty ? null : reason.trim(),
-    );
-  }
-}
-
 typedef PersonalityTokenResolver = Future<String?> Function();
 
 class PersonalityCoreService {
@@ -93,33 +65,6 @@ class PersonalityCoreService {
       return (body['id'] as String).trim();
     } finally {
       if (ownsClient) uploadClient.close();
-    }
-  }
-
-  /// Fetches a pet agent's affection toward the signed-in account.
-  /// Returns null when the account has no pet session yet (the server 404s).
-  Future<PetAffection?> getPetAffection({
-    required String agentId,
-    String baseUrl = productionBaseUrl,
-  }) async {
-    final requestClient = client ?? http.Client();
-    try {
-      final response = await requestClient.get(
-        Uri.parse('${_root(baseUrl)}/pet/affection').replace(
-          queryParameters: {'agent_id': agentId},
-        ),
-        headers: _headers(await _requireToken()),
-      );
-      if (response.statusCode == 404) return null;
-      final body = _decode(response.body, 'pet-affection');
-      _checkResponse(response.statusCode, body);
-      if (body is! Map) {
-        throw const PersonalityCoreException('Invalid pet-affection response.');
-      }
-      final parsed = PetAffection.fromJson(Map<String, dynamic>.from(body));
-      return parsed.agentId.isEmpty ? null : parsed;
-    } finally {
-      if (client == null) requestClient.close();
     }
   }
 

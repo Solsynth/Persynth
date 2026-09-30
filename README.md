@@ -14,12 +14,6 @@ An Island-style Flutter desktop pet companion.
 - Solar Network OAuth with PKCE, secure token storage, refresh, and sign-out,
   behind a sign-in gate the app opens on.
 - Desktop-only multi-window support through `desktop_multi_window`.
-- Pet-only agent listing: the companion picker and dashboard show only `pet`-capable
-  agents (`GET /agents?pet=true`).
-- Bond dashboard: the configuration page shows each pet's Personality Core
-  affection score (0-100, with level and latest reason) and a reset action that
-  purges that agent's memories and conversation history for the account
-  (`GET /pet/affection`, `DELETE /agents/:id/memories`).
 - Desktop window chrome from `island_ui_foundation` and `window_manager`.
 
 Mobile builds use the regular single-window Flutter app shell.

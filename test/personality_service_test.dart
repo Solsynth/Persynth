@@ -44,40 +44,6 @@ void main() {
     expect(reply, 'Stay soft, little sheep.');
   });
 
-  test('fetches pet affection and treats 404 as no session', () async {
-    final requests = <Request>[];
-    final service = PersonalityCoreService(
-      tokenResolver: () async => 'token-123',
-      client: MockClient((incoming) async {
-        requests.add(incoming);
-        if (incoming.url.path.endsWith('/pet/affection') &&
-            incoming.url.queryParameters['agent_id'] == 'mochi') {
-          return Response(
-            jsonEncode({
-              'agent_id': 'mochi',
-              'affection': 62,
-              'level': 'warm',
-              'reason': 'The user gave me a treat.',
-            }),
-            200,
-          );
-        }
-        return Response('{}', 404);
-      }),
-    );
-
-    final affection = await service.getPetAffection(agentId: 'mochi');
-    expect(affection, isNotNull);
-    expect(affection!.affection, 62);
-    expect(affection.level, 'warm');
-    expect(affection.reason, 'The user gave me a treat.');
-    expect(requests.first.url.path, '/personality/pet/affection');
-    expect(requests.first.url.queryParameters['agent_id'], 'mochi');
-
-    final missing = await service.getPetAffection(agentId: 'nobody');
-    expect(missing, isNull);
-  });
-
   test('uploads a local file and returns the drive id', () async {
     late BaseRequest captured;
     final service = PersonalityCoreService(
