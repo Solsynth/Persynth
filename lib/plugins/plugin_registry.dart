@@ -31,6 +31,8 @@ import 'package:persynth/plugins/agenda_plugin.dart';
 import 'package:persynth/plugins/boards_plugin.dart';
 import 'package:persynth/plugins/chat_plugin.dart';
 import 'package:persynth/plugins/mail_plugin.dart';
+import 'package:persynth/plugins/mcp_server_plugin.dart';
+import 'package:persynth/plugins/mcp_servers.dart';
 import 'package:persynth/plugins/notifications_plugin.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_host.dart';
@@ -67,9 +69,16 @@ const List<SnPlugin> kBuiltInPlugins = [
 ];
 
 /// The plugins this build offers: the compiled-in ones, then the script
-/// plugins the runtime has loaded.
+/// plugins the runtime has loaded, then the MCP servers the user connected.
+///
+/// The last group is the user's own: it appears and disappears with the list
+/// in settings, and each member is one server, so nothing here names one.
 final pluginRegistryProvider = Provider<List<SnPlugin>>(
-  (ref) => [...kBuiltInPlugins, ...ref.watch(scriptPluginsProvider)],
+  (ref) => [
+    ...kBuiltInPlugins,
+    ...ref.watch(scriptPluginsProvider),
+    ...ref.watch(mcpPluginsProvider),
+  ],
 );
 
 /// A bare client with no `Authorization` header.
@@ -126,6 +135,10 @@ class PluginEnablementNotifier extends Notifier<Set<String>> {
     // switch has to move the runtime too. Built-ins are compiled in and this
     // is a no-op for them.
     await setScriptPluginLoaded(id, enabled);
+    // A server-backed plugin's tools are the server's last answer, so the
+    // switch is what asks again: flipping it on must not wait for a relaunch
+    // to reach a server that has come back. A no-op for every other plugin.
+    if (enabled) await refreshMcpServerForPlugin(ref, id);
     // A plugin switched off must not stay loaded: dropping it here means the
     // next message cannot reach a tool the user just withdrew.
     if (!enabled) {

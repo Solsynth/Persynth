@@ -9,6 +9,7 @@ import 'package:persynth/auth/solar_sign_in_panel.dart';
 import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/personality/personality_session.dart';
 import 'package:persynth/personality/reasoning_settings.dart';
+import 'package:persynth/plugins/mcp_servers_section.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/screens/ai_console_tabs.dart';
@@ -188,6 +189,13 @@ class _GeneralSettingsTab extends HookConsumerWidget {
         const SizedBox(height: 20),
         _SectionHeader('Plugins'),
         const _PluginsSection(),
+        const SizedBox(height: 20),
+        // The servers the companions' server-backed plugins point at sit below
+        // the switches rather than above them: the switches are what the user
+        // works with daily, and a list that only grows when a server is
+        // connected must not push them down the page.
+        _SectionHeader('Connections'),
+        const McpServersSection(),
         const SizedBox(height: 20),
         _SectionHeader('Reasoning'),
         const _ReasoningSection(),

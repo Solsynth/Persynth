@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/plugins/mcp_servers.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_host.dart';
 import 'package:persynth/plugins/script_tools_api.dart';
@@ -61,12 +62,21 @@ Future<void> main(List<String> args) async {
     });
   }
 
+  final scope = ProviderContainer(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(preferences),
+      scriptToolsApiProvider.overrideWithValue(scriptTools),
+    ],
+  );
+  // The catalogues of the user's MCP servers come from a request, so they are
+  // asked for here, at launch, rather than by the first run that reads the
+  // registry: a message sent straight after that would otherwise offer the
+  // model a server whose tool list had not arrived yet.
+  scope.read(mcpCatalogueProvider);
+
   runApp(
-    ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(preferences),
-        scriptToolsApiProvider.overrideWithValue(scriptTools),
-      ],
+    UncontrolledProviderScope(
+      container: scope,
       child: MyApp(isPetWindow: isPetWindow),
     ),
   );

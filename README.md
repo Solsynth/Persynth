@@ -17,6 +17,9 @@ An Island-style Flutter desktop pet companion.
 - Solar Network OAuth with PKCE, secure token storage, refresh, and sign-out,
   behind a sign-in gate the app opens on.
 - Desktop-only multi-window support through `desktop_multi_window`.
+- MCP servers the user connects from settings, each an on-demand plugin whose
+  tools the companion can load; tokens stay in the keychain, desktop and mobile
+  only.
 - Desktop window chrome from `island_ui_foundation` and `window_manager`.
 
 Mobile builds use the regular single-window Flutter app shell.
@@ -65,12 +68,12 @@ flutter run \
 ## Plugins
 
 Everything the companion can do on this machine is a plugin: the on-device web
-tools, the Solar Network sets, and any script plugin the user installs. A
-plugin owns three things — the tools the model may call, the system prompt text
-that explains them, and the settings switch the user grants it with. Nothing in
-the chat loop, the run request or the settings page names one: they all read
-`lib/plugins/plugin_registry.dart`, so adding a capability is one class plus one
-line in `kBuiltInPlugins`.
+tools, the Solar Network sets, any script plugin the user installs, and any MCP
+server the user connects. A plugin owns three things — the tools the model may
+call, the system prompt text that explains them, and the settings switch the
+user grants it with. Nothing in the chat loop, the run request or the settings
+page names one: they all read `lib/plugins/plugin_registry.dart`, so adding a
+capability is one class plus one line in `kBuiltInPlugins`.
 
 A plugin that is switched off is not offered to the model at all, so the switch
 is a capability boundary rather than a refusal the model could argue past.
@@ -192,6 +195,47 @@ switch. Handlers run synchronously, the same way the runtime's own commands and
 hooks do — a tool that needs the network should call a host API rather than
 fetch on its own.
 
+### Your own MCP servers
+
+A Model Context Protocol server the user connects is a plugin too, one per
+server. Settings → **Connections** takes a name, an endpoint and an optional
+access token; the server then appears among the plugin switches like anything
+else, and its tools load by name once the model asks for them.
+
+The app is an MCP client over Streamable HTTP (`lib/plugins/mcp_client.dart`).
+It lists the server's tools, offers them on the run with the definitions the
+server wrote, and forwards the model's calls back to the server they came from.
+Only HTTP(S) is supported: the spec's stdio transport spawns a child process,
+and a child of the sandboxed app inherits the sandbox — which is why
+`tool/synthpet_mcp` is a separate daemon rather than a library.
+
+Four things this arrangement has to get right, and where:
+
+- **Names.** The model reads one flat list of caller-owned names, and two
+  servers may both expose `search`. Every tool is registered as
+  `mcp_<server>_<tool>`, sanitized into the shape the provider accepts and
+  capped at 48 characters (`lib/plugins/mcp_server_plugin.dart`). The dispatch
+  uses the server's own tool name, so nothing is ever called by a name its
+  server never used.
+- **Context.** A server's tool set is its own to decide, so each server is an
+  on-demand plugin: its definitions cost a line in `list_skills` until the
+  conversation loads it.
+- **Reachability.** `buildTools` is synchronous while `tools/list` is a
+  request, so the tools come from a cached listing per server
+  (`lib/plugins/mcp_servers.dart`), refreshed at startup, after a change, after
+  a switch is flipped on and on demand from the row. A failed refresh keeps the
+  last good listing and records why: a server that is briefly down loses its
+  reachability, not the capability the user granted.
+- **Trust.** Tool descriptions are the server author's prose and reach the
+  model; the prompt text says so. Tokens live in the keychain
+  (`flutter_secure_storage`), never in the preferences the server list is
+  stored in, and the account's own token is never sent to a server — the app
+  talks to a third-party endpoint bare.
+
+Web builds do not offer it: a browser cannot reach a server on the user's
+machine, and cannot reach an arbitrary origin without the server opting into
+CORS.
+
 ### Names
 
 Tool and skill names are the app's own (`web_search`, `discount`). The
@@ -210,15 +254,15 @@ flutter analyze
 flutter test
 ```
 
-The app no longer talks to the Persynth MCP daemon: `tool/synthpet_mcp`, the
-standalone out-of-process MCP server that used to back its `Files & commands`
-tools, is still in the repo and still builds on its own:
+`tool/synthpet_mcp` is a standalone, out-of-process MCP server that gives the
+companion filesystem and shell tools without the app itself leaving the App
+Sandbox. It is not wired into the app: connect it like any other server, under
+Settings → Connections, with the endpoint `http://127.0.0.1:4317/mcp`.
 
 ```sh
 cd tool/synthpet_mcp && dart pub get && dart run synthpet_mcp
 ```
 
-It listens on `127.0.0.1:4317/mcp` only (`--port` to move it), and nothing in
-the app connects to it. Compile it with `dart compile exe
-bin/synthpet_mcp.dart` for a standalone binary; grant that binary Full Disk
-Access to reach macOS-protected folders.
+It listens on `127.0.0.1:4317/mcp` only (`--port` to move it). Compile it with
+`dart compile exe bin/synthpet_mcp.dart` for a standalone binary; grant that
+binary Full Disk Access to reach macOS-protected folders.
