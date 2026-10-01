@@ -39,6 +39,15 @@ being pulled back to the gate. Signing in from anywhere drops the last
 account's agents, threads and open conversation
 (`lib/personality/personality_session.dart`).
 
+A finished turn reports what it spent: the reply carries a muted footer with its
+tokens, the model calls it took, and how full the model's context was when it
+answered. The conversation's own total sits under the title. Both come from the
+server — the turn's usage rides its run, the total is read from
+`GET /personality/conversations/:id/usage` — so the numbers match what every
+other client sees and what billing was metered against. A model whose context
+ceiling the server cannot resolve gets a token count with no ratio rather than a
+ratio against a guess.
+
 The app passes the refreshed Solar Network user access token to Personality
 Core; it never asks for a separate Personality Core token.
 

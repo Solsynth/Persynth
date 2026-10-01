@@ -177,6 +177,126 @@ class SnPersonalityMessage {
 }
 
 // ---------------------------------------------------------------------------
+// Run usage — what a turn spent, and what the conversation has spent in total
+// ---------------------------------------------------------------------------
+
+/// How much one run spent.
+///
+/// A tool-calling run calls the model once per round and the server reports the
+/// sum, so [inputTokens] is the run's whole prompt cost rather than the last
+/// call's. [contextUsedTokens] is the fullest single prompt the run sent —
+/// what the model's context was actually filled with — measured against
+/// [contextWindowTokens] when the server knows the model's ceiling. Without a
+/// known window the server omits the ratio rather than guessing one, and the
+/// UI should do the same.
+@immutable
+class SnRunUsage {
+  const SnRunUsage({
+    required this.inputTokens,
+    required this.outputTokens,
+    required this.totalTokens,
+    required this.rounds,
+    this.contextUsedTokens,
+    this.contextWindowTokens,
+    this.contextUsedRatio,
+  });
+
+  final int inputTokens;
+  final int outputTokens;
+  final int totalTokens;
+
+  /// Model calls the run made. A tool-calling turn makes one per round.
+  final int rounds;
+
+  final int? contextUsedTokens;
+  final int? contextWindowTokens;
+  final double? contextUsedRatio;
+
+  /// Whether a ratio can be shown at all.
+  bool get hasContextWindow => (contextWindowTokens ?? 0) > 0;
+
+  /// Reads a run's `usage` bag. A run the provider reported nothing for stores
+  /// `{}`, which parses to null so callers render no footer instead of zeros.
+  static SnRunUsage? fromJson(dynamic raw) {
+    if (raw is! Map) return null;
+    final json = Map<String, dynamic>.from(raw);
+    final input = _usageInt(json['input_tokens']);
+    final output = _usageInt(json['output_tokens']);
+    final total = _usageInt(json['total_tokens']);
+    if (input == 0 && output == 0 && total == 0) return null;
+
+    final context = json['context'];
+    final contextJson = context is Map
+        ? Map<String, dynamic>.from(context)
+        : const <String, dynamic>{};
+    return SnRunUsage(
+      inputTokens: input,
+      outputTokens: output,
+      totalTokens: total == 0 ? input + output : total,
+      rounds: _usageInt(json['rounds']),
+      contextUsedTokens: _positiveOrNull(contextJson['used_tokens']),
+      contextWindowTokens: _positiveOrNull(contextJson['window_tokens']),
+      contextUsedRatio: _usageDouble(contextJson['used_ratio']),
+    );
+  }
+}
+
+/// The token total across every run in one conversation
+/// (`GET /personality/conversations/:id/usage`).
+@immutable
+class SnConversationUsage {
+  const SnConversationUsage({
+    required this.runs,
+    required this.inputTokens,
+    required this.outputTokens,
+    required this.totalTokens,
+    this.peakContextUsedTokens,
+    this.contextWindowTokens,
+  });
+
+  /// Runs that recorded usage; runs the provider reported nothing for are not
+  /// counted, so this can be smaller than the conversation's run count.
+  final int runs;
+
+  final int inputTokens;
+  final int outputTokens;
+  final int totalTokens;
+
+  /// The fullest single prompt any run in the conversation sent.
+  final int? peakContextUsedTokens;
+
+  /// The largest resolved window seen across the conversation's runs.
+  final int? contextWindowTokens;
+
+  factory SnConversationUsage.fromJson(Map<String, dynamic> json) =>
+      SnConversationUsage(
+        runs: _usageInt(json['runs']),
+        inputTokens: _usageInt(json['input_tokens']),
+        outputTokens: _usageInt(json['output_tokens']),
+        totalTokens: _usageInt(json['total_tokens']),
+        peakContextUsedTokens: _positiveOrNull(json['peak_context_used_tokens']),
+        contextWindowTokens: _positiveOrNull(json['context_window_tokens']),
+      );
+}
+
+int _usageInt(dynamic raw) {
+  if (raw is int) return raw;
+  if (raw is num) return raw.toInt();
+  return int.tryParse(raw?.toString() ?? '') ?? 0;
+}
+
+double? _usageDouble(dynamic raw) {
+  if (raw is num) return raw.toDouble();
+  if (raw is String) return double.tryParse(raw.trim());
+  return null;
+}
+
+int? _positiveOrNull(dynamic raw) {
+  final value = _usageInt(raw);
+  return value > 0 ? value : null;
+}
+
+// ---------------------------------------------------------------------------
 // Run events — the `POST /personality/conversations/:id/runs` SSE grammar
 // ---------------------------------------------------------------------------
 
@@ -242,6 +362,15 @@ class PersonalityToolCallCompleted extends PersonalityRunEvent {
 class PersonalityRunCompleted extends PersonalityRunEvent {
   const PersonalityRunCompleted(this.content);
   final String content;
+}
+
+/// What the finished run spent, reported after its text.
+///
+/// `message.completed` carries the assistant text and `run.completed` follows
+/// with the run's token usage, so this is the last event of a successful turn.
+class PersonalityUsageReported extends PersonalityRunEvent {
+  const PersonalityUsageReported(this.usage);
+  final SnRunUsage usage;
 }
 
 class PersonalityRunFailed extends PersonalityRunEvent {
@@ -359,6 +488,9 @@ Stream<PersonalityRunEvent> parsePersonalityRunEvents(
         final content = json['content'];
         if (content is! String || content.trim().isEmpty) return null;
         return PersonalityRunCompleted(content.trim());
+      case 'run.completed':
+        final usage = SnRunUsage.fromJson(json['usage']);
+        return usage == null ? null : PersonalityUsageReported(usage);
       case 'run.failed':
         final error = json['error'];
         return PersonalityRunFailed(
@@ -564,6 +696,27 @@ class PersonalityApi {
       throw const PersonalityException('Conversation stream unavailable.');
     }
     yield* parsePersonalityRunEvents(body.stream.cast<List<int>>());
+  }
+
+  /// The conversation's token total, summed from every run in it.
+  ///
+  /// Cheaper and more consistent than walking the run list: the server totals
+  /// the stored per-run usage, so the number never re-prices history against
+  /// today's provider configuration.
+  Future<SnConversationUsage> conversationUsage(String conversationId) async {
+    final resp = await _client.get(
+      '/personality/conversations/${Uri.encodeComponent(conversationId)}/usage',
+    );
+    final data = resp.data;
+    if (data is! Map) {
+      return const SnConversationUsage(
+        runs: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      );
+    }
+    return SnConversationUsage.fromJson(Map<String, dynamic>.from(data));
   }
 
   /// Resumes a streamed run paused on a client-owned tool call. The result

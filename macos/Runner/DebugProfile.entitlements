@@ -3,9 +3,18 @@
 <plist version="1.0">
 <dict>
 	<!-- Sandboxed, as the Mac App Store requires. Outgoing network is on for
-	     the Personality server the app talks to; incoming connections stay
-	     off. -->
+	     the Personality server and for the SynthPet MCP daemon the app talks
+	     to over loopback. Incoming network is on in this file, and only in
+	     this file, because Debug and Profile builds host the Dart VM service
+	     that `flutter run`, DevTools and the IDE debugger attach to: without
+	     com.apple.security.network.server the VM service cannot bind
+	     127.0.0.1 and the run dies with "Failed to create server socket
+	     (OS Error: Operation not permitted, errno = 1)" before the app
+	     starts. Release does not carry the VM service and keeps incoming
+	     connections off. -->
 	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>

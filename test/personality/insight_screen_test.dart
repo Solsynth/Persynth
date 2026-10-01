@@ -22,11 +22,23 @@ class _FakePersonalityApi extends PersonalityApi {
   _FakePersonalityApi({
     this.reply = const [],
     this.history = const [],
+    this.usageTotal,
     this.failure,
   }) : super(Dio());
 
   final List<PersonalityRunEvent> reply;
   final List<SnPersonalityMessage> history;
+
+  /// What the conversation total endpoint answers with. Null stands for a
+  /// server that has nothing to report yet.
+  final SnConversationUsage? usageTotal;
+
+  @override
+  Future<SnConversationUsage> conversationUsage(String conversationId) async {
+    final usage = usageTotal;
+    if (usage == null) throw StateError('no usage to report');
+    return usage;
+  }
 
   /// When set, a run fails with it instead of streaming [reply].
   final Object? failure;
@@ -367,6 +379,56 @@ void main() {
     expect(find.text('thought'), findsOneWidget);
     expect(find.text('weather'), findsOneWidget);
     expect(_plainText('earlier turn'), findsOneWidget);
+  });
+
+  testWidgets('shows what a finished turn spent, under its reply', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(
+      reply: const [
+        PersonalityMessageDelta('Paris.'),
+        PersonalityRunCompleted('Paris.'),
+        PersonalityUsageReported(
+          SnRunUsage(
+            inputTokens: 1005,
+            outputTokens: 507,
+            totalTokens: 1512,
+            rounds: 2,
+            contextUsedTokens: 1000,
+            contextWindowTokens: 128000,
+            contextUsedRatio: 0.007813,
+          ),
+        ),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    await tester.enterText(find.byType(TextField), 'capital of France?');
+    await tester.pump();
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('1.5k tokens · 2 rounds · context 1k / 128k (0.78%)'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('shows the conversation total under the title', (tester) async {
+    final api = _FakePersonalityApi(
+      usageTotal: const SnConversationUsage(
+        runs: 12,
+        inputTokens: 48210,
+        outputTokens: 9310,
+        totalTokens: 57520,
+      ),
+    );
+    await _pumpConversationPage(tester, api);
+
+    await tester.tap(find.text('First thread'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('57.5k tokens · 12 runs'), findsOneWidget);
   });
 }
 

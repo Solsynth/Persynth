@@ -58,6 +58,7 @@ class ConversationPage extends HookConsumerWidget {
 
     final agentId = chat.agentId ?? (agents.isEmpty ? null : agents.first.id);
     final agentName = _agentLabel(agents, agentId);
+    final conversationUsage = chat.conversationUsage;
 
     void handleSend() {
       if (chat.busy) return;
@@ -146,45 +147,61 @@ class ConversationPage extends HookConsumerWidget {
             _StatusDot(busy: chat.busy),
             const Gap(8),
             Flexible(
-              child: chat.bubbles.isEmpty && agents.isNotEmpty
-                  ? DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: agentId,
-                        isDense: true,
-                        borderRadius: BorderRadius.circular(12),
-                        onChanged: chat.busy
-                            ? null
-                            : (value) {
-                                if (value != null) {
-                                  controller.selectAgent(value);
-                                }
-                              },
-                        items: [
-                          for (final agent in agents)
-                            DropdownMenuItem(
-                              value: agent.id,
-                              child: Text(
-                                agent.name.trim().isEmpty
-                                    ? 'Unnamed agent'
-                                    : agent.name.trim(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w600,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  chat.bubbles.isEmpty && agents.isNotEmpty
+                      ? DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: agentId,
+                            isDense: true,
+                            borderRadius: BorderRadius.circular(12),
+                            onChanged: chat.busy
+                                ? null
+                                : (value) {
+                                    if (value != null) {
+                                      controller.selectAgent(value);
+                                    }
+                                  },
+                            items: [
+                              for (final agent in agents)
+                                DropdownMenuItem(
+                                  value: agent.id,
+                                  child: Text(
+                                    agent.name.trim().isEmpty
+                                        ? 'Unnamed agent'
+                                        : agent.name.trim(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    )
-                  : Text(
-                      agentName,
+                            ],
+                          ),
+                        )
+                      : Text(
+                          agentName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                  // The conversation's running total, once a thread with usage
+                  // is open. Per-turn numbers sit under each reply instead.
+                  if (conversationUsage != null)
+                    _UsageLine(
+                      text: _conversationUsageLabel(conversationUsage),
+                      icon: Symbols.bolt_rounded,
+                      // The app bar is a fixed-height toolbar: the total is a
+                      // subtitle, never a second line that pushes it open.
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
                     ),
+                ],
+              ),
             ),
           ],
         ),
@@ -589,6 +606,9 @@ class _AssistantBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Usage belongs to a finished turn: while text is still streaming the run
+    // has not reported anything yet.
+    final usage = bubble.streaming ? null : bubble.usage;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Align(
@@ -612,6 +632,11 @@ class _AssistantBubble extends StatelessWidget {
                       padding: EdgeInsets.only(top: 6),
                       child: _BlinkingCaret(),
                     ),
+                  if (usage != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: _UsageLine(text: _turnUsageLabel(usage)),
+                    ),
                 ],
               ),
             ),
@@ -621,6 +646,98 @@ class _AssistantBubble extends StatelessWidget {
     );
   }
 }
+
+/// One muted line of token accounting, styled like the trace labels.
+class _UsageLine extends StatelessWidget {
+  const _UsageLine({
+    required this.text,
+    this.icon = Symbols.data_usage_rounded,
+    this.maxLines = 2,
+  });
+
+  final String text;
+  final IconData icon;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: scheme.onSurfaceVariant),
+        const Gap(4),
+        Flexible(
+          child: Text(
+            text,
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontSize: 11,
+              height: 1.4,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A token count short enough for a one-line footer: `512`, `12.4k`, `57.5k`,
+/// `128k`, `1.2M`. A tenth is kept while it still says something.
+String _formatTokens(int value) {
+  if (value < 1000) return '$value';
+  final thousands = value / 1000;
+  if (thousands < 1000) return _scaled(thousands, 'k');
+  return _scaled(value / 1000000, 'M');
+}
+
+/// A share of the context window: precise while it is small, coarse once it is
+/// not.
+String _formatPercent(double ratio) {
+  final percent = ratio * 100;
+  if (percent < 1) return '${percent.toStringAsFixed(2)}%';
+  if (percent < 10) return '${percent.toStringAsFixed(1)}%';
+  return '${percent.toStringAsFixed(0)}%';
+}
+
+/// `12.43` with `k` is `12.4k`; `1.0` is just `1k`.
+String _scaled(double value, String suffix) {
+  final text = value.toStringAsFixed(value < 100 ? 1 : 0);
+  final trimmed = text.endsWith('.0')
+      ? text.substring(0, text.length - 2)
+      : text;
+  return '$trimmed$suffix';
+}
+
+/// What one turn spent, and how full the model's context was when it answered.
+/// The window is only stated when the server knows it; without one the prompt
+/// size is still worth showing.
+String _turnUsageLabel(SnRunUsage usage) {
+  final parts = <String>['${_formatTokens(usage.totalTokens)} tokens'];
+  if (usage.rounds > 1) {
+    parts.add('${usage.rounds} rounds');
+  }
+  final used = usage.contextUsedTokens;
+  final window = usage.contextWindowTokens;
+  if (used != null && window != null) {
+    final ratio = usage.contextUsedRatio;
+    final percent = ratio == null ? '' : ' (${_formatPercent(ratio)})';
+    parts.add(
+      'context ${_formatTokens(used)} / ${_formatTokens(window)}$percent',
+    );
+  } else if (used != null) {
+    parts.add('context ${_formatTokens(used)}');
+  }
+  return parts.join(' · ');
+}
+
+/// The conversation's running total, shown under the title.
+String _conversationUsageLabel(SnConversationUsage usage) =>
+    '${_formatTokens(usage.totalTokens)} tokens · '
+    '${usage.runs} ${usage.runs == 1 ? 'run' : 'runs'}';
 
 class _BlinkingCaret extends StatefulWidget {
   const _BlinkingCaret();

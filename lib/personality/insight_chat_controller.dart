@@ -50,6 +50,10 @@ class InsightBubble {
   final String? toolResult;
   final bool toolRunning;
 
+  /// What the turn that produced this row spent, reported when its run ends.
+  /// Only the assistant row of a turn carries it.
+  final SnRunUsage? usage;
+
   const InsightBubble({
     required this.kind,
     required this.text,
@@ -62,6 +66,7 @@ class InsightBubble {
     this.toolArgs,
     this.toolResult,
     this.toolRunning = false,
+    this.usage,
   });
 
   InsightBubble copyWith({
@@ -73,6 +78,7 @@ class InsightBubble {
     Map<String, dynamic>? toolArgs,
     String? toolResult,
     bool? toolRunning,
+    SnRunUsage? usage,
   }) => InsightBubble(
     kind: kind,
     text: text ?? this.text,
@@ -85,6 +91,7 @@ class InsightBubble {
     toolArgs: toolArgs ?? this.toolArgs,
     toolResult: toolResult ?? this.toolResult,
     toolRunning: toolRunning ?? this.toolRunning,
+    usage: usage ?? this.usage,
   );
 }
 
@@ -108,6 +115,10 @@ class InsightChatState {
   /// with the sign-in rather than a dismissible banner over a dead composer.
   final bool unauthorized;
 
+  /// The conversation's token total, as the server reports it. Null until a
+  /// thread is open and the total has been read.
+  final SnConversationUsage? conversationUsage;
+
   const InsightChatState({
     this.bubbles = const [],
     this.pendingAttachments = const [],
@@ -116,6 +127,7 @@ class InsightChatState {
     this.busy = false,
     this.error,
     this.unauthorized = false,
+    this.conversationUsage,
   });
 
   InsightChatState copyWith({
@@ -128,6 +140,8 @@ class InsightChatState {
     String? error,
     bool clearError = false,
     bool? unauthorized,
+    SnConversationUsage? conversationUsage,
+    bool clearConversationUsage = false,
   }) => InsightChatState(
     bubbles: bubbles ?? this.bubbles,
     pendingAttachments: pendingAttachments ?? this.pendingAttachments,
@@ -138,6 +152,9 @@ class InsightChatState {
     busy: busy ?? this.busy,
     error: clearError ? null : error ?? this.error,
     unauthorized: unauthorized ?? this.unauthorized,
+    conversationUsage: clearConversationUsage
+        ? null
+        : conversationUsage ?? this.conversationUsage,
   );
 }
 
@@ -181,6 +198,7 @@ class InsightChatController extends _$InsightChatController {
         agentId: agentId,
         clearConversationId: true,
         bubbles: const [],
+        clearConversationUsage: true,
       ),
     );
   }
@@ -193,6 +211,7 @@ class InsightChatController extends _$InsightChatController {
         clearConversationId: true,
         bubbles: const [],
         clearError: true,
+        clearConversationUsage: true,
       ),
     );
   }
@@ -251,6 +270,7 @@ class InsightChatController extends _$InsightChatController {
           unauthorized: false,
         ),
       );
+      unawaited(_refreshUsage());
     } catch (e) {
       _fail(e);
     }
@@ -366,6 +386,8 @@ class InsightChatController extends _$InsightChatController {
         _finalizeTurn();
         _set(state.copyWith(busy: false));
         ref.invalidate(personalityConversationsProvider);
+        // A stream that ended without its usage event still spent tokens.
+        unawaited(_refreshUsage());
       }
     }
   }
@@ -477,9 +499,46 @@ class InsightChatController extends _$InsightChatController {
         _completeToolCall(id, name, arguments, result);
       case PersonalityRunCompleted(:final content):
         _completeTurn(content, turnId);
+      case PersonalityUsageReported(:final usage):
+        _applyUsage(usage, turnId);
       case PersonalityRunFailed(:final error):
         // The run is over; surface it as a failed turn.
         _set(state.copyWith(error: error));
+    }
+  }
+
+  /// The finished run's tokens, attached to the reply it belongs to.
+  ///
+  /// The per-conversation total is then re-read from the server rather than
+  /// adjusted locally, so it stays the number every other client sees. A turn
+  /// that produced no assistant row (a chat agent that only called tools) has
+  /// nothing to attach to; its tokens still land in that total.
+  void _applyUsage(SnRunUsage usage, int turnId) {
+    final bubbles = List.of(state.bubbles);
+    final index = bubbles.lastIndexWhere(
+      (b) => b.turnId == turnId && b.kind == InsightBubbleKind.assistant,
+    );
+    if (index >= 0) {
+      bubbles[index] = bubbles[index].copyWith(usage: usage);
+      _set(state.copyWith(bubbles: bubbles));
+    }
+    unawaited(_refreshUsage());
+  }
+
+  /// Reads the conversation's running token total. Failures are swallowed:
+  /// the counter is informational and must never fail a finished turn.
+  Future<void> _refreshUsage() async {
+    final conversationId = state.conversationId;
+    if (conversationId == null) {
+      _set(state.copyWith(clearConversationUsage: true));
+      return;
+    }
+    try {
+      final usage = await _api.conversationUsage(conversationId);
+      if (_disposed || state.conversationId != conversationId) return;
+      _set(state.copyWith(conversationUsage: usage));
+    } catch (_) {
+      // Informational only.
     }
   }
 
@@ -620,7 +679,11 @@ class InsightChatController extends _$InsightChatController {
       final trimmed = part.trim();
       if (trimmed.isNotEmpty) {
         bubbles.add(
-          InsightBubble(kind: InsightBubbleKind.assistant, text: trimmed),
+          InsightBubble(
+            kind: InsightBubbleKind.assistant,
+            text: trimmed,
+            turnId: turnId,
+          ),
         );
       }
     }
