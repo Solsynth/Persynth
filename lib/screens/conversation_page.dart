@@ -13,6 +13,7 @@ import 'package:persynth/auth/solar_sign_in_panel.dart';
 import 'package:persynth/personality/insight_chat_controller.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_service.dart';
+import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/widgets/message_markdown.dart';
 
@@ -97,6 +98,31 @@ class ConversationPage extends HookConsumerWidget {
       }
     }
 
+    // On a narrow screen there is no room for a docked panel, so the thread
+    // list becomes an on-demand sheet. It is opened with Flutter's own bottom
+    // sheet rather than the sidebar's: `ResponsiveSidebar` builds its sheet on
+    // the `material_ui` fork and asks for that fork's `MaterialLocalizations`,
+    // which this app — a Flutter `MaterialApp` — never installs, so its sheet
+    // fails to open. The wide panel still uses the sidebar.
+    void openConversationsSheet() {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (sheetContext) => SheetScaffold(
+          titleText: 'Conversations',
+          onClose: () => Navigator.of(sheetContext).pop(),
+          child: _ConversationList(
+            activeId: chat.conversationId,
+            onSelect: (id) {
+              Navigator.pop(sheetContext);
+              controller.openConversation(id);
+            },
+          ),
+        ),
+      );
+    }
+
     final mainContent = Column(
       children: [
         if (!unauthorized && chat.error != null)
@@ -130,6 +156,7 @@ class ConversationPage extends HookConsumerWidget {
             attachments: chat.pendingAttachments,
             busy: chat.busy,
             enterToSend: enterToSend,
+            usage: conversationUsage,
             onSend: handleSend,
             onStop: controller.stop,
             onPickAttachments: uploading.value ? null : pickAttachments,
@@ -147,61 +174,45 @@ class ConversationPage extends HookConsumerWidget {
             _StatusDot(busy: chat.busy),
             const Gap(8),
             Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  chat.bubbles.isEmpty && agents.isNotEmpty
-                      ? DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: agentId,
-                            isDense: true,
-                            borderRadius: BorderRadius.circular(12),
-                            onChanged: chat.busy
-                                ? null
-                                : (value) {
-                                    if (value != null) {
-                                      controller.selectAgent(value);
-                                    }
-                                  },
-                            items: [
-                              for (final agent in agents)
-                                DropdownMenuItem(
-                                  value: agent.id,
-                                  child: Text(
-                                    agent.name.trim().isEmpty
-                                        ? 'Unnamed agent'
-                                        : agent.name.trim(),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.titleSmall?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
+              child: chat.bubbles.isEmpty && agents.isNotEmpty
+                  ? DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: agentId,
+                        isDense: true,
+                        borderRadius: BorderRadius.circular(12),
+                        onChanged: chat.busy
+                            ? null
+                            : (value) {
+                                if (value != null) {
+                                  controller.selectAgent(value);
+                                }
+                              },
+                        items: [
+                          for (final agent in agents)
+                            DropdownMenuItem(
+                              value: agent.id,
+                              child: Text(
+                                agent.name.trim().isEmpty
+                                    ? 'Unnamed agent'
+                                    : agent.name.trim(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
                                 ),
-                            ],
-                          ),
-                        )
-                      : Text(
-                          agentName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                  // The conversation's running total, once a thread with usage
-                  // is open. Per-turn numbers sit under each reply instead.
-                  if (conversationUsage != null)
-                    _UsageLine(
-                      text: _conversationUsageLabel(conversationUsage),
-                      icon: Symbols.bolt_rounded,
-                      // The app bar is a fixed-height toolbar: the total is a
-                      // subtitle, never a second line that pushes it open.
+                              ),
+                            ),
+                        ],
+                      ),
+                    )
+                  : Text(
+                      agentName,
                       maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                ],
-              ),
             ),
           ],
         ),
@@ -209,7 +220,11 @@ class ConversationPage extends HookConsumerWidget {
           IconButton(
             tooltip: 'Conversations',
             onPressed: () {
-              showConversations.value = !showConversations.value;
+              if (wideScreen) {
+                showConversations.value = !showConversations.value;
+              } else {
+                openConversationsSheet();
+              }
             },
             icon: Icon(
               Symbols.forum_rounded,
@@ -231,29 +246,23 @@ class ConversationPage extends HookConsumerWidget {
           const Gap(4),
         ],
       ),
-      body: ResponsiveSidebar(
-        showSidebar: showConversations,
-        sidebarWidth: 320,
-        minWideSidebarWidth: 260,
-        maxWideSidebarWidth: 400,
-        minMainContentWidth: 360,
-        mainContent: mainContent,
-        sidebarContent: _ConversationList(
-          activeId: chat.conversationId,
-          onSelect: controller.openConversation,
-        ),
-        drawerBuilder: (sheetContext) => SheetScaffold(
-          titleText: 'Conversations',
-          onClose: () => Navigator.of(sheetContext).pop(),
-          child: _ConversationList(
-            activeId: chat.conversationId,
-            onSelect: (id) {
-              Navigator.pop(sheetContext);
-              controller.openConversation(id);
-            },
-          ),
-        ),
-      ),
+      // The docked panel is a wide-screen affordance; on a narrow screen the
+      // header button opens the thread list as a sheet instead (see
+      // `openConversationsSheet`).
+      body: wideScreen
+          ? ResponsiveSidebar(
+              showSidebar: showConversations,
+              sidebarWidth: 320,
+              minWideSidebarWidth: 260,
+              maxWideSidebarWidth: 400,
+              minMainContentWidth: 360,
+              mainContent: mainContent,
+              sidebarContent: _ConversationList(
+                activeId: chat.conversationId,
+                onSelect: controller.openConversation,
+              ),
+            )
+          : mainContent,
     );
   }
 }
@@ -606,9 +615,6 @@ class _AssistantBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    // Usage belongs to a finished turn: while text is still streaming the run
-    // has not reported anything yet.
-    final usage = bubble.streaming ? null : bubble.usage;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Align(
@@ -632,55 +638,12 @@ class _AssistantBubble extends StatelessWidget {
                       padding: EdgeInsets.only(top: 6),
                       child: _BlinkingCaret(),
                     ),
-                  if (usage != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: _UsageLine(text: _turnUsageLabel(usage)),
-                    ),
                 ],
               ),
             ),
           ),
         ),
       ),
-    );
-  }
-}
-
-/// One muted line of token accounting, styled like the trace labels.
-class _UsageLine extends StatelessWidget {
-  const _UsageLine({
-    required this.text,
-    this.icon = Symbols.data_usage_rounded,
-    this.maxLines = 2,
-  });
-
-  final String text;
-  final IconData icon;
-  final int maxLines;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 13, color: scheme.onSurfaceVariant),
-        const Gap(4),
-        Flexible(
-          child: Text(
-            text,
-            maxLines: maxLines,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontSize: 11,
-              height: 1.4,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -712,32 +675,51 @@ String _scaled(double value, String suffix) {
   return '$trimmed$suffix';
 }
 
-/// What one turn spent, and how full the model's context was when it answered.
-/// The window is only stated when the server knows it; without one the prompt
-/// size is still worth showing.
-String _turnUsageLabel(SnRunUsage usage) {
-  final parts = <String>['${_formatTokens(usage.totalTokens)} tokens'];
-  if (usage.rounds > 1) {
-    parts.add('${usage.rounds} rounds');
-  }
-  final used = usage.contextUsedTokens;
+/// The numbers beside the context meter: the fullest prompt the conversation
+/// has sent against the model's window, then its running total. The window is
+/// only stated when the server knows it; without one the prompt size still
+/// says something.
+String _contextSummary(SnConversationUsage usage) {
+  final parts = <String>[];
+  final used = usage.peakContextUsedTokens;
   final window = usage.contextWindowTokens;
-  if (used != null && window != null) {
-    final ratio = usage.contextUsedRatio;
-    final percent = ratio == null ? '' : ' (${_formatPercent(ratio)})';
-    parts.add(
-      'context ${_formatTokens(used)} / ${_formatTokens(window)}$percent',
-    );
+  if (used != null && window != null && window > 0) {
+    parts.add('${_formatTokens(used)} / ${_formatTokens(window)}');
   } else if (used != null) {
     parts.add('context ${_formatTokens(used)}');
+  }
+  if (usage.totalTokens > 0) {
+    parts.add('${_formatTokens(usage.totalTokens)} tok');
+  }
+  if (usage.runs > 0) {
+    parts.add('${usage.runs} ${usage.runs == 1 ? 'run' : 'runs'}');
   }
   return parts.join(' · ');
 }
 
-/// The conversation's running total, shown under the title.
-String _conversationUsageLabel(SnConversationUsage usage) =>
-    '${_formatTokens(usage.totalTokens)} tokens · '
-    '${usage.runs} ${usage.runs == 1 ? 'run' : 'runs'}';
+/// The full sentence behind the meter, for the pointer that hovers it and the
+/// reader a screen reader announces it to.
+String _contextTooltip(SnConversationUsage usage) {
+  final parts = <String>[];
+  final used = usage.peakContextUsedTokens;
+  final window = usage.contextWindowTokens;
+  if (used != null && window != null && window > 0) {
+    final percent = _formatPercent(used / window);
+    parts.add(
+      'Context ${_formatTokens(used)} of ${_formatTokens(window)} tokens '
+      '($percent)',
+    );
+  } else if (used != null) {
+    parts.add('Context ${_formatTokens(used)} tokens');
+  }
+  if (usage.totalTokens > 0) {
+    parts.add('${_formatTokens(usage.totalTokens)} tokens spent total');
+  }
+  if (usage.runs > 0) {
+    parts.add('${usage.runs} ${usage.runs == 1 ? 'run' : 'runs'}');
+  }
+  return parts.isEmpty ? 'No usage recorded yet' : parts.join('\n');
+}
 
 class _BlinkingCaret extends StatefulWidget {
   const _BlinkingCaret();
@@ -1020,13 +1002,19 @@ String _formatToolArgs(Map<String, dynamic> args) {
 }
 
 /// The composer, wearing the chat room's rounded elevated surface.
-class _Composer extends StatelessWidget {
+///
+/// Under the input sits the instrument strip — the reasoning-effort picker on
+/// the left and the conversation's context meter on the right. They are the two
+/// dials for how the companion is about to think, set where the message is
+/// written rather than buried in settings.
+class _Composer extends ConsumerWidget {
   const _Composer({
     required this.controller,
     required this.focusNode,
     required this.attachments,
     required this.busy,
     required this.enterToSend,
+    required this.usage,
     required this.onSend,
     required this.onStop,
     required this.onPickAttachments,
@@ -1038,13 +1026,17 @@ class _Composer extends StatelessWidget {
   final List<String> attachments;
   final bool busy;
   final bool enterToSend;
+
+  /// The conversation's running tokens and context, or null before one exists.
+  final SnConversationUsage? usage;
+
   final VoidCallback onSend;
   final VoidCallback onStop;
   final VoidCallback? onPickAttachments;
   final void Function(int index) onRemoveAttachment;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -1142,7 +1134,203 @@ class _Composer extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const Gap(2),
+                  _ComposerFooter(usage: usage),
                 ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The strip under the input: how hard the companion thinks, and how full its
+/// context is. The reasoning control is the one thing here that is a control;
+/// the context readout is a report.
+class _ComposerFooter extends StatelessWidget {
+  const _ComposerFooter({required this.usage});
+
+  final SnConversationUsage? usage;
+
+  @override
+  Widget build(BuildContext context) {
+    final usage = this.usage;
+    // A total the server reported but never filled is not a status worth
+    // showing, so an empty reading leaves the right side blank.
+    final hasUsage =
+        usage != null &&
+        (usage.totalTokens > 0 ||
+            usage.runs > 0 ||
+            usage.peakContextUsedTokens != null);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 0, 8, 4),
+      child: Row(
+        children: [
+          const _ReasoningControl(),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: hasUsage
+                  ? _ContextStatus(usage: usage)
+                  : const SizedBox.shrink(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The reasoning-effort picker, living where the message is written rather
+/// than in settings: the level is a property of the turn about to be sent.
+///
+/// It stays quiet on the model's default and takes the accent once the reader
+/// has tuned it, so the one accent keeps meaning the reader did something.
+class _ReasoningControl extends ConsumerWidget {
+  const _ReasoningControl();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final setting = ref.watch(reasoningSettingProvider);
+    final tuned = setting != ReasoningSetting.modelDefault;
+    final color = tuned ? scheme.primary : scheme.onSurfaceVariant;
+
+    return PopupMenuButton<ReasoningSetting>(
+      tooltip: 'Reasoning effort',
+      position: PopupMenuPosition.over,
+      onSelected: (value) =>
+          ref.read(reasoningSettingProvider.notifier).set(value),
+      itemBuilder: (context) => [
+        for (final option in ReasoningSetting.values)
+          PopupMenuItem<ReasoningSetting>(
+            value: option,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 22,
+                  child: option == setting
+                      ? Icon(
+                          Symbols.check_rounded,
+                          size: 16,
+                          color: scheme.primary,
+                        )
+                      : null,
+                ),
+                Text(option.label),
+              ],
+            ),
+          ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Symbols.psychology_rounded, size: 14, color: color),
+            const Gap(6),
+            Text(
+              setting.shortLabel,
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: color,
+              ),
+            ),
+            const Gap(2),
+            Icon(Symbols.expand_more_rounded, size: 15, color: scheme.outline),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The conversation's memory gauge: a hairline meter for the fullest context
+/// the model has seen, then the numbers behind it. Quiet at rest; the fill
+/// warms to the accent as the window fills, and to the error tone at its end.
+class _ContextStatus extends StatelessWidget {
+  const _ContextStatus({required this.usage});
+
+  final SnConversationUsage usage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final used = usage.peakContextUsedTokens;
+    final window = usage.contextWindowTokens;
+    final hasWindow = used != null && window != null && window > 0;
+
+    return Tooltip(
+      message: _contextTooltip(usage),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasWindow) ...[
+            _ContextMeter(ratio: used / window),
+            const Gap(8),
+          ],
+          Flexible(
+            child: Text(
+              _contextSummary(usage),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontSize: 11,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A short hairline that fills toward the context window's ceiling. It carries
+/// no numbers of its own; the label beside it does.
+class _ContextMeter extends StatelessWidget {
+  const _ContextMeter({required this.ratio});
+
+  final double ratio;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fill = switch (ratio.clamp(0.0, 1.0)) {
+      >= 0.95 => scheme.error,
+      >= 0.8 => scheme.primary,
+      _ => scheme.onSurfaceVariant,
+    };
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return SizedBox(
+      width: 44,
+      height: 4,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.outlineVariant,
+          borderRadius: BorderRadius.circular(2),
+        ),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: ratio.clamp(0.0, 1.0)),
+            duration: reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) => FractionallySizedBox(
+              widthFactor: value,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: fill,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
           ),

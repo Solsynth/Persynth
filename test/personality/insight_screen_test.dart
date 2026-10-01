@@ -12,6 +12,7 @@ import 'package:persynth/auth/solar_auth_service.dart';
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/screens/settings_page.dart';
 import 'package:persynth/theme/app_theme.dart';
@@ -381,25 +382,61 @@ void main() {
     expect(_plainText('earlier turn'), findsOneWidget);
   });
 
-  testWidgets('shows what a finished turn spent, under its reply', (
+  testWidgets('shows the conversation context and tokens in the composer', (
     tester,
   ) async {
+    final api = _FakePersonalityApi(
+      usageTotal: const SnConversationUsage(
+        runs: 12,
+        inputTokens: 48210,
+        outputTokens: 9310,
+        totalTokens: 57520,
+        peakContextUsedTokens: 7204,
+        contextWindowTokens: 128000,
+      ),
+    );
+    await _pumpConversationPage(tester, api);
+
+    // The composer starts bare; the numbers arrive with the open thread.
+    expect(find.textContaining('/ 128k'), findsNothing);
+
+    await tester.tap(find.text('First thread'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('7.2k / 128k · 57.5k tok · 12 runs'),
+      findsOneWidget,
+    );
+    // The title is the companion's name, not a ledger.
+    expect(find.textContaining('tokens ·'), findsNothing);
+  });
+
+  testWidgets('moves a finished turn\'s spend into the composer readout', (
+    tester,
+  ) async {
+    const runUsage = SnRunUsage(
+      inputTokens: 1005,
+      outputTokens: 507,
+      totalTokens: 1512,
+      rounds: 2,
+      contextUsedTokens: 1000,
+      contextWindowTokens: 128000,
+      contextUsedRatio: 0.007813,
+    );
     final api = _FakePersonalityApi(
       reply: const [
         PersonalityMessageDelta('Paris.'),
         PersonalityRunCompleted('Paris.'),
-        PersonalityUsageReported(
-          SnRunUsage(
-            inputTokens: 1005,
-            outputTokens: 507,
-            totalTokens: 1512,
-            rounds: 2,
-            contextUsedTokens: 1000,
-            contextWindowTokens: 128000,
-            contextUsedRatio: 0.007813,
-          ),
-        ),
+        PersonalityUsageReported(runUsage),
       ],
+      usageTotal: const SnConversationUsage(
+        runs: 1,
+        inputTokens: 1005,
+        outputTokens: 507,
+        totalTokens: 1512,
+        peakContextUsedTokens: 1000,
+        contextWindowTokens: 128000,
+      ),
     );
     await _pumpConversationPage(tester, api);
 
@@ -408,27 +445,28 @@ void main() {
     await tester.tap(find.byIcon(Symbols.send_rounded));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text('1.5k tokens · 2 rounds · context 1k / 128k (0.78%)'),
-      findsOneWidget,
-    );
+    // The reply no longer carries its own footer; the composer does.
+    expect(find.textContaining('tokens ·'), findsNothing);
+    expect(find.text('1k / 128k · 1.5k tok · 1 run'), findsOneWidget);
   });
 
-  testWidgets('shows the conversation total under the title', (tester) async {
-    final api = _FakePersonalityApi(
-      usageTotal: const SnConversationUsage(
-        runs: 12,
-        inputTokens: 48210,
-        outputTokens: 9310,
-        totalTokens: 57520,
-      ),
-    );
-    await _pumpConversationPage(tester, api);
+  testWidgets('sets the reasoning effort from the composer and remembers it', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await _pumpConversationPage(tester, _FakePersonalityApi());
 
-    await tester.tap(find.text('First thread'));
+    // The control sits quiet on the model default.
+    expect(find.text('Default'), findsOneWidget);
+
+    await tester.tap(find.text('Default'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Off (no thinking)').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('57.5k tokens · 12 runs'), findsOneWidget);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getString(kReasoningSettingStoreKey), 'off');
+    expect(find.text('No thinking'), findsOneWidget);
   });
 }
 

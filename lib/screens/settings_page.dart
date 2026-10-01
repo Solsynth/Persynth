@@ -8,7 +8,6 @@ import 'package:persynth/auth/solar_auth_controller.dart';
 import 'package:persynth/auth/solar_sign_in_panel.dart';
 import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/personality/personality_session.dart';
-import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/plugins/mcp_servers_section.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
@@ -196,61 +195,7 @@ class _GeneralSettingsTab extends HookConsumerWidget {
         // connected must not push them down the page.
         _SectionHeader('Connections'),
         const McpServersSection(),
-        const SizedBox(height: 20),
-        _SectionHeader('Reasoning'),
-        const _ReasoningSection(),
       ],
-    );
-  }
-}
-
-/// How much the companion thinks before it answers.
-///
-/// The choice is sent with every run, because the backend applies a run's
-/// reasoning controls when the run starts and never remembers them. Levels
-/// beyond Low and High are provider-specific: the picker offers the whole set
-/// the backend accepts and says plainly that a model may refuse one.
-class _ReasoningSection extends ConsumerWidget {
-  const _ReasoningSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final setting = ref.watch(reasoningSettingProvider);
-
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Thinking', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              'How much the companion reasons before answering. Higher effort '
-              'buys care at the cost of time, and Off turns thinking off '
-              'where the model allows it. A model that does not support the '
-              'chosen level will refuse the message and say so.',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<ReasoningSetting>(
-              initialValue: setting,
-              decoration: const InputDecoration(labelText: 'Reasoning effort'),
-              items: [
-                for (final option in ReasoningSetting.values)
-                  DropdownMenuItem(value: option, child: Text(option.label)),
-              ],
-              onChanged: (value) {
-                if (value != null) {
-                  ref.read(reasoningSettingProvider.notifier).set(value);
-                }
-              },
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

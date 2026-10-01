@@ -8,9 +8,10 @@ An Island-style Flutter desktop pet companion.
 - AutoRoute-powered home and floating-pet routes.
 - Configurable ASCII face parts (`0.0`, `0-0`, `0^0`, `0.o`, and similar combinations), persisted locally.
 - Personality Core chat integration using the OpenAI-compatible `/v1/chat/completions` endpoint.
-- Reasoning effort is a setting — the model's own default, `Off`, or a level from
-  `minimal` to `ultra` — sent with every run as `reasoning_effort`, or
-  `disable_reasoning` when thinking is switched off, and remembered across launches.
+- Reasoning effort lives in the chat composer — the model's own default, `Off`,
+  or a level from `minimal` to `ultra` — sent with every run as
+  `reasoning_effort`, or `disable_reasoning` when thinking is switched off, and
+  remembered across launches.
 - AI behavior harness lets Personality Core change mood, face, status, and animation through a validated JSON directive.
 - Programmatic simulation owns energy, affection, idle decay, and feed/play/rest reactions.
 - Pet chat accepts typed messages on every target and speech-to-text on Android, iOS, and web when available.
@@ -39,14 +40,16 @@ being pulled back to the gate. Signing in from anywhere drops the last
 account's agents, threads and open conversation
 (`lib/personality/personality_session.dart`).
 
-A finished turn reports what it spent: the reply carries a muted footer with its
-tokens, the model calls it took, and how full the model's context was when it
-answered. The conversation's own total sits under the title. Both come from the
-server — the turn's usage rides its run, the total is read from
-`GET /personality/conversations/:id/usage` — so the numbers match what every
-other client sees and what billing was metered against. A model whose context
-ceiling the server cannot resolve gets a token count with no ratio rather than a
-ratio against a guess.
+A finished turn reports what it spent, and the conversation keeps the running
+tab. Both live in the composer's instrument strip, under the input where the
+next message is written: the reasoning-effort picker that decides how hard the
+companion thinks, and a context readout of the fullest prompt the model has
+seen against its window, the conversation's tokens, and its runs. The numbers
+come from the server — the total and peak context are read from
+`GET /personality/conversations/:id/usage` — so they match what every other
+client sees and what billing was metered against. A model whose context
+ceiling the server cannot resolve gets a token count with no window rather
+than a ratio against a guess.
 
 The app passes the refreshed Solar Network user access token to Personality
 Core; it never asks for a separate Personality Core token.

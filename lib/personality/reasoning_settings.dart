@@ -41,6 +41,14 @@ enum ReasoningSetting {
   /// Whether to send the run's `disable_reasoning` switch.
   final bool disabled;
 
+  /// A compass-short label for the composer control, where the full [label]
+  /// would crowd the context readout beside it.
+  String get shortLabel => switch (this) {
+    modelDefault => 'Default',
+    off => 'No thinking',
+    _ => label,
+  };
+
   /// Reads a stored token back, treating anything unrecognized — including a
   /// level a newer build knows and this one does not — as the default. A
   /// half-remembered setting is worse than an explicit one.
