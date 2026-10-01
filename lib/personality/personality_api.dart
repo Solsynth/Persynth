@@ -516,6 +516,12 @@ class PersonalityApi {
   /// [overrides] names the server-owned tools the caller has replaced. The
   /// server leaves its own copies out of the tool list and stops advertising
   /// the skills they belong to, so the model is offered one tool per job.
+  ///
+  /// [reasoningEffort] and [disableReasoning] are the run's reasoning
+  /// controls, mirroring the OpenAI-compatible shape the providers accept:
+  /// the effort is forwarded verbatim and [disableReasoning] turns the
+  /// provider's thinking mode off, which wins over any effort. Both are read
+  /// when the run starts, so a client that cares states them on every run.
   Stream<PersonalityRunEvent> runConversation({
     required String conversationId,
     required String message,
@@ -524,6 +530,8 @@ class PersonalityApi {
     List<SnClientSkill> clientSkills = const [],
     List<String> overrides = const [],
     List<String> context = const [],
+    String? reasoningEffort,
+    bool disableReasoning = false,
     CancelToken? cancelToken,
   }) async* {
     final response = await _streamClient().post<ResponseBody>(
@@ -538,6 +546,9 @@ class PersonalityApi {
           'client_skills': [for (final skill in clientSkills) skill.toJson()],
         if (overrides.isNotEmpty) 'overrides': overrides,
         if (context.isNotEmpty) 'context': context,
+        if (reasoningEffort != null && reasoningEffort.trim().isNotEmpty)
+          'reasoning_effort': reasoningEffort.trim(),
+        if (disableReasoning) 'disable_reasoning': true,
       },
       cancelToken: cancelToken,
       options: Options(

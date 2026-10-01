@@ -5,6 +5,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/plugins/social_plugin.dart';
 import 'package:persynth/plugins/web_tools_plugin.dart';
@@ -174,5 +175,60 @@ void main() {
       'mark_all_notifications_read',
     ]);
     expect(preferences.getBool('persynth_plugin_notifications'), isTrue);
+  });
+
+  testWidgets('the reasoning picker reaches storage and outlives a restart', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(preferences),
+        ],
+        child: MaterialApp(
+          theme: buildPersynthTheme(Brightness.light),
+          home: const SettingsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final picker = find.byType(DropdownButtonFormField<ReasoningSetting>);
+    // The picker sits below the plugin switches, past what a lazily built
+    // settings list has on screen, so the test scrolls to it as a reader would.
+    await tester.dragUntilVisible(
+      picker,
+      find.byType(ListView),
+      const Offset(0, -200),
+    );
+    await tester.pumpAndSettle();
+    // Untouched, the run carries no reasoning controls at all and the model's
+    // own default stands.
+    expect(
+      tester
+          .widget<DropdownButtonFormField<ReasoningSetting>>(picker)
+          .initialValue,
+      ReasoningSetting.modelDefault,
+    );
+
+    await tester.tap(picker);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Off (no thinking)').last);
+    await tester.pumpAndSettle();
+
+    expect(preferences.getString(kReasoningSettingStoreKey), 'off');
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SettingsPage)),
+    );
+    expect(container.read(reasoningSettingProvider), ReasoningSetting.off);
+
+    // What is on disk is what the next launch starts from; a stored level this
+    // build no longer knows falls back rather than leaving the run unstated.
+    expect(ReasoningSetting.fromToken('ultra'), ReasoningSetting.ultra);
+    expect(ReasoningSetting.fromToken('flux'), ReasoningSetting.modelDefault);
+    expect(ReasoningSetting.fromToken(null), ReasoningSetting.modelDefault);
   });
 }

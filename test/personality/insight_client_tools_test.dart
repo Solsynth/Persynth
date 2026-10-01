@@ -63,6 +63,8 @@ class _HandoffApi extends PersonalityApi {
     List<SnClientSkill> clientSkills = const [],
     List<String> overrides = const [],
     List<String> context = const [],
+    String? reasoningEffort,
+    bool disableReasoning = false,
     CancelToken? cancelToken,
   }) async* {
     receivedClientTools = clientTools;

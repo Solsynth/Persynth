@@ -8,6 +8,9 @@ An Island-style Flutter desktop pet companion.
 - AutoRoute-powered home and floating-pet routes.
 - Configurable ASCII face parts (`0.0`, `0-0`, `0^0`, `0.o`, and similar combinations), persisted locally.
 - Personality Core chat integration using the OpenAI-compatible `/v1/chat/completions` endpoint.
+- Reasoning effort is a setting — the model's own default, `Off`, or a level from
+  `minimal` to `ultra` — sent with every run as `reasoning_effort`, or
+  `disable_reasoning` when thinking is switched off, and remembered across launches.
 - AI behavior harness lets Personality Core change mood, face, status, and animation through a validated JSON directive.
 - Programmatic simulation owns energy, affection, idle decay, and feed/play/rest reactions.
 - Pet chat accepts typed messages on every target and speech-to-text on Android, iOS, and web when available.

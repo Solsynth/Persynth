@@ -6,6 +6,7 @@ import 'package:dio/dio.dart'
 import 'package:flutter/foundation.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -329,6 +330,10 @@ class InsightChatController extends _$InsightChatController {
       };
       final offeredOverrides = ref.read(pluginOverridesProvider).toSet();
 
+      // Read once per turn: the server takes the reasoning controls when the
+      // run starts, so a change mid-turn belongs to the next one.
+      final reasoning = ref.read(reasoningSettingProvider);
+
       await for (final event in _api.runConversation(
         conversationId: conversationId,
         message: content,
@@ -337,6 +342,8 @@ class InsightChatController extends _$InsightChatController {
         clientSkills: ref.read(pluginSkillsProvider),
         overrides: ref.read(pluginOverridesProvider),
         context: ref.read(pluginSystemPromptProvider),
+        reasoningEffort: reasoning.effort,
+        disableReasoning: reasoning.disabled,
         cancelToken: cancelToken,
       )) {
         if (_disposed) return;
