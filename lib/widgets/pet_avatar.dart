@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:persynth/theme/app_theme.dart';
 
-/// The pet's face: an ASCII glyph set in the display face. Mochi is made of
+/// The pet's face: an ASCII glyph set in the mono face. Mochi is made of
 /// text, so the face is typography, drawn in ink on the island.
 class PetAvatar extends StatelessWidget {
   const PetAvatar({super.key, this.size = 180, this.face = '>.<'});
@@ -19,7 +19,7 @@ class PetAvatar extends StatelessWidget {
           face,
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: PersynthFonts.display,
+            fontFamily: PersynthFonts.mono,
             fontSize: size * .25,
             fontWeight: FontWeight.w600,
             height: 1,

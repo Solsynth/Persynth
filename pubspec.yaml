@@ -102,7 +102,18 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Two families, the same pair every Solian fleet app ships: Nunito is the
+  # app's voice, IBM Plex Mono the terminal one (the pet's ASCII face, code,
+  # metadata). The Nunito files are byte-identical to Solian's and SolWatt's,
+  # so the fleet renders the same text the same way.
   fonts:
+    - family: Nunito
+      fonts:
+        - asset: assets/fonts/Nunito-Regular.ttf
+        - asset: assets/fonts/Nunito-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Nunito-Italic.ttf
+          style: italic
     - family: IBM Plex Mono
       fonts:
         - asset: assets/fonts/IBMPlexMono-Regular.ttf

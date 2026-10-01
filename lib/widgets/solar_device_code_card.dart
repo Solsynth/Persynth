@@ -4,6 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:persynth/auth/solar_auth_service.dart';
+import 'package:persynth/theme/app_theme.dart';
 
 /// The code a waiting sign-in needs approved, with the page that takes it.
 ///
@@ -45,7 +46,7 @@ class SolarDeviceCodeCard extends StatelessWidget {
           SelectableText(
             authorization.userCode,
             style: theme.textTheme.headlineSmall?.copyWith(
-              fontFamily: 'IBM Plex Mono',
+              fontFamily: PersynthFonts.mono,
               fontWeight: FontWeight.w600,
               letterSpacing: 3,
             ),

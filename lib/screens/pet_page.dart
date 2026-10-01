@@ -356,7 +356,7 @@ $transcript''';
                 Text(
                   'Mochi',
                   style: TextStyle(
-                    fontFamily: PersynthFonts.display,
+                    fontFamily: PersynthFonts.sans,
                     fontSize: 17,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 1.2,
@@ -486,7 +486,7 @@ $transcript''';
                   style: TextButton.styleFrom(
                     foregroundColor: cs.onSurfaceVariant,
                     textStyle: const TextStyle(
-                      fontFamily: PersynthFonts.display,
+                      fontFamily: PersynthFonts.sans,
                       fontSize: 11,
                       letterSpacing: 0.4,
                     ),

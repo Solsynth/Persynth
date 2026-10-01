@@ -10,6 +10,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/screens/authorize_client_info.dart';
+import 'package:persynth/theme/app_theme.dart';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -784,7 +785,7 @@ class _OAuthConnectSheet extends HookConsumerWidget {
                 child: Text(
                   flow.userCode,
                   style: theme.textTheme.bodyLarge?.copyWith(
-                    fontFamily: 'monospace',
+                    fontFamily: PersynthFonts.mono,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 2,
                   ),

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
-/// The app's vernacular voice: the pet is ASCII text, so the chrome speaks
-/// in terminal. Used for eyebrows, names, the face glyph, and metadata.
+/// The app's two faces, the pair the rest of the fleet ships: [sans] is the
+/// voice of the interface, [mono] the terminal one. Mono is not decoration —
+/// it is what the pet is made of. The ASCII face, reasoning traces, code and
+/// metadata are set in it so their columns line up; everything a reader reads
+/// as prose is Nunito.
 abstract final class PersynthFonts {
-  static const display = 'IBM Plex Mono';
-  static const body = 'Avenir Next';
+  static const sans = 'Nunito';
+  static const mono = 'IBM Plex Mono';
 }
 
 /// Dawn-on-the-island palette, in a light and a dusk variant.
@@ -151,14 +154,14 @@ ThemeData buildPersynthTheme(Brightness brightness) {
   final base = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
-    fontFamily: PersynthFonts.body,
+    fontFamily: PersynthFonts.sans,
     scaffoldBackgroundColor: p.canvas,
     shadowColor: Colors.transparent,
     iconTheme: IconThemeData(color: p.inkSoft),
   );
 
   final textTheme = base.textTheme
-      .apply(fontFamily: PersynthFonts.body)
+      .apply(fontFamily: PersynthFonts.sans)
       .copyWith(
         displaySmall: base.textTheme.displaySmall?.copyWith(
           fontWeight: FontWeight.w600,
@@ -201,7 +204,7 @@ ThemeData buildPersynthTheme(Brightness brightness) {
           color: p.inkSoft,
         ),
         labelSmall: base.textTheme.labelSmall?.copyWith(
-          fontFamily: PersynthFonts.display,
+          fontFamily: PersynthFonts.mono,
           fontSize: 10.5,
           letterSpacing: 0.4,
           fontWeight: FontWeight.w400,
@@ -264,7 +267,7 @@ ThemeData buildPersynthTheme(Brightness brightness) {
         disabledForegroundColor: p.inkSoft,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         textStyle: const TextStyle(
-          fontFamily: PersynthFonts.body,
+          fontFamily: PersynthFonts.sans,
           fontSize: 13.5,
           fontWeight: FontWeight.w600,
         ),
@@ -277,7 +280,7 @@ ThemeData buildPersynthTheme(Brightness brightness) {
         side: BorderSide(color: p.hairline, width: 1),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         textStyle: const TextStyle(
-          fontFamily: PersynthFonts.body,
+          fontFamily: PersynthFonts.sans,
           fontSize: 13.5,
           fontWeight: FontWeight.w600,
         ),
@@ -288,7 +291,7 @@ ThemeData buildPersynthTheme(Brightness brightness) {
       style: TextButton.styleFrom(
         foregroundColor: p.inkSoft,
         textStyle: const TextStyle(
-          fontFamily: PersynthFonts.body,
+          fontFamily: PersynthFonts.sans,
           fontSize: 13,
           fontWeight: FontWeight.w500,
         ),

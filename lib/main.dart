@@ -130,17 +130,23 @@ class MyApp extends StatelessWidget {
         // `material_ui` fork's Material, which reads a separate theme system
         // from Flutter's. Without a material_ui Theme in scope it falls back
         // to the fork's default (always-light) scheme. Mirror the app scheme
-        // so the chrome (the shell step, by design) follows light/dark mode.
+        // so the chrome (the shell step, by design) follows light/dark mode,
+        // and the app family so the frame's own text is set in Nunito rather
+        // than whatever the fork defaults to on this platform.
         final scheme = Theme.of(context).colorScheme;
         final brightness = Theme.of(context).brightness;
         final chromeScheme = mui.ColorScheme.fromSeed(
           seedColor: scheme.primary,
           brightness: brightness,
         ).copyWith(surfaceContainer: scheme.surfaceContainer);
-        final chromeTheme = (brightness == Brightness.dark
-                ? mui.ThemeData.dark()
-                : mui.ThemeData.light())
-            .copyWith(colorScheme: chromeScheme);
+        final chromeTheme = mui.ThemeData(
+          brightness: brightness,
+          colorScheme: chromeScheme,
+          // The fork's `copyWith` carries no font family, so the family is
+          // set at construction — the same way the fleet's fork themes are
+          // built.
+          fontFamily: PersynthFonts.sans,
+        );
 
         return mui.Theme(
           data: chromeTheme,
@@ -149,7 +155,7 @@ class MyApp extends StatelessWidget {
             title: Text(
               isPetWindow ? 'Mochi' : 'Persynth',
               style: TextStyle(
-                fontFamily: PersynthFonts.display,
+                fontFamily: PersynthFonts.sans,
                 fontSize: 11,
                 letterSpacing: 1.1,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,

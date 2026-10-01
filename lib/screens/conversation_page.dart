@@ -15,6 +15,7 @@ import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_service.dart';
 import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/router.dart';
+import 'package:persynth/theme/app_theme.dart';
 import 'package:persynth/widgets/message_markdown.dart';
 
 /// Insight: a live conversation with a personality agent, with the account's
@@ -774,7 +775,7 @@ class _TraceRow extends StatelessWidget {
       fontSize: 11.5,
       height: 1.5,
       color: scheme.onSurfaceVariant,
-      fontFamily: 'IBM Plex Mono',
+      fontFamily: PersynthFonts.mono,
     );
     final snippet = bubble.text.trim().split('\n').first;
 
@@ -847,7 +848,7 @@ class _ToolTraceRow extends StatelessWidget {
       fontSize: 11.5,
       height: 1.5,
       color: scheme.onSurfaceVariant,
-      fontFamily: 'IBM Plex Mono',
+      fontFamily: PersynthFonts.mono,
     );
     final labelStyle = theme.textTheme.labelSmall?.copyWith(
       color: scheme.outline,
