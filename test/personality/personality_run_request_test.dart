@@ -96,4 +96,34 @@ void main() {
     expect(body.containsKey('reasoning_effort'), isFalse);
     expect(body.containsKey('disable_reasoning'), isFalse);
   });
+
+  test('pasted text rides the run as a named text part', () async {
+    final server = await _RunServer.start();
+    addTearDown(server.close);
+    final api = PersonalityApi(Dio(BaseOptions(baseUrl: server.baseUrl)));
+
+    await api
+        .runConversation(
+          conversationId: 'c1',
+          message: 'what does this say?',
+          inputParts: [
+            SnRunInputPart.text(
+              'the whole document',
+              name: 'Pasted text 2026-10-02 143005.txt',
+            ),
+          ],
+        )
+        .drain<void>();
+
+    final body = server.bodies.single;
+    expect(body['input_parts'], [
+      {
+        'type': 'text',
+        'text': 'the whole document',
+        'name': 'Pasted text 2026-10-02 143005.txt',
+      },
+    ]);
+    // Nothing was uploaded: a text attachment has no drive id to send.
+    expect(body.containsKey('attachment_ids'), isFalse);
+  });
 }

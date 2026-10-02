@@ -12,7 +12,6 @@ import 'package:persynth/auth/solar_auth_service.dart';
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
-import 'package:persynth/personality/personality_service.dart';
 import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/screens/settings_page.dart';
@@ -47,6 +46,7 @@ class _FakePersonalityApi extends PersonalityApi {
 
   final List<String> sentMessages = [];
   final List<List<String>> sentAttachments = [];
+  final List<List<SnRunInputPart>> sentInputParts = [];
   List<SnLocalTool> lastClientTools = const [];
 
   @override
@@ -80,6 +80,7 @@ class _FakePersonalityApi extends PersonalityApi {
     required String conversationId,
     required String message,
     List<String> attachmentIds = const [],
+    List<SnRunInputPart> inputParts = const [],
     List<SnLocalTool> clientTools = const [],
     List<SnClientSkill> clientSkills = const [],
     List<String> overrides = const [],
@@ -90,6 +91,7 @@ class _FakePersonalityApi extends PersonalityApi {
   }) async* {
     sentMessages.add(message);
     sentAttachments.add(attachmentIds);
+    sentInputParts.add(inputParts);
     lastClientTools = clientTools;
     final error = failure;
     if (error != null) throw error;
@@ -105,34 +107,6 @@ class _ConversationTestRouter extends RootStackRouter {
     AutoRoute(page: ConversationRoute.page, path: '/', initial: true),
     AutoRoute(page: SettingsRoute.page, path: '/settings'),
   ];
-}
-
-/// A drive uploader that accepts every file instead of touching the network,
-/// recording what it was asked to store.
-class _FakeUploader extends PersonalityCoreService {
-  final List<({String name, String content})> uploads = [];
-
-  @override
-  Future<String> uploadTextAttachment({
-    required String name,
-    required String content,
-    String driveBaseUrl = PersonalityCoreService.productionDriveBaseUrl,
-  }) async {
-    uploads.add((name: name, content: content));
-    return 'text-file-${uploads.length}';
-  }
-}
-
-/// A drive uploader that refuses every file, for the turn that cannot send.
-class _FailingUploader extends PersonalityCoreService {
-  @override
-  Future<String> uploadTextAttachment({
-    required String name,
-    required String content,
-    String driveBaseUrl = PersonalityCoreService.productionDriveBaseUrl,
-  }) async {
-    throw const PersonalityCoreException('drive is down');
-  }
 }
 
 const _signedInUser = SolarUser(name: 'Test', handle: 'tester');
@@ -161,7 +135,6 @@ Future<void> _pumpConversationPage(
     SolarAuthStatus.signedIn,
     _signedInUser,
   ),
-  PersonalityCoreService? uploader,
 }) async {
   final preferences = await SharedPreferences.getInstance();
   final routerConfig = _ConversationTestRouter().config();
@@ -175,8 +148,6 @@ Future<void> _pumpConversationPage(
           solarAuthStateProvider.overrideWith(
             () => _StubSolarAuthNotifier(authState),
           ),
-          if (uploader != null)
-            personalityCoreServiceProvider.overrideWithValue(uploader),
         ],
         child: MaterialApp.router(
           routerConfig: routerConfig,
@@ -558,14 +529,13 @@ void main() {
     expect(find.text('11 characters · Edit'), findsOneWidget);
   });
 
-  testWidgets('a pasted block is uploaded and sent as a text attachment', (
+  testWidgets('a pasted block is sent as a text part, never uploaded', (
     tester,
   ) async {
     final api = _FakePersonalityApi(
       reply: const [PersonalityRunCompleted('Got it')],
     );
-    final uploader = _FakeUploader();
-    await _pumpConversationPage(tester, api, uploader: uploader);
+    await _pumpConversationPage(tester, api);
 
     await tester.enterText(find.byType(TextField), 'z' * 1500);
     await tester.pump();
@@ -573,35 +543,68 @@ void main() {
     await tester.tap(find.byIcon(Symbols.send_rounded));
     await tester.pumpAndSettle();
 
-    // The block reached the drive under its own name, and the run carried the
-    // id the drive gave it.
-    expect(uploader.uploads.single.name, startsWith('Pasted text'));
-    expect(uploader.uploads.single.content, 'z' * 1500);
-    expect(api.sentAttachments.single, ['text-file-1']);
+    // The run carries the text itself, under the name the reader saw, and no
+    // drive id to fetch a file with.
+    final part = api.sentInputParts.single.single;
+    expect(part.type, 'text');
+    expect(part.text, 'z' * 1500);
+    expect(part.name, startsWith('Pasted text'));
+    expect(part.name, endsWith('.txt'));
+    expect(api.sentAttachments.single, isEmpty);
     expect(api.sentMessages.single, '');
 
-    // The sent turn shows the file it carried, not an image placeholder.
+    // The sent turn shows the document it carried, not an image placeholder.
     expect(find.text('1.5k characters'), findsOneWidget);
     expect(find.textContaining('Got it'), findsOneWidget);
   });
 
-  testWidgets('a failed upload keeps the turn and the attachment', (
-    tester,
-  ) async {
+  testWidgets('an emptied text attachment leaves the queue', (tester) async {
     final api = _FakePersonalityApi();
-    await _pumpConversationPage(tester, api, uploader: _FailingUploader());
+    await _pumpConversationPage(tester, api);
 
-    await tester.enterText(find.byType(TextField), 'w' * 1200);
+    await tester.enterText(find.byType(TextField), 'q' * 1200);
     await tester.pump();
-    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.tap(find.textContaining('Pasted text'));
     await tester.pumpAndSettle();
 
-    // The turn stands as written and the reason it did not run is on screen.
+    final dialogField = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(dialogField, '   ');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    // An empty attachment would make the run invalid, so it is simply gone.
+    expect(find.textContaining('Pasted text'), findsNothing);
+    expect(find.text('1.2k characters · Edit'), findsNothing);
+  });
+
+  testWidgets('a replayed text attachment survives the round trip', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(
+      history: [
+        SnPersonalityMessage(
+          role: 'user',
+          content: 'what does this say?',
+          inputParts: [
+            SnRunInputPart.text(
+              'a' * 1200,
+              name: 'Pasted text 2026-10-02 143005.txt',
+            ),
+          ],
+        ),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    await tester.tap(find.text('First thread'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('what does this say?'), findsOneWidget);
+    expect(find.text('Pasted text 2026-10-02 143005.txt'), findsOneWidget);
     expect(find.text('1.2k characters'), findsOneWidget);
-    expect(find.textContaining('drive is down'), findsOneWidget);
-    expect(api.sentMessages, isEmpty);
-    // Nothing was consumed, so the attachment is still there to try again.
-    expect(find.text('1.2k characters · Edit'), findsOneWidget);
   });
 }
 

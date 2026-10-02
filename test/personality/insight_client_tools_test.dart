@@ -59,6 +59,7 @@ class _HandoffApi extends PersonalityApi {
     required String conversationId,
     required String message,
     List<String> attachmentIds = const [],
+    List<SnRunInputPart> inputParts = const [],
     List<SnLocalTool> clientTools = const [],
     List<SnClientSkill> clientSkills = const [],
     List<String> overrides = const [],

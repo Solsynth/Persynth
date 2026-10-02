@@ -130,6 +130,59 @@ class SnPersonalityToolCall {
   }
 }
 
+/// One part of a multimodal user message: text the caller contributes
+/// directly, or a drive file the model reads as an image.
+///
+/// Text travels as text — never as an uploaded file — which is what lets a
+/// pasted document reach the model without the drive, and stay editable on the
+/// caller's device until the turn is sent, [name] labels a text part as an
+/// attached document, so the model reads it under the name the reader saw.
+@immutable
+class SnRunInputPart {
+  const SnRunInputPart._({
+    required this.type,
+    this.text,
+    this.name,
+    this.attachmentId,
+  });
+
+  /// A block of text the caller sends directly, optionally named as a file.
+  const SnRunInputPart.text(String text, {String name = ''})
+    : this._(type: 'text', text: text, name: name);
+
+  /// A drive file the model reads as an image.
+  const SnRunInputPart.image(String attachmentId)
+    : this._(type: 'image', attachmentId: attachmentId);
+
+  final String type;
+  final String? text;
+  final String? name;
+  final String? attachmentId;
+
+  /// The parts the server stored with a persisted message.
+  static List<SnRunInputPart> listFromJson(dynamic raw) {
+    if (raw is! List) return const [];
+    return [
+      for (final entry in raw.whereType<Map>())
+        if (entry['type'] != null)
+          SnRunInputPart._(
+            type: entry['type'].toString(),
+            text: entry['text']?.toString(),
+            name: entry['name']?.toString(),
+            attachmentId: entry['attachment_id']?.toString(),
+          ),
+    ];
+  }
+
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    if (text != null && text!.isNotEmpty) 'text': text,
+    if (name != null && name!.isNotEmpty) 'name': name,
+    if (attachmentId != null && attachmentId!.isNotEmpty)
+      'attachment_id': attachmentId,
+  };
+}
+
 /// One persisted message. Reasoning, tool calls and attachments ride under the
 /// message's `metadata` bag rather than as top-level fields.
 @immutable
@@ -137,6 +190,7 @@ class SnPersonalityMessage {
   final String role;
   final String content;
   final List<String> attachmentIds;
+  final List<SnRunInputPart> inputParts;
   final String? reasoningContent;
   final List<SnPersonalityToolCall> toolCalls;
   final String? toolCallId;
@@ -146,6 +200,7 @@ class SnPersonalityMessage {
     required this.role,
     required this.content,
     this.attachmentIds = const [],
+    this.inputParts = const [],
     this.reasoningContent,
     this.toolCalls = const [],
     this.toolCallId,
@@ -168,6 +223,7 @@ class SnPersonalityMessage {
                 if (id.toString().isNotEmpty) id.toString(),
             ]
           : const [],
+      inputParts: SnRunInputPart.listFromJson(meta['input_parts']),
       reasoningContent: reasoning.isEmpty ? null : reasoning,
       toolCalls: SnPersonalityToolCall.listFromJson(meta['tool_calls']),
       toolCallId: meta['tool_call_id']?.toString(),
@@ -649,6 +705,10 @@ class PersonalityApi {
   /// server leaves its own copies out of the tool list and stops advertising
   /// the skills they belong to, so the model is offered one tool per job.
   ///
+  /// [inputParts] carries text the caller contributes as a message part — a
+  /// pasted document the model should read under its own name — alongside the
+  /// drive files in [attachmentIds].
+  ///
   /// [reasoningEffort] and [disableReasoning] are the run's reasoning
   /// controls, mirroring the OpenAI-compatible shape the providers accept:
   /// the effort is forwarded verbatim and [disableReasoning] turns the
@@ -658,6 +718,7 @@ class PersonalityApi {
     required String conversationId,
     required String message,
     List<String> attachmentIds = const [],
+    List<SnRunInputPart> inputParts = const [],
     List<SnLocalTool> clientTools = const [],
     List<SnClientSkill> clientSkills = const [],
     List<String> overrides = const [],
@@ -672,6 +733,8 @@ class PersonalityApi {
         'message': message,
         'stream': true,
         if (attachmentIds.isNotEmpty) 'attachment_ids': attachmentIds,
+        if (inputParts.isNotEmpty)
+          'input_parts': [for (final part in inputParts) part.toJson()],
         if (clientTools.isNotEmpty)
           'client_tools': [for (final tool in clientTools) tool.toOpenAiTool()],
         if (clientSkills.isNotEmpty)

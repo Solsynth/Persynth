@@ -25,9 +25,9 @@ enum InsightBubbleKind { user, assistant, thinking, tool }
 /// One file riding with a user turn.
 ///
 /// An image is uploaded the moment it is picked, so it carries the drive
-/// [fileId] it was stored as. A block of text the reader pasted stays on this
-/// device — and stays editable — until the turn is sent, so it carries its
-/// [text] instead; sending uploads it as a file like any other attachment.
+/// [fileId] it was stored as. A block of text the reader pasted never leaves
+/// this device as a file: it carries its [text] and [name], is sent to the
+/// server as a text part of the run, and stays editable until it is.
 @immutable
 class InsightAttachment {
   const InsightAttachment({
@@ -37,26 +37,25 @@ class InsightAttachment {
     this.isText = false,
   });
 
-  /// The drive file behind the attachment, once there is one.
+  /// The drive file behind the attachment: an image, and only an image.
   final String? fileId;
 
-  /// The body of a text attachment, while it is still only on this device.
+  /// The body of a text attachment. It is held here rather than on the drive.
   final String? text;
 
-  /// The file's name: what the reader sees and what the drive stores.
+  /// The file's name: what the reader sees, and what the model is told.
   final String name;
 
-  /// Whether this is a pasted block of text rather than a picked file.
+  /// Whether this is a pasted block of text rather than a picked image.
   final bool isText;
 
   int get characterCount => text?.length ?? 0;
 
-  InsightAttachment copyWith({String? fileId}) => InsightAttachment(
-    fileId: fileId ?? this.fileId,
-    text: text,
-    name: name,
-    isText: isText,
-  );
+  /// The same attachment as the run protocol carries it. An image is a drive
+  /// file the server resolves; text is sent whole.
+  SnRunInputPart toInputPart() => isText
+      ? SnRunInputPart.text(text ?? '', name: name)
+      : SnRunInputPart.image(fileId ?? '');
 }
 
 /// One row of the conversation log. Assistant replies, reasoning traces and
@@ -330,8 +329,8 @@ class InsightChatController extends _$InsightChatController {
   }
 
   /// Queues a pasted block of text as an attachment. The text stays on this
-  /// device — and stays editable — until the message is sent, when it is
-  /// uploaded to the drive like any other file.
+  /// device — and stays editable — until the message is sent, when it travels
+  /// as a part of the run rather than as an uploaded file.
   void attachText(String text, {String? name}) {
     if (text.trim().isEmpty) return;
     _set(
@@ -348,18 +347,18 @@ class InsightChatController extends _$InsightChatController {
     );
   }
 
-  /// Replaces the body of one queued text attachment.
+  /// Replaces the body of one queued text attachment. Text the reader empties
+  /// out is no attachment at all, so it leaves the queue.
   void updatePendingText(int index, String text) {
     if (index < 0 || index >= state.pendingAttachments.length) return;
     final attachment = state.pendingAttachments[index];
     if (!attachment.isText) return;
+    if (text.trim().isEmpty) {
+      removePendingAttachment(index);
+      return;
+    }
     final next = List.of(state.pendingAttachments);
-    next[index] = InsightAttachment(
-      fileId: attachment.fileId,
-      text: text,
-      name: attachment.name,
-      isText: true,
-    );
+    next[index] = InsightAttachment(text: text, name: attachment.name, isText: true);
     _set(state.copyWith(pendingAttachments: next));
   }
 
@@ -367,29 +366,6 @@ class InsightChatController extends _$InsightChatController {
     if (index < 0 || index >= state.pendingAttachments.length) return;
     final next = List.of(state.pendingAttachments)..removeAt(index);
     _set(state.copyWith(pendingAttachments: next));
-  }
-
-  /// Uploads the text attachments still held on this device, returning every
-  /// attachment with the drive id it was stored as. A failure throws and
-  /// leaves the queued attachments alone, so the turn can be sent again.
-  Future<List<InsightAttachment>> _uploadTextAttachments(
-    List<InsightAttachment> attachments,
-  ) async {
-    final uploaded = <InsightAttachment>[];
-    for (final attachment in attachments) {
-      if (!attachment.isText || attachment.fileId != null) {
-        uploaded.add(attachment);
-        continue;
-      }
-      final id = await ref
-          .read(personalityCoreServiceProvider)
-          .uploadTextAttachment(
-            name: attachment.name,
-            content: attachment.text ?? '',
-          );
-      uploaded.add(attachment.copyWith(fileId: id));
-    }
-    return uploaded;
   }
 
   // ── Sending ──────────────────────────────────────────────────────────────
@@ -404,8 +380,8 @@ class InsightChatController extends _$InsightChatController {
     if (state.busy || (content.isEmpty && pending.isEmpty)) return;
 
     final turnId = ++_turnSerial;
-    // The turn goes up as written — with the attachments it named — before the
-    // upload, so a failed upload costs the retry, not the message.
+    // The turn goes up as written, with the attachments it named. Nothing has
+    // to leave the device first: text rides the run itself.
     _set(
       state.copyWith(
         busy: true,
@@ -418,24 +394,11 @@ class InsightChatController extends _$InsightChatController {
             attachments: pending,
           ),
         ],
+        pendingAttachments: const [],
       ),
     );
 
     try {
-      // A pasted block lives on this device until here; it becomes a drive
-      // file so the run carries it as an attachment like any other.
-      final attachments = await _uploadTextAttachments(pending);
-      // Only the attachments this turn carried leave the queue: a block
-      // pasted while the upload ran belongs to the next turn, not this one.
-      final queued = state.pendingAttachments;
-      _set(
-        state.copyWith(
-          pendingAttachments: queued.length > pending.length
-              ? queued.sublist(pending.length)
-              : const <InsightAttachment>[],
-        ),
-      );
-
       var conversationId = state.conversationId;
       if (conversationId == null) {
         // The picker may never have been touched, in which case the first
@@ -471,9 +434,16 @@ class InsightChatController extends _$InsightChatController {
       await for (final event in _api.runConversation(
         conversationId: conversationId,
         message: content,
+        // Text the reader pasted travels as text, so it never becomes a drive
+        // file; images are the files, and go by id.
+        inputParts: [
+          for (final attachment in pending)
+            if (attachment.isText) attachment.toInputPart(),
+        ],
         attachmentIds: [
-          for (final attachment in attachments)
-            if (attachment.fileId != null) attachment.fileId!,
+          for (final attachment in pending)
+            if (!attachment.isText && attachment.fileId != null)
+              attachment.fileId!,
         ],
         clientTools: ref.read(pluginToolsProvider),
         clientSkills: ref.read(pluginSkillsProvider),
@@ -932,10 +902,7 @@ List<InsightBubble> _bubblesFromMessage(SnPersonalityMessage message) {
             InsightBubble(
               kind: InsightBubbleKind.user,
               text: part.trim(),
-              attachments: [
-                for (final id in message.attachmentIds)
-                  InsightAttachment(fileId: id),
-              ],
+              attachments: _attachmentsFromMessage(message),
             ),
       ];
     default:
@@ -947,8 +914,29 @@ List<InsightBubble> _bubblesFromMessage(SnPersonalityMessage message) {
 bool _isAbort(Object error) =>
     error is DioException && error.type == DioExceptionType.cancel;
 
-/// The name a pasted block is stored and shown under: `Pasted text
-/// 2026-10-02 143005.txt`. The stamp keeps two pastes in one drive apart.
+/// The files a persisted user turn carried: the parts the model was handed, or
+/// — for rows written before parts were stored — the drive ids alone.
+List<InsightAttachment> _attachmentsFromMessage(SnPersonalityMessage message) {
+  if (message.inputParts.isEmpty) {
+    return [
+      for (final id in message.attachmentIds) InsightAttachment(fileId: id),
+    ];
+  }
+  return [
+    for (final part in message.inputParts)
+      if (part.type == 'text')
+        InsightAttachment(
+          text: part.text ?? '',
+          name: part.name ?? '',
+          isText: true,
+        )
+      else if ((part.attachmentId ?? '').isNotEmpty)
+        InsightAttachment(fileId: part.attachmentId),
+  ];
+}
+
+/// The name a pasted block is shown and labelled under: `Pasted text
+/// 2026-10-02 143005.txt`. The stamp keeps two pastes in one message apart.
 String _pastedTextFileName(DateTime now) {
   String two(int value) => value.toString().padLeft(2, '0');
   final date = '${now.year}-${two(now.month)}-${two(now.day)}';

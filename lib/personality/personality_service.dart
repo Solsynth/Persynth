@@ -30,6 +30,10 @@ class PersonalityCoreService {
 
   /// Uploads a local file to Solar Network drive and returns its id for use
   /// as a run attachment.
+  ///
+  /// Only files the model must read as files go here — an image. Text a caller
+  /// wants the model to read as a document travels in the run itself, as a
+  /// text input part, and never reaches the drive.
   Future<String> uploadAttachment({
     required String filePath,
     String driveBaseUrl = productionDriveBaseUrl,
@@ -41,26 +45,6 @@ class PersonalityCoreService {
       contentType: contentType == null ? null : MediaType.parse(contentType),
     );
     return _uploadDirect(file, driveBaseUrl);
-  }
-
-  /// Uploads a block of text as a drive file and returns its id for use as a
-  /// run attachment. The drive reads the file from [name] and the declared
-  /// type, which is what tells the server the attachment is text rather than
-  /// an image.
-  Future<String> uploadTextAttachment({
-    required String name,
-    required String content,
-    String driveBaseUrl = productionDriveBaseUrl,
-  }) {
-    return _uploadDirect(
-      http.MultipartFile.fromBytes(
-        'file',
-        utf8.encode(content),
-        filename: name,
-        contentType: MediaType('text', 'plain'),
-      ),
-      driveBaseUrl,
-    );
   }
 
   Future<String> _uploadDirect(
