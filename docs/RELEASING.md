@@ -43,15 +43,15 @@ macOS and iOS build from a local Xcode/Flutter run; their icons come from the
 
 ## Dependencies
 
-The Solian packages (`island_ui_foundation`, `island_plugin_foundation`,
+The Socommon packages (`island_ui_foundation`, `island_plugin_foundation`,
 `solar_network_foundation`) are git dependencies of
-`https://src.solsynth.dev/SoSYS/Solian.git`, each pinned to one `ref`. Keep the
+`https://src.solsynth.dev/SoSYS/Socommon.git`, each pinned to one `ref`. Keep the
 pins on the same revision: pub identifies a git dependency by url + path + ref,
 and the packages depend on each other by path inside that checkout, so a
 floating HEAD resolves one package from two sources and version solving fails.
 
 `pubspec.lock` is resolved from those git sources, which is what CI checks out.
-A local `pubspec_overrides.yaml` pointing the packages at a sibling Solian
+A local `pubspec_overrides.yaml` pointing the packages at a sibling Socommon
 checkout is supported (it is gitignored) but rewrites the lockfile to
 `source: path`; restore `pubspec.lock` before committing. The `analyze.yml`
 workflow fails any pull request whose lockfile is not what `flutter pub get`

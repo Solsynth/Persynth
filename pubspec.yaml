@@ -53,25 +53,25 @@ dependencies:
   material_ui: ^1.4.0
   island_ui_foundation:
     git:
-      url: https://src.solsynth.dev/SoSYS/Solian.git
+      url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/island_ui_foundation
-      # All three Solian packages carry the same ref: pub identifies a git
+      # All three Socommon packages carry the same ref: pub identifies a git
       # dependency by url + path + ref, and the packages depend on each other by
       # path inside that checkout, so a floating HEAD resolves one package from
       # two sources and version solving fails. Bump all three together.
-      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
+      ref: 921abce3e2a58d3168f4c486b7c50e48311331cc
   # The JS plugin runtime: a user's script plugin lives in its own sandbox and
   # contributes its tools to the companion through the API in lib/plugins.
   island_plugin_foundation:
     git:
-      url: https://src.solsynth.dev/SoSYS/Solian.git
+      url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/island_plugin_foundation
-      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
+      ref: 921abce3e2a58d3168f4c486b7c50e48311331cc
   solar_network_foundation:
     git:
-      url: https://src.solsynth.dev/SoSYS/Solian.git
+      url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_foundation
-      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
+      ref: 921abce3e2a58d3168f4c486b7c50e48311331cc
   hooks_riverpod: ^3.4.3
   window_manager:
     git:

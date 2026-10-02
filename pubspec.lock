@@ -665,18 +665,18 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/island_plugin_foundation"
-      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
-      resolved-ref: c1e24a5d31289faa7877b69fd4197960e8f25082
-      url: "https://src.solsynth.dev/SoSYS/Solian.git"
+      ref: "921abce3e2a58d3168f4c486b7c50e48311331cc"
+      resolved-ref: "921abce3e2a58d3168f4c486b7c50e48311331cc"
+      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
     source: git
     version: "1.0.0"
   island_ui_foundation:
     dependency: "direct main"
     description:
       path: "packages/island_ui_foundation"
-      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
-      resolved-ref: c1e24a5d31289faa7877b69fd4197960e8f25082
-      url: "https://src.solsynth.dev/SoSYS/Solian.git"
+      ref: "921abce3e2a58d3168f4c486b7c50e48311331cc"
+      resolved-ref: "921abce3e2a58d3168f4c486b7c50e48311331cc"
+      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
     source: git
     version: "1.0.0"
   jni:
@@ -1152,9 +1152,9 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/solar_network_foundation"
-      ref: c1e24a5d31289faa7877b69fd4197960e8f25082
-      resolved-ref: c1e24a5d31289faa7877b69fd4197960e8f25082
-      url: "https://src.solsynth.dev/SoSYS/Solian.git"
+      ref: "921abce3e2a58d3168f4c486b7c50e48311331cc"
+      resolved-ref: "921abce3e2a58d3168f4c486b7c50e48311331cc"
+      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
     source: git
     version: "0.1.0"
   source_gen:
