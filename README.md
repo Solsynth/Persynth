@@ -14,7 +14,7 @@ An Island-style Flutter desktop pet companion.
   remembered across launches.
 - AI behavior harness lets Personality Core change mood, face, status, and animation through a validated JSON directive.
 - Programmatic simulation owns energy, affection, idle decay, and feed/play/rest reactions.
-- Pet chat accepts typed messages on every target and speech-to-text on Android, iOS, and web when available.
+- Pet chat accepts typed messages on every target and speech-to-text on Android, iOS, and web when available. A block pasted into the composer at least 1000 characters long becomes a text attachment instead of message text: it can be opened and edited in place until the turn is sent, and is then uploaded to Solar Network drive so the companion reads it as a document.
 - Solar Network OAuth with PKCE, secure token storage, refresh, and sign-out,
   behind a sign-in gate the app opens on.
 - Desktop-only multi-window support through `desktop_multi_window`.

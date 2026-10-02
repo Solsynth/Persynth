@@ -35,6 +35,38 @@ class PersonalityCoreService {
     String driveBaseUrl = productionDriveBaseUrl,
     String? contentType,
   }) async {
+    final file = await http.MultipartFile.fromPath(
+      'file',
+      filePath,
+      contentType: contentType == null ? null : MediaType.parse(contentType),
+    );
+    return _uploadDirect(file, driveBaseUrl);
+  }
+
+  /// Uploads a block of text as a drive file and returns its id for use as a
+  /// run attachment. The drive reads the file from [name] and the declared
+  /// type, which is what tells the server the attachment is text rather than
+  /// an image.
+  Future<String> uploadTextAttachment({
+    required String name,
+    required String content,
+    String driveBaseUrl = productionDriveBaseUrl,
+  }) {
+    return _uploadDirect(
+      http.MultipartFile.fromBytes(
+        'file',
+        utf8.encode(content),
+        filename: name,
+        contentType: MediaType('text', 'plain'),
+      ),
+      driveBaseUrl,
+    );
+  }
+
+  Future<String> _uploadDirect(
+    http.MultipartFile file,
+    String driveBaseUrl,
+  ) async {
     final uploadClient = client ?? http.Client();
     final ownsClient = client == null;
     try {
@@ -44,15 +76,7 @@ class PersonalityCoreService {
               Uri.parse('${_root(driveBaseUrl)}/files/upload/direct'),
             )
             ..headers.addAll(_headers(await _requireToken()))
-            ..files.add(
-              await http.MultipartFile.fromPath(
-                'file',
-                filePath,
-                contentType: contentType == null
-                    ? null
-                    : MediaType.parse(contentType),
-              ),
-            );
+            ..files.add(file);
       final response = await uploadClient.send(request);
       final body = _decode(
         await response.stream.bytesToString(),

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:persynth/auth/solar_auth_controller.dart';
 import 'package:persynth/auth/solar_auth_service.dart';
 import 'package:persynth/personality/personality_api.dart';
+import 'package:persynth/personality/personality_service.dart';
 
 /// The default Personality Core server, matching the app's own API base.
 const kPersonalityServerDefault = 'https://api.solian.app';
@@ -145,4 +146,12 @@ final personalityApiClientProvider = Provider<Dio>((ref) {
 /// The conversation/run client used by the chat controller and screens.
 final personalityApiProvider = Provider<PersonalityApi>(
   (ref) => PersonalityApi(ref.watch(personalityApiClientProvider)),
+);
+
+/// The drive uploader for attachments that are not part of the run protocol:
+/// picked images on their way to a message, and pasted text on its way to the
+/// drive. It resolves the account token itself, so callers never thread one
+/// through.
+final personalityCoreServiceProvider = Provider<PersonalityCoreService>(
+  (ref) => const PersonalityCoreService(),
 );

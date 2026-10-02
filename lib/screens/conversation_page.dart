@@ -12,7 +12,7 @@ import 'package:persynth/auth/solar_auth_controller.dart';
 import 'package:persynth/auth/solar_sign_in_panel.dart';
 import 'package:persynth/personality/insight_chat_controller.dart';
 import 'package:persynth/personality/personality_api.dart';
-import 'package:persynth/personality/personality_service.dart';
+import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/theme/app_theme.dart';
@@ -53,6 +53,11 @@ class ConversationPage extends HookConsumerWidget {
 
     final inputController = useTextEditingController();
     final focusNode = useFocusNode();
+    // The paste detector needs the text as it was before the field last
+    // changed; the guard swallows the change it makes while taking a pasted
+    // block back out of the field.
+    final lastInput = useRef('');
+    final restoringInput = useRef(false);
     final wideScreen = isWideScreen(context);
     // Drives the ResponsiveSidebar: an open panel when wide, an on-demand sheet
     // when narrow (so a phone never lands on an unexpected sheet).
@@ -71,6 +76,44 @@ class ConversationPage extends HookConsumerWidget {
       controller.send(text);
     }
 
+    /// A block pasted whole into the field becomes an attachment instead: the
+    /// composer keeps the message, the document keeps the document — and stays
+    /// editable, since the text has not left this device yet.
+    void handleInputChanged(String value) {
+      final previous = lastInput.value;
+      lastInput.value = value;
+      if (restoringInput.value) {
+        restoringInput.value = false;
+        return;
+      }
+      final inserted = _insertedBlock(previous, value);
+      if (inserted == null ||
+          inserted.text.length < kPasteTextAttachmentChars) {
+        return;
+      }
+      restoringInput.value = true;
+      inputController.value = TextEditingValue(
+        text: previous,
+        selection: TextSelection.collapsed(offset: inserted.start),
+      );
+      controller.attachText(inserted.text);
+    }
+
+    Future<void> editTextAttachment(int index) async {
+      if (index < 0 || index >= chat.pendingAttachments.length) return;
+      final attachment = chat.pendingAttachments[index];
+      if (!attachment.isText) return;
+      final edited = await showDialog<String>(
+        context: context,
+        builder: (_) => _TextAttachmentDialog(
+          name: attachment.name,
+          text: attachment.text ?? '',
+        ),
+      );
+      if (edited == null || !context.mounted) return;
+      controller.updatePendingText(index, edited);
+    }
+
     Future<void> pickAttachments() async {
       if (uploading.value) return;
       final messenger = ScaffoldMessenger.of(context);
@@ -79,7 +122,7 @@ class ConversationPage extends HookConsumerWidget {
       uploading.value = true;
       try {
         final ids = <String>[];
-        final uploader = PersonalityCoreService();
+        final uploader = ref.read(personalityCoreServiceProvider);
         for (final file in picked) {
           final path = file.path;
           if (path == null || path.isEmpty) continue;
@@ -160,8 +203,14 @@ class ConversationPage extends HookConsumerWidget {
             usage: conversationUsage,
             onSend: handleSend,
             onStop: controller.stop,
+            onInputChanged: handleInputChanged,
             onPickAttachments: uploading.value ? null : pickAttachments,
-            onRemoveAttachment: controller.removePendingAttachment,
+            onEditAttachment: chat.busy || uploading.value
+                ? null
+                : editTextAttachment,
+            onRemoveAttachment: chat.busy
+                ? null
+                : controller.removePendingAttachment,
           ),
       ],
     );
@@ -579,8 +628,13 @@ class _UserBubble extends StatelessWidget {
                       spacing: 6,
                       runSpacing: 6,
                       children: [
-                        for (final fileId in bubble.attachments)
-                          _AttachmentThumbnail(fileId: fileId),
+                        for (final attachment in bubble.attachments)
+                          if (attachment.isText)
+                            _TextAttachmentChip(attachment: attachment)
+                          else
+                            _AttachmentThumbnail(
+                              fileId: attachment.fileId ?? '',
+                            ),
                       ],
                     ),
                   if (bubble.text.isNotEmpty)
@@ -1018,13 +1072,15 @@ class _Composer extends ConsumerWidget {
     required this.usage,
     required this.onSend,
     required this.onStop,
+    required this.onInputChanged,
     required this.onPickAttachments,
+    required this.onEditAttachment,
     required this.onRemoveAttachment,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
-  final List<String> attachments;
+  final List<InsightAttachment> attachments;
   final bool busy;
   final bool enterToSend;
 
@@ -1033,8 +1089,16 @@ class _Composer extends ConsumerWidget {
 
   final VoidCallback onSend;
   final VoidCallback onStop;
+  final ValueChanged<String> onInputChanged;
   final VoidCallback? onPickAttachments;
-  final void Function(int index) onRemoveAttachment;
+
+  /// Opens one queued text attachment for editing. Null while the composer is
+  /// busy or an upload is in flight.
+  final void Function(int index)? onEditAttachment;
+
+  /// Drops one queued attachment. Null while the turn that owns it is in
+  /// flight, when the queue is the run's own.
+  final void Function(int index)? onRemoveAttachment;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1070,8 +1134,13 @@ class _Composer extends ConsumerWidget {
                         itemCount: attachments.length,
                         separatorBuilder: (_, _) => const Gap(8),
                         itemBuilder: (context, index) => _PendingAttachment(
-                          fileId: attachments[index],
-                          onRemove: () => onRemoveAttachment(index),
+                          attachment: attachments[index],
+                          onRemove: onRemoveAttachment == null
+                              ? null
+                              : () => onRemoveAttachment!(index),
+                          onEdit: onEditAttachment == null
+                              ? null
+                              : () => onEditAttachment!(index),
                         ),
                       ),
                     ),
@@ -1096,6 +1165,7 @@ class _Composer extends ConsumerWidget {
                           textInputAction: enterToSend
                               ? TextInputAction.send
                               : TextInputAction.newline,
+                          onChanged: onInputChanged,
                           onSubmitted: enterToSend ? (_) => onSend() : null,
                           onTapOutside: (_) =>
                               FocusManager.instance.primaryFocus?.unfocus(),
@@ -1342,20 +1412,30 @@ class _ContextMeter extends StatelessWidget {
 }
 
 class _PendingAttachment extends StatelessWidget {
-  const _PendingAttachment({required this.fileId, required this.onRemove});
+  const _PendingAttachment({
+    required this.attachment,
+    required this.onRemove,
+    this.onEdit,
+  });
 
-  final String fileId;
-  final VoidCallback onRemove;
+  final InsightAttachment attachment;
+  final VoidCallback? onRemove;
+
+  /// Opens the text for editing. Null for a picked image, which has nothing to
+  /// edit here.
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return SizedBox.square(
-      dimension: 60,
+    return SizedBox(
+      width: attachment.isText ? 190 : 60,
+      height: 60,
       child: Stack(
         children: [
           Positioned.fill(
-            child: _AttachmentThumbnail(fileId: fileId, size: 60),
+            child: attachment.isText
+                ? _TextAttachmentCard(attachment: attachment, onTap: onEdit)
+                : _AttachmentThumbnail(fileId: attachment.fileId ?? '', size: 60),
           ),
           Positioned(
             top: 0,
@@ -1365,7 +1445,7 @@ class _PendingAttachment extends StatelessWidget {
               iconSize: 12,
               visualDensity: VisualDensity.compact,
               style: IconButton.styleFrom(
-                backgroundColor: scheme.surfaceContainerHighest,
+                backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                 minimumSize: const Size(20, 20),
                 padding: EdgeInsets.zero,
               ),
@@ -1375,6 +1455,168 @@ class _PendingAttachment extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A queued text attachment, on the composer's attachment strip: the document's
+/// name, its size, and a tap that opens it for editing.
+class _TextAttachmentCard extends StatelessWidget {
+  const _TextAttachmentCard({required this.attachment, this.onTap});
+
+  final InsightAttachment attachment;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Tooltip(
+      message: onTap == null ? attachment.name : 'Edit ${attachment.name}',
+      child: Material(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 22, 6),
+            child: Row(
+              children: [
+                Icon(
+                  Symbols.description_rounded,
+                  size: 18,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const Gap(8),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        attachment.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelMedium,
+                      ),
+                      Text(
+                        '${_formatCharacters(attachment.characterCount)}'
+                        '${onTap == null ? '' : ' · Edit'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontSize: 11,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A text attachment on a sent turn: the same file the model read, shown by
+/// the name it was stored under.
+class _TextAttachmentChip extends StatelessWidget {
+  const _TextAttachmentChip({required this.attachment});
+
+  final InsightAttachment attachment;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final characters = attachment.characterCount;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 6, 12, 6),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Symbols.description_rounded,
+            size: 16,
+            color: scheme.onSurfaceVariant,
+          ),
+          const Gap(8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 300),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  attachment.name.isEmpty ? 'Text attachment' : attachment.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+                if (characters > 0)
+                  Text(
+                    _formatCharacters(characters),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontSize: 11,
+                      color: scheme.onPrimaryContainer.withValues(alpha: 0.75),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The editor behind a queued text attachment: the pasted block, whole, and a
+/// way back to the message field.
+class _TextAttachmentDialog extends HookWidget {
+  const _TextAttachmentDialog({required this.name, required this.text});
+
+  final String name;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = useTextEditingController(text: text);
+    return AlertDialog(
+      title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 420),
+        child: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: null,
+          expands: true,
+          textAlignVertical: TextAlignVertical.top,
+          keyboardType: TextInputType.multiline,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(controller.text),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }
@@ -1589,6 +1831,44 @@ class _EmptyState extends StatelessWidget {
 }
 
 String _two(int value) => value.toString().padLeft(2, '0');
+
+/// A block pasted into the composer at least this long is hard to read in the
+/// message field, so it becomes a text attachment instead. Shorter pastes stay
+/// inline, where they read as part of the message.
+const int kPasteTextAttachmentChars = 1000;
+
+/// The one contiguous block [after] gained over [before], with where it starts,
+/// or null when the change was not a single insertion (a deletion, a typing
+/// burst of separate edits, an IME composition).
+({int start, String text})? _insertedBlock(String before, String after) {
+  if (after.length <= before.length) return null;
+  var start = 0;
+  while (start < before.length && before[start] == after[start]) {
+    start++;
+  }
+  var suffix = 0;
+  while (suffix < before.length - start &&
+      suffix < after.length - start &&
+      before[before.length - 1 - suffix] == after[after.length - 1 - suffix]) {
+    suffix++;
+  }
+  final text = after.substring(start, after.length - suffix);
+  if (after.replaceRange(start, start + text.length, '') != before) return null;
+  return (start: start, text: text);
+}
+
+/// `812` stays `812`, `12,345` becomes `12.3k`. The same shape the context
+/// meter uses, for the same reason: a glance, not a ledger.
+String _formatCharacters(int value) {
+  if (value <= 0) return 'Empty';
+  if (value < 1000) return '$value characters';
+  final thousands = value / 1000;
+  final text = thousands.toStringAsFixed(thousands < 100 ? 1 : 0);
+  final trimmed = text.endsWith('.0')
+      ? text.substring(0, text.length - 2)
+      : text;
+  return '${trimmed}k characters';
+}
 
 /// A tiny relative-time label for conversation timestamps.
 String _formatRelative(DateTime time) {
