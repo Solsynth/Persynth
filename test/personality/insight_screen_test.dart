@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:auto_route/auto_route.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -9,9 +11,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:persynth/auth/solar_auth_controller.dart';
 import 'package:persynth/auth/solar_auth_service.dart';
+import 'package:persynth/personality/insight_chat_controller.dart';
 import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/personality/personality_service.dart';
 import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/screens/settings_page.dart';
@@ -128,6 +132,88 @@ class _StubSolarAuthNotifier extends SolarAuthNotifier {
   }
 }
 
+/// A drive whose uploads the test finishes by hand, so an attachment can be
+/// watched while it is still going up — the tile, its progress, the turn
+/// waiting on it — instead of only once it has landed.
+class _FakeDrive extends PersonalityCoreService {
+  /// Every path an upload was started for, in the order they were started.
+  final List<String> started = [];
+
+  /// Every path whose upload was aborted from this end.
+  final List<String> aborted = [];
+
+  final Map<String, _PendingUpload> _pending = {};
+
+  /// Reports progress for an upload still in flight, as a socket would.
+  void reportProgress(String path, double ratio) {
+    final upload = _pending[path]!;
+    upload.onProgress?.call((ratio * upload.total).round(), upload.total);
+  }
+
+  /// Answers an upload with the drive id the run will reference it by.
+  void finish(String path, {String id = 'file-1'}) =>
+      _pending.remove(path)!.completer.complete(id);
+
+  void fail(String path, String message) => _pending
+      .remove(path)!
+      .completer
+      .completeError(PersonalityCoreException(message));
+
+  @override
+  Future<String> uploadAttachment({
+    required String filePath,
+    String driveBaseUrl = PersonalityCoreService.productionDriveBaseUrl,
+    String? contentType,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
+  }) {
+    started.add(filePath);
+    final completer = Completer<String>();
+    _pending[filePath] = _PendingUpload(
+      completer: completer,
+      onProgress: onProgress,
+    );
+    abortTrigger?.then((_) {
+      aborted.add(filePath);
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('upload aborted'));
+      }
+    });
+    return completer.future;
+  }
+}
+
+class _PendingUpload {
+  _PendingUpload({required this.completer, this.onProgress});
+
+  final Completer<String> completer;
+  final void Function(int sent, int total)? onProgress;
+
+  /// The body length progress is reported against.
+  final int total = 100;
+}
+
+/// The chat controller behind the pumped page, for driving the pieces a test
+/// cannot pick by hand.
+InsightChatController _chatOf(WidgetTester tester) =>
+    ProviderScope.containerOf(
+      tester.element(find.byType(TextField)),
+    ).read(insightChatControllerProvider.notifier);
+
+/// The composer's send button, whatever it is doing at the moment.
+IconButton _sendButton(WidgetTester tester) => tester.widget<IconButton>(
+  find.ancestor(
+    of: find.byIcon(Symbols.send_rounded),
+    matching: find.byType(IconButton),
+  ),
+);
+
+/// A tooltip whose message contains [text] — where a tile keeps what it cannot
+/// say in 60 pixels.
+Finder _tooltipSaying(String text) => find.byWidgetPredicate(
+  (widget) => widget is Tooltip && (widget.message ?? '').contains(text),
+);
+
 Future<void> _pumpConversationPage(
   WidgetTester tester,
   _FakePersonalityApi api, {
@@ -135,6 +221,7 @@ Future<void> _pumpConversationPage(
     SolarAuthStatus.signedIn,
     _signedInUser,
   ),
+  PersonalityCoreService? drive,
 }) async {
   final preferences = await SharedPreferences.getInstance();
   final routerConfig = _ConversationTestRouter().config();
@@ -148,6 +235,8 @@ Future<void> _pumpConversationPage(
           solarAuthStateProvider.overrideWith(
             () => _StubSolarAuthNotifier(authState),
           ),
+          if (drive != null)
+            personalityCoreServiceProvider.overrideWithValue(drive),
         ],
         child: MaterialApp.router(
           routerConfig: routerConfig,
@@ -461,17 +550,32 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     await _pumpConversationPage(tester, _FakePersonalityApi());
 
-    // The control sits quiet on the model default.
-    expect(find.text('Default'), findsOneWidget);
+    // The pill is the three levels, and nothing is lit on the model default.
+    expect(find.text('Low'), findsOneWidget);
+    expect(find.text('Medium'), findsOneWidget);
+    expect(find.text('High'), findsOneWidget);
+    expect(
+      find.byTooltip('Reasoning effort: Model default'),
+      findsOneWidget,
+    );
 
-    await tester.tap(find.text('Default'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Off (no thinking)').last);
+    await tester.tap(find.text('High'));
     await tester.pumpAndSettle();
 
     final preferences = await SharedPreferences.getInstance();
-    expect(preferences.getString(kReasoningSettingStoreKey), 'off');
-    expect(find.text('No thinking'), findsOneWidget);
+    expect(preferences.getString(kReasoningSettingStoreKey), 'high');
+    expect(
+      find.byTooltip(
+        'Reasoning effort: High\nTap again for the model default',
+      ),
+      findsOneWidget,
+    );
+
+    // Tapping the lit level again gives the turn back to the model's default,
+    // so the untouched state is reachable from the pill alone.
+    await tester.tap(find.text('High'));
+    await tester.pumpAndSettle();
+    expect(preferences.getString(kReasoningSettingStoreKey), 'default');
   });
 
   testWidgets('a short paste stays in the message field', (tester) async {
@@ -606,6 +710,106 @@ void main() {
     expect(find.text('Pasted text 2026-10-02 143005.txt'), findsOneWidget);
     expect(find.text('1.2k characters'), findsOneWidget);
   });
+
+  testWidgets('a picked image is on the strip before its upload lands', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi();
+    final drive = _FakeDrive();
+    await _pumpConversationPage(tester, api, drive: drive);
+
+    _chatOf(tester).queueImages(const [
+      InsightPickedImage(name: 'sheep.png', path: '/tmp/sheep.png'),
+    ]);
+    await tester.pump();
+
+    // The file is on the strip from the moment it is picked, and the turn waits
+    // for it: sending now would leave the image behind.
+    expect(drive.started, ['/tmp/sheep.png']);
+    expect(find.byTooltip('Uploading sheep.png'), findsOneWidget);
+    expect(_sendButton(tester).onPressed, isNull);
+
+    drive.reportProgress('/tmp/sheep.png', 0.42);
+    await tester.pump();
+    expect(find.text('42%'), findsOneWidget);
+
+    drive.finish('/tmp/sheep.png');
+    await tester.pump();
+
+    // Landed: the progress is gone, the tile stays, and a turn with nothing
+    // typed still carries the image — the attachment-only send.
+    expect(find.text('42%'), findsNothing);
+    expect(find.byTooltip('sheep.png'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+
+    expect(api.sentMessages, ['']);
+    expect(api.sentAttachments, [
+      ['file-1'],
+    ]);
+  });
+
+  testWidgets('a failed upload stays queued until it is retried', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi();
+    final drive = _FakeDrive();
+    await _pumpConversationPage(tester, api, drive: drive);
+
+    _chatOf(tester).queueImages(const [
+      InsightPickedImage(name: 'sheep.png', path: '/tmp/sheep.png'),
+    ]);
+    await tester.pump();
+
+    drive.fail('/tmp/sheep.png', 'the drive said no');
+    await tester.pump();
+
+    // The file is still the reader's and the turn is still held: a failed
+    // attachment is never dropped out of the message behind their back.
+    expect(_tooltipSaying('the drive said no'), findsOneWidget);
+    expect(find.byIcon(Symbols.refresh_rounded), findsOneWidget);
+    expect(_sendButton(tester).onPressed, isNull);
+
+    await tester.tap(find.byIcon(Symbols.refresh_rounded));
+    await tester.pump();
+    expect(drive.started, ['/tmp/sheep.png', '/tmp/sheep.png']);
+
+    drive.finish('/tmp/sheep.png', id: 'file-2');
+    await tester.pump();
+    expect(find.byIcon(Symbols.refresh_rounded), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'look at this');
+    await tester.pump();
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+
+    expect(api.sentAttachments, [
+      ['file-2'],
+    ]);
+  });
+
+  testWidgets('taking a tile back aborts its upload', (tester) async {
+    final api = _FakePersonalityApi();
+    final drive = _FakeDrive();
+    await _pumpConversationPage(tester, api, drive: drive);
+
+    _chatOf(tester).queueImages(const [
+      InsightPickedImage(name: 'sheep.png', path: '/tmp/sheep.png'),
+    ]);
+    await tester.pump();
+    expect(find.byTooltip('Uploading sheep.png'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Symbols.close_rounded));
+    await tester.pump();
+
+    expect(drive.aborted, ['/tmp/sheep.png']);
+    expect(find.byTooltip('Uploading sheep.png'), findsNothing);
+    // The reader's own undo is not a failure to report.
+    expect(_tooltipSaying('upload aborted'), findsNothing);
+    expect(_sendButton(tester).onPressed, isNull);
+  });
+
 }
 
 /// Matches a plain [Text] by its data, ignoring selectable trace detail.

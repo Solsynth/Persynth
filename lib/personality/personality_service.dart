@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
@@ -34,30 +35,48 @@ class PersonalityCoreService {
   /// Only files the model must read as files go here — an image. Text a caller
   /// wants the model to read as a document travels in the run itself, as a
   /// text input part, and never reaches the drive.
+  ///
+  /// [onProgress] reports the bytes handed to the socket and the length of the
+  /// body, which is what a reader watching an attachment go up needs; it is
+  /// called as the body is consumed, so a slow link shows up as a slow count.
+  /// Completing [abortTrigger] stops the upload where it stands — the call
+  /// fails like any aborted request — which is how a caller takes back an
+  /// attachment the reader has already decided against.
   Future<String> uploadAttachment({
     required String filePath,
     String driveBaseUrl = productionDriveBaseUrl,
     String? contentType,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     final file = await http.MultipartFile.fromPath(
       'file',
       filePath,
       contentType: contentType == null ? null : MediaType.parse(contentType),
     );
-    return _uploadDirect(file, driveBaseUrl);
+    return _uploadDirect(
+      file,
+      driveBaseUrl,
+      onProgress: onProgress,
+      abortTrigger: abortTrigger,
+    );
   }
 
   Future<String> _uploadDirect(
     http.MultipartFile file,
-    String driveBaseUrl,
-  ) async {
+    String driveBaseUrl, {
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
+  }) async {
     final uploadClient = client ?? http.Client();
     final ownsClient = client == null;
     try {
       final request =
-          http.MultipartRequest(
+          _ProgressMultipartRequest(
               'POST',
               Uri.parse('${_root(driveBaseUrl)}/files/upload/direct'),
+              onProgress: onProgress,
+              abortTrigger: abortTrigger,
             )
             ..headers.addAll(_headers(await _requireToken()))
             ..files.add(file);
@@ -164,6 +183,51 @@ class PersonalityCoreException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// A multipart upload that counts the body as it goes and that the caller can
+/// abort.
+///
+/// `package:http` only honours [Abortable.abortTrigger] on requests that
+/// declare it, and [http.MultipartRequest] does not — a picked attachment has
+/// to be cancellable the moment the reader takes it back out of the queue, so
+/// this carries the trigger itself. Counting here, where the body is read,
+/// reports what has actually left the app for the socket rather than what the
+/// file weighs.
+class _ProgressMultipartRequest extends http.MultipartRequest
+    with http.Abortable {
+  _ProgressMultipartRequest(
+    super.method,
+    super.url, {
+    this.onProgress,
+    this.abortTrigger,
+  });
+
+  /// Called with the bytes read so far and the body's full length.
+  final void Function(int sent, int total)? onProgress;
+
+  @override
+  final Future<void>? abortTrigger;
+
+  @override
+  http.ByteStream finalize() {
+    final body = super.finalize();
+    final report = onProgress;
+    if (report == null) return body;
+    final total = contentLength;
+    var sent = 0;
+    return http.ByteStream(
+      body.transform(
+        StreamTransformer<List<int>, List<int>>.fromHandlers(
+          handleData: (chunk, sink) {
+            sent += chunk.length;
+            sink.add(chunk);
+            report(sent, total);
+          },
+        ),
+      ),
+    );
+  }
 }
 
 class PersonalityCoreConfig {

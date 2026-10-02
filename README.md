@@ -8,13 +8,17 @@ An Island-style Flutter desktop pet companion.
 - AutoRoute-powered home and floating-pet routes.
 - Configurable ASCII face parts (`0.0`, `0-0`, `0^0`, `0.o`, and similar combinations), persisted locally.
 - Personality Core chat integration using the OpenAI-compatible `/v1/chat/completions` endpoint.
-- Reasoning effort lives in the chat composer — the model's own default, `Off`,
-  or a level from `minimal` to `ultra` — sent with every run as
-  `reasoning_effort`, or `disable_reasoning` when thinking is switched off, and
-  remembered across launches.
+- Reasoning effort lives in the chat composer as a pill: `Low`, `Medium` or
+  `High`, sent with every run as `reasoning_effort` and remembered across
+  launches. No level lit is the model's own default — the run goes out without
+  an effort, leaving the decision to the provider — and tapping the lit level
+  again returns to it. A level an older build stored under its own token still
+  reads back as itself.
 - AI behavior harness lets Personality Core change mood, face, status, and animation through a validated JSON directive.
 - Programmatic simulation owns energy, affection, idle decay, and feed/play/rest reactions.
 - Pet chat accepts typed messages on every target and speech-to-text on Android, iOS, and web when available. A block pasted into the composer at least 1000 characters long becomes a text attachment instead of message text: it can be opened and edited in place until the turn is sent, and then travels with the run as a named text part — the companion reads it as a document, and nothing is uploaded to Solar Network drive.
+- A picked image becomes a tile on the composer immediately, showing the picture from this device while it goes up to Solar Network drive on a pool of three uploads of its own; the tile wears how far it has got, and the turn waits until every file has landed. A file whose upload failed stays on the strip with its reason: tap the tile to send it again, or remove it — removing aborts the upload mid-flight. Nothing is ever dropped from a message silently, and a turn carrying only an image needs no text at all.
+- Whether the companion can read an image is the model's to say, not the app's: `GET /personality/models` lists which models take image input. The agent here runs DeepSeek's Flash line, which reads images natively, so a picked picture reaches the model itself rather than a description of one — as long as the server knows that (Personality Core resolves it from the model's declared modalities, a provider flag, or its built-in knowledge of well-known multimodal models).
 - Solar Network OAuth with PKCE, secure token storage, refresh, and sign-out,
   behind a sign-in gate the app opens on.
 - Desktop-only multi-window support through `desktop_multi_window`.
@@ -42,14 +46,16 @@ account's agents, threads and open conversation
 
 A finished turn reports what it spent, and the conversation keeps the running
 tab. Both live in the composer's instrument strip, under the input where the
-next message is written: the reasoning-effort picker that decides how hard the
+next message is written: the reasoning-effort pill that decides how hard the
 companion thinks, and a context readout of the fullest prompt the model has
 seen against its window, the conversation's tokens, and its runs. The numbers
 come from the server — the total and peak context are read from
 `GET /personality/conversations/:id/usage` — so they match what every other
-client sees and what billing was metered against. A model whose context
-ceiling the server cannot resolve gets a token count with no window rather
-than a ratio against a guess.
+client sees and what billing was metered against. The share of the window is
+the ring beside those numbers: it fills from the top as the context does,
+taking the accent as the window fills and the error tone at its end. A model
+whose context ceiling the server cannot resolve gets a token count with no
+window rather than a ratio against a guess — and no ring.
 
 The app passes the refreshed Solar Network user access token to Personality
 Core; it never asks for a separate Personality Core token.

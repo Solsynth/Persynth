@@ -22,20 +22,67 @@ const String kPersonalityToolResultUnknownTool = 'unknown tool';
 
 enum InsightBubbleKind { user, assistant, thinking, tool }
 
+/// Where an image chosen for the next message has got to.
+enum InsightAttachmentUpload {
+  /// Nothing is outstanding: the drive has the file, or the attachment is text
+  /// that never becomes one.
+  ready,
+  /// The file is on its way up. [InsightAttachment.progress] says how far.
+  uploading,
+  /// The upload did not finish. The attachment stays in the queue — visibly
+  /// failed, retryable, removable — and the turn it belongs to is not sent
+  /// until it is resolved, so a file the reader picked never goes missing
+  /// between picking it and sending it.
+  failed,
+}
+
+/// An image the picker chose, before the queue has it. The picker's own file
+/// type does not travel past this point: what the controller needs from a pick
+/// is the path the file is read from, what to call it, and how big it is.
+@immutable
+class InsightPickedImage {
+  const InsightPickedImage({
+    required this.name,
+    required this.path,
+    this.byteSize,
+    this.contentType,
+  });
+
+  final String name;
+  final String path;
+  final int? byteSize;
+
+  /// The MIME type to store it as, when the picker knew the extension.
+  final String? contentType;
+}
+
 /// One file riding with a user turn.
 ///
-/// An image is uploaded the moment it is picked, so it carries the drive
-/// [fileId] it was stored as. A block of text the reader pasted never leaves
-/// this device as a file: it carries its [text] and [name], is sent to the
-/// server as a text part of the run, and stays editable until it is.
+/// An image is uploaded as soon as it is picked, so it carries the drive
+/// [fileId] it was stored as, the [localPath] it was read from, and how far
+/// that upload has got. A block of text the reader pasted never leaves this
+/// device as a file: it carries its [text] and [name], is sent to the server as
+/// a text part of the run, and stays editable until it is.
 @immutable
 class InsightAttachment {
   const InsightAttachment({
+    this.id = 0,
     this.fileId,
     this.text,
     this.name = '',
     this.isText = false,
+    this.localPath,
+    this.byteSize,
+    this.contentType,
+    this.upload = InsightAttachmentUpload.ready,
+    this.progress,
+    this.error,
   });
+
+  /// Identifies this attachment for as long as it is in the queue. An upload
+  /// reports back against it, so a tile removed mid-flight — or the same file
+  /// picked again — can never be mistaken for another.
+  final int id;
 
   /// The drive file behind the attachment: an image, and only an image.
   final String? fileId;
@@ -49,6 +96,36 @@ class InsightAttachment {
   /// Whether this is a pasted block of text rather than a picked image.
   final bool isText;
 
+  /// The picked file on this device. It is what the tile previews, and it stays
+  /// after the upload so the preview costs no network request.
+  final String? localPath;
+
+  /// What the picker said the file weighs, when it said anything.
+  final int? byteSize;
+
+  /// The MIME type the file is uploaded as.
+  final String? contentType;
+
+  final InsightAttachmentUpload upload;
+
+  /// How much of the upload has left this device, 0…1. Null until the client
+  /// reports its first chunk, which is what an indeterminate tile shows.
+  final double? progress;
+
+  /// Why an upload failed, for the tile's tooltip.
+  final String? error;
+
+  bool get isUploading => upload == InsightAttachmentUpload.uploading;
+
+  bool get hasFailed => upload == InsightAttachmentUpload.failed;
+
+  /// Whether this attachment can ride a run: text always can, an image once
+  /// the drive has answered with its id.
+  bool get isSendable =>
+      isText ||
+      (upload == InsightAttachmentUpload.ready &&
+          (fileId != null && fileId!.isNotEmpty));
+
   int get characterCount => text?.length ?? 0;
 
   /// The same attachment as the run protocol carries it. An image is a drive
@@ -56,6 +133,32 @@ class InsightAttachment {
   SnRunInputPart toInputPart() => isText
       ? SnRunInputPart.text(text ?? '', name: name)
       : SnRunInputPart.image(fileId ?? '');
+
+  InsightAttachment copyWith({
+    String? fileId,
+    String? text,
+    String? name,
+    String? localPath,
+    int? byteSize,
+    String? contentType,
+    InsightAttachmentUpload? upload,
+    double? progress,
+    String? error,
+    bool clearProgress = false,
+    bool clearError = false,
+  }) => InsightAttachment(
+    id: id,
+    fileId: fileId ?? this.fileId,
+    text: text ?? this.text,
+    name: name ?? this.name,
+    isText: isText,
+    localPath: localPath ?? this.localPath,
+    byteSize: byteSize ?? this.byteSize,
+    contentType: contentType ?? this.contentType,
+    upload: upload ?? this.upload,
+    progress: clearProgress ? null : (progress ?? this.progress),
+    error: clearError ? null : (error ?? this.error),
+  );
 }
 
 /// One row of the conversation log. Assistant replies, reasoning traces and
@@ -192,6 +295,25 @@ class InsightChatState {
         ? null
         : conversationUsage ?? this.conversationUsage,
   );
+
+  /// Whether any queued file is still on its way to the drive. The next turn
+  /// waits for them: the attachments it was written with are the ones it is
+  /// sent with.
+  bool get attachmentsUploading =>
+      pendingAttachments.any((attachment) => attachment.isUploading);
+
+  /// Whether any queued file failed to upload. Also holds the turn: sending
+  /// past one would drop it silently, so the reader retries it or takes it out.
+  bool get attachmentsFailed =>
+      pendingAttachments.any((attachment) => attachment.hasFailed);
+
+  /// Whether the queue holds something a run could actually carry.
+  bool get hasSendableAttachments =>
+      pendingAttachments.any((attachment) => attachment.isSendable);
+
+  /// How many queued files are still uploading, for the composer's copy.
+  int get uploadingAttachmentCount =>
+      pendingAttachments.where((attachment) => attachment.isUploading).length;
 }
 
 /// The Insight page: one live conversation against the Personality backend,
@@ -211,6 +333,9 @@ class InsightChatController extends _$InsightChatController {
       _disposed = true;
       _cancelToken?.cancel();
       _cancelToken = null;
+      // A page that is gone has no tiles left to report to, and a half-sent
+      // file is not worth finishing.
+      _abortAllUploads();
     });
     return const InsightChatState();
   }
@@ -314,18 +439,71 @@ class InsightChatController extends _$InsightChatController {
 
   // ── Attachments ──────────────────────────────────────────────────────────
 
-  /// Queues already-uploaded drive files for the next message.
-  void attachFiles(List<String> fileIds) {
-    final ids = fileIds.where((id) => id.isNotEmpty);
-    if (ids.isEmpty) return;
-    _set(
-      state.copyWith(
-        pendingAttachments: [
-          ...state.pendingAttachments,
-          for (final id in ids) InsightAttachment(fileId: id),
-        ],
+  /// Uploads that may be in flight at once. Three is what a composer needs:
+  /// a handful of picked images go up together instead of one after another,
+  /// and a single large file still leaves the rest of the pool to catch up.
+  static const int _uploadsInFlight = 3;
+
+  int _attachmentSerial = 0;
+
+  /// Aborts for the uploads in flight, by attachment id. Taking an attachment
+  /// out of the queue completes the entry, which stops its request; an upload
+  /// whose entry is gone reports nothing when it fails.
+  final Map<int, Completer<void>> _uploadAborts = {};
+
+  /// Attachments waiting for a slot, oldest first.
+  final List<int> _uploadQueue = [];
+
+  int _uploadsRunning = 0;
+
+  /// Queues picked images and starts sending them to the drive.
+  ///
+  /// The tiles appear as soon as the pick is queued — the reader sees what they
+  /// chose, and how far it has got, instead of watching an empty strip until
+  /// the network is done — and the files go up on a small pool of their own, so
+  /// picking a second image while the first is in flight is not a wait. The
+  /// same file picked twice is one attachment while it is still queued.
+  void queueImages(List<InsightPickedImage> images) {
+    if (images.isEmpty) return;
+    final next = List.of(state.pendingAttachments);
+    final queued = <int>[];
+    for (final image in images) {
+      if (image.path.isEmpty) continue;
+      if (next.any((attachment) => attachment.localPath == image.path)) {
+        continue;
+      }
+      final attachment = InsightAttachment(
+        id: ++_attachmentSerial,
+        name: image.name,
+        localPath: image.path,
+        byteSize: image.byteSize,
+        contentType: image.contentType,
+        upload: InsightAttachmentUpload.uploading,
+      );
+      next.add(attachment);
+      queued.add(attachment.id);
+    }
+    if (queued.isEmpty) return;
+    _set(state.copyWith(pendingAttachments: next));
+    _uploadQueue.addAll(queued);
+    _pumpUploads();
+  }
+
+  /// Sends one failed attachment up again.
+  void retryAttachment(int index) {
+    if (index < 0 || index >= state.pendingAttachments.length) return;
+    final attachment = state.pendingAttachments[index];
+    if (!attachment.hasFailed || attachment.localPath == null) return;
+    _updateAttachment(
+      attachment.id,
+      (queued) => queued.copyWith(
+        upload: InsightAttachmentUpload.uploading,
+        clearError: true,
+        clearProgress: true,
       ),
     );
+    _uploadQueue.add(attachment.id);
+    _pumpUploads();
   }
 
   /// Queues a pasted block of text as an attachment. The text stays on this
@@ -338,6 +516,7 @@ class InsightChatController extends _$InsightChatController {
         pendingAttachments: [
           ...state.pendingAttachments,
           InsightAttachment(
+            id: ++_attachmentSerial,
             text: text,
             name: name ?? _pastedTextFileName(DateTime.now()),
             isText: true,
@@ -358,13 +537,121 @@ class InsightChatController extends _$InsightChatController {
       return;
     }
     final next = List.of(state.pendingAttachments);
-    next[index] = InsightAttachment(text: text, name: attachment.name, isText: true);
+    next[index] = attachment.copyWith(text: text);
     _set(state.copyWith(pendingAttachments: next));
   }
 
+  /// Takes an attachment out of the queue, aborting its upload if it is still
+  /// going up: the reader asked for the file to be gone, not for it to arrive
+  /// quietly after the fact.
   void removePendingAttachment(int index) {
     if (index < 0 || index >= state.pendingAttachments.length) return;
+    final attachment = state.pendingAttachments[index];
+    if (attachment.isUploading) _abortUpload(attachment.id);
     final next = List.of(state.pendingAttachments)..removeAt(index);
+    _set(state.copyWith(pendingAttachments: next));
+  }
+
+  /// Starts uploads until the pool is busy or the queue is empty.
+  void _pumpUploads() {
+    while (_uploadsRunning < _uploadsInFlight && _uploadQueue.isNotEmpty) {
+      final id = _uploadQueue.removeAt(0);
+      final attachment = _attachmentWithId(id);
+      // Removed, or already done, while it waited for a slot.
+      if (attachment == null || !attachment.isUploading) continue;
+      _uploadsRunning++;
+      unawaited(
+        _uploadAttachment(attachment).whenComplete(() {
+          _uploadsRunning--;
+          if (!_disposed) _pumpUploads();
+        }),
+      );
+    }
+  }
+
+  Future<void> _uploadAttachment(InsightAttachment attachment) async {
+    final abort = Completer<void>();
+    _uploadAborts[attachment.id] = abort;
+    try {
+      final fileId = await ref
+          .read(personalityCoreServiceProvider)
+          .uploadAttachment(
+            filePath: attachment.localPath!,
+            contentType: attachment.contentType,
+            abortTrigger: abort.future,
+            onProgress: (sent, total) =>
+                _reportUploadProgress(attachment.id, sent, total),
+          );
+      _updateAttachment(
+        attachment.id,
+        (queued) => queued.copyWith(
+          fileId: fileId,
+          upload: InsightAttachmentUpload.ready,
+          clearProgress: true,
+          clearError: true,
+        ),
+      );
+    } catch (error) {
+      // An attachment the reader already took back has nothing to report, and
+      // neither has one whose page is gone.
+      if (!_uploadAborts.containsKey(attachment.id)) return;
+      _updateAttachment(
+        attachment.id,
+        (queued) => queued.copyWith(
+          upload: InsightAttachmentUpload.failed,
+          error: personalityErrorMessage(error),
+          clearProgress: true,
+        ),
+      );
+    } finally {
+      _uploadAborts.remove(attachment.id);
+    }
+  }
+
+  /// Records how far an upload has got, in steps coarse enough that a large
+  /// file does not rebuild the composer for every socket write.
+  void _reportUploadProgress(int id, int sent, int total) {
+    if (total <= 0) return;
+    final ratio = (sent / total).clamp(0.0, 1.0);
+    final current = _attachmentWithId(id);
+    if (current == null || !current.isUploading) return;
+    final previous = current.progress;
+    if (previous != null && ratio < 1 && ratio - previous < 0.01) return;
+    _updateAttachment(id, (queued) => queued.copyWith(progress: ratio));
+  }
+
+  void _abortUpload(int id) {
+    _uploadQueue.remove(id);
+    final abort = _uploadAborts.remove(id);
+    if (abort != null && !abort.isCompleted) abort.complete();
+  }
+
+  void _abortAllUploads() {
+    _uploadQueue.clear();
+    for (final abort in _uploadAborts.values) {
+      if (!abort.isCompleted) abort.complete();
+    }
+    _uploadAborts.clear();
+  }
+
+  InsightAttachment? _attachmentWithId(int id) {
+    for (final attachment in state.pendingAttachments) {
+      if (attachment.id == id) return attachment;
+    }
+    return null;
+  }
+
+  /// Rewrites one queued attachment in place, leaving the rest of the queue —
+  /// and the order the reader sees — untouched.
+  void _updateAttachment(
+    int id,
+    InsightAttachment Function(InsightAttachment attachment) update,
+  ) {
+    final current = state.pendingAttachments;
+    final index = current.indexWhere((attachment) => attachment.id == id);
+    if (index < 0) return;
+    final next = List.of(current);
+    next[index] = update(current[index]);
     _set(state.copyWith(pendingAttachments: next));
   }
 
@@ -378,6 +665,10 @@ class InsightChatController extends _$InsightChatController {
     final content = text.trim();
     final pending = state.pendingAttachments;
     if (state.busy || (content.isEmpty && pending.isEmpty)) return;
+    // A file still on its way up, or one whose upload failed, is never left out
+    // of the turn quietly: the composer holds the message until the queue is
+    // settled, so what was written and what is sent are the same thing.
+    if (state.attachmentsUploading || state.attachmentsFailed) return;
 
     final turnId = ++_turnSerial;
     // The turn goes up as written, with the attachments it named. Nothing has

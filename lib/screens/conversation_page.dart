@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:auto_route/auto_route.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:gap/gap.dart';
@@ -12,7 +15,6 @@ import 'package:persynth/auth/solar_auth_controller.dart';
 import 'package:persynth/auth/solar_sign_in_panel.dart';
 import 'package:persynth/personality/insight_chat_controller.dart';
 import 'package:persynth/personality/personality_api.dart';
-import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/theme/app_theme.dart';
@@ -49,7 +51,6 @@ class ConversationPage extends HookConsumerWidget {
         const <SnPersonalityAgent>[];
     // The desktop chat sends on Enter.
     const enterToSend = true;
-    final uploading = useState(false);
 
     final inputController = useTextEditingController();
     final focusNode = useFocusNode();
@@ -69,6 +70,10 @@ class ConversationPage extends HookConsumerWidget {
 
     void handleSend() {
       if (chat.busy) return;
+      // The send button is disabled while a queued file is still going up, or
+      // after one failed; Enter has to hold the same line, or a turn could leave
+      // without the attachment it was written for.
+      if (chat.attachmentsUploading || chat.attachmentsFailed) return;
       final text = inputController.text;
       if (text.trim().isEmpty && chat.pendingAttachments.isEmpty) return;
       inputController.clear();
@@ -114,32 +119,22 @@ class ConversationPage extends HookConsumerWidget {
       controller.updatePendingText(index, edited);
     }
 
+    /// Picks images and hands them to the queue, which uploads them and reports
+    /// on each tile as it goes. Nothing here waits for the network: the reader
+    /// sees the files they chose, and a second pick joins the first.
     Future<void> pickAttachments() async {
-      if (uploading.value) return;
-      final messenger = ScaffoldMessenger.of(context);
       final picked = await FilePicker.pickFiles(type: FileType.image);
-      if (!context.mounted || picked.isEmpty) return;
-      uploading.value = true;
-      try {
-        final ids = <String>[];
-        final uploader = ref.read(personalityCoreServiceProvider);
-        for (final file in picked) {
-          final path = file.path;
-          if (path == null || path.isEmpty) continue;
-          try {
-            ids.add(await uploader.uploadAttachment(filePath: path));
-          } catch (error) {
-            messenger.showSnackBar(
-              SnackBar(content: Text('Failed to attach ${file.name}: $error')),
-            );
-          }
-        }
-        if (ids.isNotEmpty && context.mounted) {
-          controller.attachFiles(ids);
-        }
-      } finally {
-        uploading.value = false;
-      }
+      if (picked.isEmpty || !context.mounted) return;
+      controller.queueImages([
+        for (final file in picked)
+          if (file.path case final path?)
+            InsightPickedImage(
+              name: file.name,
+              path: path,
+              byteSize: file.lengthSync(),
+              contentType: _imageContentType(file.extension),
+            ),
+      ]);
     }
 
     // On a narrow screen there is no room for a docked panel, so the thread
@@ -204,13 +199,12 @@ class ConversationPage extends HookConsumerWidget {
             onSend: handleSend,
             onStop: controller.stop,
             onInputChanged: handleInputChanged,
-            onPickAttachments: uploading.value ? null : pickAttachments,
-            onEditAttachment: chat.busy || uploading.value
-                ? null
-                : editTextAttachment,
+            onPickAttachments: pickAttachments,
+            onEditAttachment: chat.busy ? null : editTextAttachment,
             onRemoveAttachment: chat.busy
                 ? null
                 : controller.removePendingAttachment,
+            onRetryAttachment: chat.busy ? null : controller.retryAttachment,
           ),
       ],
     );
@@ -752,6 +746,24 @@ String _contextSummary(SnConversationUsage usage) {
   return parts.join(' · ');
 }
 
+/// The MIME type a picked image is stored as, from the extension the picker
+/// reported. The drive records it, and the server hands it to the model with
+/// the image part, so it is worth stating exactly; an extension this does not
+/// know sends nothing and leaves the file server to sniff it.
+String? _imageContentType(String? extension) =>
+    switch (extension?.toLowerCase()) {
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'gif' => 'image/gif',
+      'webp' => 'image/webp',
+      'avif' => 'image/avif',
+      'heic' => 'image/heic',
+      'heif' => 'image/heif',
+      'bmp' => 'image/bmp',
+      'tif' || 'tiff' => 'image/tiff',
+      _ => null,
+    };
+
 /// The full sentence behind the meter, for the pointer that hovers it and the
 /// reader a screen reader announces it to.
 String _contextTooltip(SnConversationUsage usage) {
@@ -1058,8 +1070,8 @@ String _formatToolArgs(Map<String, dynamic> args) {
 
 /// The composer, wearing the chat room's rounded elevated surface.
 ///
-/// Under the input sits the instrument strip — the reasoning-effort picker on
-/// the left and the conversation's context meter on the right. They are the two
+/// Under the input sits the instrument strip — the reasoning-effort pill on the
+/// left and the conversation's context ring on the right. They are the two
 /// dials for how the companion is about to think, set where the message is
 /// written rather than buried in settings.
 class _Composer extends ConsumerWidget {
@@ -1076,6 +1088,7 @@ class _Composer extends ConsumerWidget {
     required this.onPickAttachments,
     required this.onEditAttachment,
     required this.onRemoveAttachment,
+    required this.onRetryAttachment,
   });
 
   final TextEditingController controller;
@@ -1092,13 +1105,15 @@ class _Composer extends ConsumerWidget {
   final ValueChanged<String> onInputChanged;
   final VoidCallback? onPickAttachments;
 
-  /// Opens one queued text attachment for editing. Null while the composer is
-  /// busy or an upload is in flight.
+  /// Opens one queued text attachment for editing.
   final void Function(int index)? onEditAttachment;
 
-  /// Drops one queued attachment. Null while the turn that owns it is in
-  /// flight, when the queue is the run's own.
+  /// Drops one queued attachment, aborting its upload if it is still going up.
+  /// Null while the turn that owns the queue is in flight.
   final void Function(int index)? onRemoveAttachment;
+
+  /// Sends a failed attachment up again. Null while a turn is in flight.
+  final void Function(int index)? onRetryAttachment;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1141,6 +1156,9 @@ class _Composer extends ConsumerWidget {
                           onEdit: onEditAttachment == null
                               ? null
                               : () => onEditAttachment!(index),
+                          onRetry: onRetryAttachment == null
+                              ? null
+                              : () => onRetryAttachment!(index),
                         ),
                       ),
                     ),
@@ -1187,11 +1205,30 @@ class _Composer extends ConsumerWidget {
                       ValueListenableBuilder<TextEditingValue>(
                         valueListenable: controller,
                         builder: (context, value, _) {
+                          // A file still going up, or one that failed, keeps the
+                          // turn here: what was written and what would be sent
+                          // have to be the same thing.
+                          final uploading = attachments
+                              .where((attachment) => attachment.isUploading)
+                              .length;
+                          final failed = attachments.any(
+                            (attachment) => attachment.hasFailed,
+                          );
                           final canSend =
-                              value.text.trim().isNotEmpty ||
-                              attachments.isNotEmpty;
+                              !failed &&
+                              uploading == 0 &&
+                              (value.text.trim().isNotEmpty ||
+                                  attachments.any(
+                                    (attachment) => attachment.isSendable,
+                                  ));
                           return IconButton.filled(
-                            tooltip: busy ? 'Stop' : 'Send',
+                            tooltip: busy
+                                ? 'Stop'
+                                : uploading > 0
+                                ? 'Waiting for ${uploading == 1 ? 'an attachment' : '$uploading attachments'}…'
+                                : failed
+                                ? 'An attachment failed to upload'
+                                : 'Send',
                             onPressed: busy
                                 ? onStop
                                 : (canSend ? onSend : null),
@@ -1218,8 +1255,8 @@ class _Composer extends ConsumerWidget {
 }
 
 /// The strip under the input: how hard the companion thinks, and how full its
-/// context is. The reasoning control is the one thing here that is a control;
-/// the context readout is a report.
+/// context is. The reasoning pill is the one thing here that is a control; the
+/// context readout is a report.
 class _ComposerFooter extends StatelessWidget {
   const _ComposerFooter({required this.usage});
 
@@ -1255,75 +1292,131 @@ class _ComposerFooter extends StatelessWidget {
   }
 }
 
-/// The reasoning-effort picker, living where the message is written rather
-/// than in settings: the level is a property of the turn about to be sent.
+/// The reasoning-effort pill, living where the message is written rather than
+/// in settings: the level is a property of the turn about to be sent.
 ///
-/// It stays quiet on the model's default and takes the accent once the reader
-/// has tuned it, so the one accent keeps meaning the reader did something.
+/// Three levels, because this strip has room for a dial, not a menu: `Low`,
+/// `Medium` and `High` are the choices a reader can hold in mind, and the
+/// wider set the backend documents is still stored under its own token for
+/// anything that wrote one. No level lit is the model's own default — which is
+/// also where tapping the lit level again returns, so the untouched state is
+/// never lost once the pill has been touched.
 class _ReasoningControl extends ConsumerWidget {
   const _ReasoningControl();
 
+  /// The levels the pill offers, in the order it shows them.
+  static const _levels = [
+    ReasoningSetting.low,
+    ReasoningSetting.medium,
+    ReasoningSetting.high,
+  ];
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final scheme = Theme.of(context).colorScheme;
     final setting = ref.watch(reasoningSettingProvider);
-    final tuned = setting != ReasoningSetting.modelDefault;
-    final color = tuned ? scheme.primary : scheme.onSurfaceVariant;
+    // A level the pill does not offer — the model's default, or an `off` a
+    // previous build stored — leaves the pill unlit and says so in the tooltip
+    // rather than lighting a level the run would not be sent.
+    final active = _levels.contains(setting) ? setting : null;
 
-    return PopupMenuButton<ReasoningSetting>(
-      tooltip: 'Reasoning effort',
-      position: PopupMenuPosition.over,
-      onSelected: (value) =>
-          ref.read(reasoningSettingProvider.notifier).set(value),
-      itemBuilder: (context) => [
-        for (final option in ReasoningSetting.values)
-          PopupMenuItem<ReasoningSetting>(
-            value: option,
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 22,
-                  child: option == setting
-                      ? Icon(
-                          Symbols.check_rounded,
-                          size: 16,
-                          color: scheme.primary,
-                        )
-                      : null,
+    void choose(ReasoningSetting level) => ref
+        .read(reasoningSettingProvider.notifier)
+        .set(level == active ? ReasoningSetting.modelDefault : level);
+
+    return Tooltip(
+      message: active == null
+          ? 'Reasoning effort: ${setting.label}'
+          : 'Reasoning effort: ${setting.label}\n'
+                'Tap again for the model default',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(left: 5, right: 4),
+                child: Icon(
+                  Symbols.psychology_rounded,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
                 ),
-                Text(option.label),
-              ],
-            ),
-          ),
-      ],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Symbols.psychology_rounded, size: 14, color: color),
-            const Gap(6),
-            Text(
-              setting.shortLabel,
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: color,
               ),
-            ),
-            const Gap(2),
-            Icon(Symbols.expand_more_rounded, size: 15, color: scheme.outline),
-          ],
+              for (final level in _levels)
+                _ReasoningSegment(
+                  label: level.label,
+                  selected: level == active,
+                  onTap: () => choose(level),
+                ),
+              const SizedBox(width: 4),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// The conversation's memory gauge: a hairline meter for the fullest context
-/// the model has seen, then the numbers behind it. Quiet at rest; the fill
-/// warms to the accent as the window fills, and to the error tone at its end.
+/// One level in the [ReasoningControl] pill: the lit one wears the accent's
+/// tint, the rest stay at rest so the pill's colour keeps meaning the reader
+/// made a choice.
+class _ReasoningSegment extends StatelessWidget {
+  const _ReasoningSegment({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: reduceMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: selected ? scheme.primaryContainer : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontSize: 11,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              color: selected
+                  ? scheme.onPrimaryContainer
+                  : scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The conversation's memory gauge: a ring for the fullest context the model
+/// has seen, then the numbers behind it. Quiet at rest; the ring warms to the
+/// accent as the window fills, and to the error tone at its end.
 class _ContextStatus extends StatelessWidget {
   const _ContextStatus({required this.usage});
 
@@ -1343,7 +1436,7 @@ class _ContextStatus extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (hasWindow) ...[
-            _ContextMeter(ratio: used / window),
+            _ContextRing(ratio: used / window),
             const Gap(8),
           ],
           Flexible(
@@ -1363,12 +1456,18 @@ class _ContextStatus extends StatelessWidget {
   }
 }
 
-/// A short hairline that fills toward the context window's ceiling. It carries
-/// no numbers of its own; the label beside it does.
-class _ContextMeter extends StatelessWidget {
-  const _ContextMeter({required this.ratio});
+/// The conversation's memory gauge: a ring for the fullest context the model
+/// has seen, filled clockwise from the top. It carries no numbers of its own;
+/// the label beside it does. Quiet at rest; the arc warms to the accent as the
+/// window fills, and to the error tone at its end.
+class _ContextRing extends StatelessWidget {
+  const _ContextRing({required this.ratio});
 
   final double ratio;
+
+  /// Big enough to read a share off, small enough to sit on a one-line footer.
+  static const _diameter = 20.0;
+  static const _stroke = 2.4;
 
   @override
   Widget build(BuildContext context) {
@@ -1379,31 +1478,23 @@ class _ContextMeter extends StatelessWidget {
       _ => scheme.onSurfaceVariant,
     };
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    return SizedBox(
-      width: 44,
-      height: 4,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.outlineVariant,
-          borderRadius: BorderRadius.circular(2),
-        ),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: 0, end: ratio.clamp(0.0, 1.0)),
-            duration: reduceMotion
-                ? Duration.zero
-                : const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-            builder: (context, value, _) => FractionallySizedBox(
-              widthFactor: value,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: fill,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
+    return SizedBox.square(
+      dimension: _diameter,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0, end: ratio.clamp(0.0, 1.0)),
+        duration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, _) => CustomPaint(
+          painter: _ContextRingPainter(
+            value: value,
+            // The composer's own surface is a hairline tone away from
+            // `outlineVariant`, so the track is the fill's colour thinned until
+            // it reads as a ring rather than a hole.
+            track: scheme.onSurfaceVariant.withValues(alpha: 0.28),
+            fill: fill,
+            stroke: _stroke,
           ),
         ),
       ),
@@ -1411,12 +1502,69 @@ class _ContextMeter extends StatelessWidget {
   }
 }
 
+/// The ring itself: a full track with the filled share of it drawn from the
+/// top clockwise, so a nearly empty window still reads as a ring rather than a
+/// dot.
+class _ContextRingPainter extends CustomPainter {
+  const _ContextRingPainter({
+    required this.value,
+    required this.track,
+    required this.fill,
+    required this.stroke,
+  });
+
+  /// The share of the window to sweep, 0…1.
+  final double value;
+  final Color track;
+  final Color fill;
+  final double stroke;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = (size.shortestSide - stroke) / 2;
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..color = track,
+    );
+    if (value <= 0) return;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -math.pi / 2,
+      2 * math.pi * value,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round
+        ..color = fill,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ContextRingPainter oldDelegate) =>
+      oldDelegate.value != value ||
+      oldDelegate.track != track ||
+      oldDelegate.fill != fill ||
+      oldDelegate.stroke != stroke;
+}
+
+/// One queued attachment on the composer's strip: a text card, or an image with
+/// whatever its upload has to say drawn over it.
 class _PendingAttachment extends StatelessWidget {
   const _PendingAttachment({
     required this.attachment,
     required this.onRemove,
     this.onEdit,
+    this.onRetry,
   });
+
+  /// The tile's height, and the width of an image in it.
+  static const double _size = 60;
 
   final InsightAttachment attachment;
   final VoidCallback? onRemove;
@@ -1425,17 +1573,25 @@ class _PendingAttachment extends StatelessWidget {
   /// edit here.
   final VoidCallback? onEdit;
 
+  /// Sends a failed attachment up again, from the tile itself: the file is
+  /// still queued, so the way out is next to the problem.
+  final VoidCallback? onRetry;
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: attachment.isText ? 190 : 60,
-      height: 60,
+      width: attachment.isText ? 190 : _size,
+      height: _size,
       child: Stack(
         children: [
           Positioned.fill(
             child: attachment.isText
                 ? _TextAttachmentCard(attachment: attachment, onTap: onEdit)
-                : _AttachmentThumbnail(fileId: attachment.fileId ?? '', size: 60),
+                : _ImageAttachmentTile(
+                    attachment: attachment,
+                    onRetry: onRetry,
+                    size: _size,
+                  ),
           ),
           Positioned(
             top: 0,
@@ -1445,15 +1601,155 @@ class _PendingAttachment extends StatelessWidget {
               iconSize: 12,
               visualDensity: VisualDensity.compact,
               style: IconButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                backgroundColor: Theme.of(
+                  context,
+                ).colorScheme.surfaceContainerHighest,
                 minimumSize: const Size(20, 20),
                 padding: EdgeInsets.zero,
+                // Without this the button keeps a 48-pixel tap target, which on
+                // a 60-pixel tile covers the tile it sits on.
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
               onPressed: onRemove,
               icon: const Icon(Symbols.close_rounded),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A picked image on the composer's strip, painted from the file on this device
+/// — the picture is the same before and after the upload, and a preview that
+/// had to come back over the network would be a slower, blurrier one. The
+/// upload draws on top: how far it has got while it goes, and a retry once it
+/// has failed.
+class _ImageAttachmentTile extends StatelessWidget {
+  const _ImageAttachmentTile({
+    required this.attachment,
+    required this.size,
+    this.onRetry,
+  });
+
+  final InsightAttachment attachment;
+  final double size;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final path = attachment.localPath;
+    final failed = attachment.hasFailed;
+    return Tooltip(
+      message: failed
+          ? '${attachment.name} did not upload: '
+                '${attachment.error ?? 'unknown error'}\nTap to try again'
+          : attachment.isUploading
+          ? 'Uploading ${attachment.name}'
+          : attachment.name,
+      child: Material(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: failed ? onRetry : null,
+          child: Container(
+            decoration: failed
+                ? BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: scheme.error, width: 1.5),
+                  )
+                : null,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (path == null)
+                  _AttachmentThumbnail(fileId: attachment.fileId ?? '', size: size)
+                else if (kIsWeb)
+                  // A picked file on the web is a blob, not a path.
+                  Image.network(path, fit: BoxFit.cover)
+                else
+                  Image.file(
+                    File(path),
+                    fit: BoxFit.cover,
+                    // The tile is 60 logical pixels: painting it from a
+                    // full-resolution file would decode megabytes for a
+                    // thumbnail. This decodes at the size it is drawn at.
+                    cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))
+                        .round(),
+                    errorBuilder: (context, _, _) => _AttachmentThumbnail(
+                      fileId: attachment.fileId ?? '',
+                      size: size,
+                    ),
+                  ),
+                if (attachment.isUploading)
+                  _UploadProgressOverlay(progress: attachment.progress),
+                if (failed)
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: scheme.surface.withValues(alpha: 0.55),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          Symbols.refresh_rounded,
+                          size: 20,
+                          color: scheme.error,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// What an upload in flight shows on its tile: how much of the file has gone,
+/// or a moving bar while the count is still unknown.
+class _UploadProgressOverlay extends StatelessWidget {
+  const _UploadProgressOverlay({required this.progress});
+
+  final double? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = this.progress;
+    return Positioned.fill(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (progress != null)
+              Text(
+                '${(progress * 100).round()}%',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 2,
+                borderRadius: BorderRadius.circular(2),
+                backgroundColor: Colors.white24,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

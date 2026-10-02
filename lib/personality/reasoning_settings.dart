@@ -9,7 +9,12 @@ import 'package:persynth/personality/personality_network.dart';
 /// provider verbatim, or [off], which turns the provider's thinking mode off
 /// outright. The levels are the union of what the supported providers
 /// document, not a set every model accepts — a model handed one it does not
-/// know refuses the turn in its own words, which is why the picker says so.
+/// know refuses the turn in its own words.
+///
+/// The composer's pill offers the three a reader can hold in mind — [low],
+/// [medium] and [high] — and leaves the rest to what is already stored: this
+/// enum is the store's vocabulary as well as the wire's, so a level a build
+/// once wrote still reads back as itself rather than as the default.
 enum ReasoningSetting {
   modelDefault('default', 'Model default', null, false),
   off('off', 'Off (no thinking)', null, true),
@@ -40,14 +45,6 @@ enum ReasoningSetting {
 
   /// Whether to send the run's `disable_reasoning` switch.
   final bool disabled;
-
-  /// A compass-short label for the composer control, where the full [label]
-  /// would crowd the context readout beside it.
-  String get shortLabel => switch (this) {
-    modelDefault => 'Default',
-    off => 'No thinking',
-    _ => label,
-  };
 
   /// Reads a stored token back, treating anything unrecognized — including a
   /// level a newer build knows and this one does not — as the default. A
