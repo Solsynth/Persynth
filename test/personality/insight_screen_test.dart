@@ -30,10 +30,37 @@ class _FakePersonalityApi extends PersonalityApi {
     this.history = const [],
     this.usageTotal,
     this.failure,
-  }) : super(Dio());
+    List<SnPersonalityConversation>? conversations,
+    List<SnConversationGroup>? groups,
+  }) : conversations =
+           conversations ??
+           [
+             SnPersonalityConversation(
+               id: 'c1',
+               agentId: 'a1',
+               title: 'First thread',
+               lastMessageAt: DateTime(2026, 1, 2),
+             ),
+           ],
+       groups = groups ?? [],
+       super(Dio());
 
   final List<PersonalityRunEvent> reply;
   final List<SnPersonalityMessage> history;
+
+  /// The account's threads, mutated in place so a refetch after a delete or a
+  /// group change reads back what the server would now return.
+  final List<SnPersonalityConversation> conversations;
+
+  /// The account's groups, mutated in place the same way.
+  final List<SnConversationGroup> groups;
+
+  /// Every delete, batch delete, assignment and group delete the page asked
+  /// for, in order.
+  final List<String> deleted = [];
+  final List<List<String>> batchDeleted = [];
+  final List<({List<String> ids, String? groupId})> groupAssignments = [];
+  final List<String> deletedGroups = [];
 
   /// What the conversation total endpoint answers with. Null stands for a
   /// server that has nothing to report yet.
@@ -58,14 +85,92 @@ class _FakePersonalityApi extends PersonalityApi {
   Future<List<SnPersonalityConversation>> listConversations({
     int take = 50,
     int offset = 0,
-  }) async => [
-    SnPersonalityConversation(
-      id: 'c1',
-      agentId: 'a1',
-      title: 'First thread',
-      lastMessageAt: DateTime(2026, 1, 2),
-    ),
-  ];
+  }) async => List.of(conversations);
+
+  @override
+  Future<void> deleteConversation(String id) async {
+    deleted.add(id);
+    conversations.removeWhere((conversation) => conversation.id == id);
+  }
+
+  @override
+  Future<int> deleteConversations(List<String> ids) async {
+    batchDeleted.add(List.of(ids));
+    final before = conversations.length;
+    conversations.removeWhere((conversation) => ids.contains(conversation.id));
+    return before - conversations.length;
+  }
+
+  @override
+  Future<int> setConversationGroup(List<String> ids, String? groupId) async {
+    groupAssignments.add((ids: List.of(ids), groupId: groupId));
+    var updated = 0;
+    for (var i = 0; i < conversations.length; i++) {
+      final conversation = conversations[i];
+      if (!ids.contains(conversation.id)) continue;
+      conversations[i] = _regroup(conversation, groupId);
+      updated++;
+    }
+    return updated;
+  }
+
+  @override
+  Future<List<SnConversationGroup>> listConversationGroups() async =>
+      List.of(groups);
+
+  @override
+  Future<SnConversationGroup> createConversationGroup({
+    required String name,
+    String description = '',
+  }) async {
+    final group = SnConversationGroup(
+      id: 'g${groups.length + 1}',
+      name: name,
+      description: description,
+    );
+    groups.add(group);
+    return group;
+  }
+
+  @override
+  Future<SnConversationGroup> updateConversationGroup(
+    String id, {
+    String? name,
+    String? description,
+  }) async {
+    final index = groups.indexWhere((group) => group.id == id);
+    final current = groups[index];
+    final updated = SnConversationGroup(
+      id: current.id,
+      name: name ?? current.name,
+      description: description ?? current.description,
+      conversationCount: current.conversationCount,
+    );
+    groups[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> deleteConversationGroup(String id) async {
+    deletedGroups.add(id);
+    groups.removeWhere((group) => group.id == id);
+    for (var i = 0; i < conversations.length; i++) {
+      if (conversations[i].groupId == id) {
+        conversations[i] = _regroup(conversations[i], null);
+      }
+    }
+  }
+
+  SnPersonalityConversation _regroup(
+    SnPersonalityConversation conversation,
+    String? groupId,
+  ) => SnPersonalityConversation(
+    id: conversation.id,
+    agentId: conversation.agentId,
+    title: conversation.title,
+    lastMessageAt: conversation.lastMessageAt,
+    groupId: groupId,
+  );
 
   @override
   Future<List<SnPersonalityMessage>> listMessages(
@@ -1124,6 +1229,177 @@ void main() {
     // The reader's own undo is not a failure to report.
     expect(_tooltipSaying('upload aborted'), findsNothing);
     expect(_sendButton(tester).onPressed, isNull);
+  });
+
+  testWidgets('selects conversations and batch-deletes them', (tester) async {
+    final api = _FakePersonalityApi(
+      conversations: [
+        SnPersonalityConversation(
+          id: 'c1',
+          agentId: 'a1',
+          title: 'First thread',
+        ),
+        SnPersonalityConversation(
+          id: 'c2',
+          agentId: 'a1',
+          title: 'Second thread',
+        ),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    expect(find.text('First thread'), findsOneWidget);
+    expect(find.text('Second thread'), findsOneWidget);
+
+    // A long-press enters selection mode with that row already chosen.
+    await tester.longPress(find.text('First thread'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsOneWidget);
+
+    // While selecting, a tap toggles the next row in rather than opening it.
+    await tester.tap(find.text('Second thread'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 selected'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Delete'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete 2 conversations?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(api.batchDeleted, [
+      ['c1', 'c2'],
+    ]);
+    expect(api.deleted, isEmpty);
+    expect(find.text('First thread'), findsNothing);
+    expect(find.text('Second thread'), findsNothing);
+    // The strip left with the selection.
+    expect(find.text('2 selected'), findsNothing);
+  });
+
+  testWidgets('deletes one conversation from its row menu', (tester) async {
+    final api = _FakePersonalityApi(
+      conversations: [
+        SnPersonalityConversation(
+          id: 'c1',
+          agentId: 'a1',
+          title: 'First thread',
+        ),
+        SnPersonalityConversation(
+          id: 'c2',
+          agentId: 'a1',
+          title: 'Second thread',
+        ),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    await tester.tap(find.byIcon(Symbols.more_vert).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete conversation?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(api.deleted, ['c1']);
+    expect(api.batchDeleted, isEmpty);
+    expect(find.text('First thread'), findsNothing);
+    expect(find.text('Second thread'), findsOneWidget);
+  });
+
+  testWidgets('creates a group and moves a conversation into it', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(
+      conversations: [
+        SnPersonalityConversation(
+          id: 'c1',
+          agentId: 'a1',
+          title: 'First thread',
+        ),
+        SnPersonalityConversation(
+          id: 'c2',
+          agentId: 'a1',
+          title: 'Second thread',
+        ),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    await tester.tap(find.byTooltip('Manage groups'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'New group'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      'Work',
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    // The new group is listed in the sheet; the list's chip is already behind
+    // it. Dismiss the sheet by its scrim.
+    expect(find.text('Work'), findsNWidgets(2));
+    await tester.tapAt(const Offset(400, 20));
+    await tester.pumpAndSettle();
+
+    // With the sheet gone, the group's chip is all that is left.
+    expect(find.text('Work'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Symbols.more_vert).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move to group…'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SimpleDialog),
+        matching: find.text('Work'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(api.groupAssignments, hasLength(1));
+    expect(api.groupAssignments.single.ids, ['c1']);
+    expect(api.groupAssignments.single.groupId, 'g1');
+    // Beside the agent name, the row now wears its group too.
+    expect(find.text('Work'), findsNWidgets(2));
+  });
+
+  testWidgets('deleting the open conversation resets the thread', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(
+      history: const [
+        SnPersonalityMessage(role: 'user', content: 'what is up'),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    await tester.tap(find.text('First thread'));
+    await tester.pumpAndSettle();
+    expect(find.text('what is up'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Symbols.more_vert).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(api.deleted, ['c1']);
+    // The composer and the log are back to a fresh conversation, and the row
+    // is gone from the list.
+    expect(find.text('what is up'), findsNothing);
+    expect(
+      find.textContaining('start a conversation with Michan'),
+      findsOneWidget,
+    );
+    expect(find.text('First thread'), findsNothing);
   });
 }
 

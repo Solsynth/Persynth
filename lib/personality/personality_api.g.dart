@@ -96,3 +96,51 @@ final class PersonalityConversationsProvider
 
 String _$personalityConversationsHash() =>
     r'b222dbab38771085ca58a6470e5c5d64c6a69b95';
+
+/// The account's conversation groups, ordered by name.
+
+@ProviderFor(personalityConversationGroups)
+final personalityConversationGroupsProvider =
+    PersonalityConversationGroupsProvider._();
+
+/// The account's conversation groups, ordered by name.
+
+final class PersonalityConversationGroupsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<List<SnConversationGroup>>,
+          List<SnConversationGroup>,
+          FutureOr<List<SnConversationGroup>>
+        >
+    with
+        $FutureModifier<List<SnConversationGroup>>,
+        $FutureProvider<List<SnConversationGroup>> {
+  /// The account's conversation groups, ordered by name.
+  PersonalityConversationGroupsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'personalityConversationGroupsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$personalityConversationGroupsHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<List<SnConversationGroup>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<List<SnConversationGroup>> create(Ref ref) {
+    return personalityConversationGroups(ref);
+  }
+}
+
+String _$personalityConversationGroupsHash() =>
+    r'6ee142ec0e0ffbc5a0227133f399d11139bbbb66';

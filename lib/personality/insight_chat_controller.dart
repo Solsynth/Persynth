@@ -367,6 +367,19 @@ class InsightChatController extends _$InsightChatController {
 
   void newConversation() {
     if (state.busy) return;
+    _resetConversation();
+  }
+
+  /// A conversation was deleted from the thread list. When it is the open one,
+  /// the composer and thread reset exactly as starting a new chat does; a
+  /// deletion somewhere else leaves the open thread alone.
+  void conversationRemoved(String id) {
+    if (state.conversationId != id) return;
+    _resetConversation();
+  }
+
+  /// Clears the open thread back to a fresh conversation.
+  void _resetConversation() {
     _forgetLoadedPlugins();
     _set(
       state.copyWith(

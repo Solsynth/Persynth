@@ -2477,7 +2477,22 @@ class _SheetFailure extends StatelessWidget {
   }
 }
 
-class _ConversationList extends ConsumerWidget {
+/// What one row's overflow menu asked for.
+enum _RowAction { moveToGroup, removeFromGroup, delete }
+
+/// The move-to-group picker's answer: the group to move into, or null for
+/// "ungrouped". Distinct from a dismissed picker, which is a null result.
+class _GroupChoice {
+  const _GroupChoice(this.groupId);
+
+  final String? groupId;
+}
+
+/// The account's threads, with the group filter and the group sheet on top.
+///
+/// Selection is local to this widget: the wide-screen panel and the sheet each
+/// hold their own, and both feed the same controller when a thread is opened.
+class _ConversationList extends HookConsumerWidget {
   const _ConversationList({required this.activeId, required this.onSelect});
 
   final String? activeId;
@@ -2497,6 +2512,10 @@ class _ConversationList extends ConsumerWidget {
         ? 'Failed to load conversations: '
               '${personalityErrorMessage(conversationsAsync.error!)}'
         : null;
+    final groups =
+        ref.watch(personalityConversationGroupsProvider).value ??
+        const <SnConversationGroup>[];
+    final groupNames = {for (final group in groups) group.id: group.name};
     final agentNames = {
       for (final agent
           in ref.watch(personalityAgentsProvider).value ??
@@ -2506,8 +2525,108 @@ class _ConversationList extends ConsumerWidget {
             : agent.name.trim(),
     };
 
+    // `null` = every thread, `''` = ungrouped, otherwise a group id. The loaded
+    // page is filtered here rather than on the server.
+    final filter = useState<String?>(null);
+    final selected = useState<Set<String>>(const <String>{});
+    final selecting = selected.value.isNotEmpty;
+
+    // A group deleted under the filter leaves the list on "All" rather than on
+    // a chip that no longer exists.
+    useEffect(() {
+      final id = filter.value;
+      if (id != null && id.isNotEmpty && !groupNames.containsKey(id)) {
+        filter.value = null;
+      }
+      return null;
+    }, [groups]);
+
+    final visible = switch (filter.value) {
+      null => conversations,
+      '' => [
+        for (final conversation in conversations)
+          if (conversation.groupId == null) conversation,
+      ],
+      final id => [
+        for (final conversation in conversations)
+          if (conversation.groupId == id) conversation,
+      ],
+    };
+
+    // Both providers feed this list, so every mutation refetches both, and the
+    // selection never survives one.
+    void refresh() {
+      ref.invalidate(personalityConversationsProvider);
+      ref.invalidate(personalityConversationGroupsProvider);
+      selected.value = const <String>{};
+    }
+
+    Future<void> assignGroup(List<String> ids, String? groupId) async {
+      final api = ref.read(personalityApiProvider);
+      try {
+        await api.setConversationGroup(ids, groupId);
+        if (!context.mounted) return;
+        refresh();
+        showSnackBar(groupId == null ? 'Removed from group' : 'Moved to group');
+      } catch (e) {
+        showSnackBar(personalityErrorMessage(e));
+      }
+    }
+
+    Future<void> moveToGroup(List<String> ids) async {
+      final choice = await _pickConversationGroup(context, groups);
+      if (choice == null) return;
+      await assignGroup(ids, choice.groupId);
+    }
+
+    Future<void> deleteConversations(List<String> ids) async {
+      final many = ids.length > 1;
+      final confirmed = await _confirmDialog(
+        context,
+        title: many ? 'Delete ${ids.length} conversations?' : 'Delete conversation?',
+        message: 'The threads and their messages are removed. What the agent '
+            'learned in them stays in memory.',
+        confirmLabel: 'Delete',
+      );
+      if (confirmed != true || !context.mounted) return;
+      final api = ref.read(personalityApiProvider);
+      final controller = ref.read(insightChatControllerProvider.notifier);
+      try {
+        if (many) {
+          await api.deleteConversations(ids);
+        } else {
+          await api.deleteConversation(ids.single);
+        }
+        for (final id in ids) {
+          controller.conversationRemoved(id);
+        }
+        if (!context.mounted) return;
+        refresh();
+        showSnackBar(
+          many ? '${ids.length} conversations deleted' : 'Conversation deleted',
+        );
+      } catch (e) {
+        showSnackBar(personalityErrorMessage(e));
+      }
+    }
+
+    Future<void> runRowAction(
+      _RowAction action,
+      SnPersonalityConversation conversation,
+    ) async {
+      switch (action) {
+        case _RowAction.moveToGroup:
+          await moveToGroup([conversation.id]);
+        case _RowAction.removeFromGroup:
+          await assignGroup([conversation.id], null);
+        case _RowAction.delete:
+          await deleteConversations([conversation.id]);
+      }
+    }
+
+    final Widget body;
     if (error != null) {
-      return Center(
+      body = Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -2528,16 +2647,16 @@ class _ConversationList extends ConsumerWidget {
           ),
         ),
       );
-    }
-
-    if (conversations.isEmpty) {
-      return Center(
+    } else if (visible.isEmpty) {
+      body = Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: loading
               ? const CircularProgressIndicator()
               : Text(
-                  'No conversations yet',
+                  conversations.isEmpty
+                      ? 'No conversations yet'
+                      : 'No conversations in this group',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: scheme.onSurfaceVariant,
@@ -2545,78 +2664,502 @@ class _ConversationList extends ConsumerWidget {
                 ),
         ),
       );
+    } else {
+      body = ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        itemCount: visible.length,
+        itemBuilder: (context, index) {
+          final conversation = visible[index];
+          final inSelection = selected.value.contains(conversation.id);
+          final active = conversation.id == activeId;
+          final title = conversation.title.trim();
+          final groupId = conversation.groupId;
+          final groupName = groupId == null ? null : groupNames[groupId];
+          final lastMessageAt = conversation.lastMessageAt;
+
+          void toggle() {
+            final next = Set<String>.of(selected.value);
+            if (!next.add(conversation.id)) next.remove(conversation.id);
+            selected.value = next;
+          }
+
+          return Material(
+            color: inSelection
+                ? scheme.primaryContainer.withValues(alpha: 0.5)
+                : active
+                ? scheme.secondaryContainer.withValues(alpha: 0.55)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: selecting ? toggle : () => onSelect(conversation.id),
+              onLongPress: selecting
+                  ? null
+                  : () =>
+                        selected.value = {...selected.value, conversation.id},
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title.isEmpty ? 'Untitled' : title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.1,
+                              height: 1.2,
+                            ),
+                          ),
+                        ),
+                        if (lastMessageAt != null) ...[
+                          const Gap(8),
+                          Text(
+                            _formatRelative(lastMessageAt),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant.withValues(
+                                alpha: 0.85,
+                              ),
+                              fontWeight: FontWeight.w500,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
+                        if (!selecting)
+                          _ConversationRowMenu(
+                            grouped: groupId != null,
+                            onSelected: (action) =>
+                                runRowAction(action, conversation),
+                          ),
+                      ],
+                    ),
+                    const Gap(3),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            agentNames[conversation.agentId] ?? 'Conversation',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant.withValues(
+                                alpha: 0.85,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (groupName != null) ...[
+                          const Gap(6),
+                          Icon(
+                            Symbols.folder_rounded,
+                            size: 12,
+                            color: scheme.onSurfaceVariant.withValues(
+                              alpha: 0.7,
+                            ),
+                          ),
+                          const Gap(3),
+                          Flexible(
+                            child: Text(
+                              groupName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant.withValues(
+                                  alpha: 0.85,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
     }
 
     // Rows follow the chat list: a Material surface that tints when selected,
     // with the timestamp trailing the title.
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      itemCount: conversations.length,
-      itemBuilder: (context, index) {
-        final conversation = conversations[index];
-        final selected = conversation.id == activeId;
-        final title = conversation.title.trim();
-        final lastMessageAt = conversation.lastMessageAt;
-        return Material(
-          color: selected
-              ? scheme.secondaryContainer.withValues(alpha: 0.55)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => onSelect(conversation.id),
+    return Column(
+      children: [
+        if (selecting)
+          Material(
+            color: scheme.surfaceContainerHighest,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title.isEmpty ? 'Untitled' : title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.1,
-                            height: 1.2,
-                          ),
-                        ),
-                      ),
-                      if (lastMessageAt != null) ...[
-                        const Gap(8),
-                        Text(
-                          _formatRelative(lastMessageAt),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant.withValues(
-                              alpha: 0.85,
-                            ),
-                            fontWeight: FontWeight.w500,
-                            height: 1.2,
-                          ),
-                        ),
-                      ],
-                    ],
+                  IconButton(
+                    tooltip: 'Exit selection',
+                    onPressed: () => selected.value = const <String>{},
+                    icon: const Icon(Symbols.close),
                   ),
-                  const Gap(3),
                   Text(
-                    agentNames[conversation.agentId] ?? 'Conversation',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant.withValues(alpha: 0.85),
-                    ),
+                    '${selected.value.length} selected',
+                    style: theme.textTheme.labelLarge,
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Move to group',
+                    onPressed: () => moveToGroup(selected.value.toList()),
+                    icon: const Icon(Symbols.playlist_add),
+                  ),
+                  IconButton(
+                    tooltip: 'Delete',
+                    onPressed: () =>
+                        deleteConversations(selected.value.toList()),
+                    icon: const Icon(Symbols.delete_outline),
                   ),
                 ],
               ),
             ),
           ),
-        );
-      },
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      ChoiceChip(
+                        label: const Text('All'),
+                        selected: filter.value == null,
+                        onSelected: (_) => filter.value = null,
+                      ),
+                      const Gap(6),
+                      for (final group in groups) ...[
+                        ChoiceChip(
+                          label: Text(group.name),
+                          selected: filter.value == group.id,
+                          onSelected: (_) => filter.value = group.id,
+                        ),
+                        const Gap(6),
+                      ],
+                      ChoiceChip(
+                        label: const Text('Ungrouped'),
+                        selected: filter.value == '',
+                        onSelected: (_) => filter.value = '',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Manage groups',
+                onPressed: () => showConversationGroupsSheet(context),
+                icon: const Icon(Symbols.create_new_folder_rounded),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(child: body),
+      ],
     );
   }
+}
+
+/// A row's overflow menu: move, un-set the group, or delete.
+class _ConversationRowMenu extends StatelessWidget {
+  const _ConversationRowMenu({required this.grouped, required this.onSelected});
+
+  final bool grouped;
+  final ValueChanged<_RowAction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_RowAction>(
+      tooltip: 'Conversation actions',
+      icon: const Icon(Symbols.more_vert),
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: _RowAction.moveToGroup,
+          child: Text('Move to group…'),
+        ),
+        if (grouped)
+          const PopupMenuItem(
+            value: _RowAction.removeFromGroup,
+            child: Text('Remove from group'),
+          ),
+        const PopupMenuItem(value: _RowAction.delete, child: Text('Delete')),
+      ],
+    );
+  }
+}
+
+/// The sheet where groups are created, renamed and deleted.
+Future<void> showConversationGroupsSheet(BuildContext context) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (sheetContext) => SheetScaffold(
+      titleText: 'Groups',
+      onClose: () => Navigator.of(sheetContext).pop(),
+      child: const _ManageGroupsSheet(),
+    ),
+  );
+}
+
+class _ManageGroupsSheet extends HookConsumerWidget {
+  const _ManageGroupsSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final groupsAsync = ref.watch(personalityConversationGroupsProvider);
+    final groups = groupsAsync.value ?? const <SnConversationGroup>[];
+    final busy = useState(false);
+
+    void refresh() {
+      ref.invalidate(personalityConversationGroupsProvider);
+      ref.invalidate(personalityConversationsProvider);
+    }
+
+    Future<void> run(Future<void> Function() action, String success) async {
+      if (busy.value) return;
+      busy.value = true;
+      try {
+        await action();
+        if (!context.mounted) return;
+        refresh();
+        showSnackBar(success);
+      } catch (e) {
+        showSnackBar(personalityErrorMessage(e));
+      } finally {
+        busy.value = false;
+      }
+    }
+
+    Future<void> create() async {
+      final name = await _promptGroupName(context, title: 'New group');
+      if (name == null) return;
+      final api = ref.read(personalityApiProvider);
+      await run(() async {
+        await api.createConversationGroup(name: name);
+      }, 'Group created');
+    }
+
+    Future<void> rename(SnConversationGroup group) async {
+      final name = await _promptGroupName(
+        context,
+        title: 'Rename group',
+        initial: group.name,
+      );
+      if (name == null) return;
+      final api = ref.read(personalityApiProvider);
+      await run(() async {
+        await api.updateConversationGroup(group.id, name: name);
+      }, 'Group renamed');
+    }
+
+    Future<void> remove(SnConversationGroup group) async {
+      final confirmed = await _confirmDialog(
+        context,
+        title: 'Delete ${group.name}?',
+        message: 'Its conversations stay; they become ungrouped. Memories the '
+            'group pinned stop being pinned.',
+        confirmLabel: 'Delete',
+      );
+      if (confirmed != true) return;
+      final api = ref.read(personalityApiProvider);
+      await run(() async {
+        await api.deleteConversationGroup(group.id);
+      }, 'Group deleted');
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Groups mark the conversations that matter: what the agent '
+                  'learns in them is kept.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const Gap(8),
+              FilledButton.icon(
+                onPressed: busy.value ? null : create,
+                icon: const Icon(Symbols.add),
+                label: const Text('New group'),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: groups.isEmpty
+              ? Center(
+                  child: Text(
+                    'No groups yet',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                )
+              : ListView(
+                  children: [
+                    for (final group in groups)
+                      ListTile(
+                        title: Text(group.name),
+                        subtitle: Text(
+                          group.description.trim().isEmpty
+                              ? _groupCountLabel(group.conversationCount)
+                              : '${group.description.trim()}\n'
+                                    '${_groupCountLabel(group.conversationCount)}',
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Rename',
+                              onPressed: busy.value
+                                  ? null
+                                  : () => rename(group),
+                              icon: const Icon(Symbols.edit),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete',
+                              onPressed: busy.value
+                                  ? null
+                                  : () => remove(group),
+                              icon: const Icon(Symbols.delete_outline),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The move-to-group picker: each group, plus the choice to ungroup. A null
+/// result means the reader dismissed it without choosing.
+Future<_GroupChoice?> _pickConversationGroup(
+  BuildContext context,
+  List<SnConversationGroup> groups,
+) {
+  return showDialog<_GroupChoice>(
+    context: context,
+    builder: (context) => SimpleDialog(
+      title: const Text('Move to group'),
+      children: [
+        for (final group in groups)
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(context).pop(_GroupChoice(group.id)),
+            child: Text(group.name),
+          ),
+        SimpleDialogOption(
+          onPressed: () =>
+              Navigator.of(context).pop(const _GroupChoice(null)),
+          child: const Text('Ungrouped'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// How many live conversations a group holds, as a sheet line.
+String _groupCountLabel(int count) =>
+    count == 1 ? '1 conversation' : '$count conversations';
+
+/// Asks for a group name, returning the trimmed text or null when cancelled.
+Future<String?> _promptGroupName(
+  BuildContext context, {
+  required String title,
+  String initial = '',
+}) {
+  return showDialog<String>(
+    context: context,
+    builder: (context) => _GroupNameDialog(title: title, initial: initial),
+  );
+}
+
+class _GroupNameDialog extends HookWidget {
+  const _GroupNameDialog({required this.title, required this.initial});
+
+  final String title;
+  final String initial;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = useTextEditingController(text: initial);
+    final canSave = useState(initial.trim().isNotEmpty);
+
+    void save() {
+      final name = controller.text.trim();
+      if (name.isEmpty) return;
+      Navigator.of(context).pop(name);
+    }
+
+    return AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        decoration: const InputDecoration(labelText: 'Name'),
+        onChanged: (value) => canSave.value = value.trim().isNotEmpty,
+        onSubmitted: (_) => save(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: canSave.value ? save : null,
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+/// A yes/no confirmation in the app's dialog shape.
+Future<bool?> _confirmDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String confirmLabel,
+}) {
+  return showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(confirmLabel),
+        ),
+      ],
+    ),
+  );
 }
 
 /// A quiet centered placeholder: icon over a title and a one-line hint.

@@ -77,22 +77,63 @@ class SnPersonalityConversation {
   final String title;
   final DateTime? lastMessageAt;
 
+  /// The account-owned group this thread belongs to, or null when it is
+  /// ungrouped. A thread belongs to at most one group.
+  final String? groupId;
+
   const SnPersonalityConversation({
     required this.id,
     required this.agentId,
     required this.title,
     this.lastMessageAt,
+    this.groupId,
   });
 
-  factory SnPersonalityConversation.fromJson(Map<String, dynamic> json) =>
-      SnPersonalityConversation(
-        id: json['id']?.toString() ?? '',
-        agentId: json['agent_id']?.toString() ?? '',
-        title: json['title']?.toString() ?? '',
-        lastMessageAt: DateTime.tryParse(
-          json['last_message_at']?.toString() ?? '',
-        )?.toLocal(),
-      );
+  factory SnPersonalityConversation.fromJson(Map<String, dynamic> json) {
+    final groupId = json['group_id']?.toString();
+    return SnPersonalityConversation(
+      id: json['id']?.toString() ?? '',
+      agentId: json['agent_id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      lastMessageAt: DateTime.tryParse(
+        json['last_message_at']?.toString() ?? '',
+      )?.toLocal(),
+      groupId: groupId == null || groupId.isEmpty ? null : groupId,
+    );
+  }
+}
+
+/// A named collection of an account's threads
+/// (`GET /personality/conversation-groups`).
+///
+/// What the agent learns while talking in a grouped conversation is pinned in
+/// the memory store, so the group is the account's way of marking a thread
+/// important. [conversationCount] counts the group's live threads.
+@immutable
+class SnConversationGroup {
+  final String id;
+  final String name;
+  final String description;
+  final int conversationCount;
+
+  const SnConversationGroup({
+    required this.id,
+    required this.name,
+    this.description = '',
+    this.conversationCount = 0,
+  });
+
+  factory SnConversationGroup.fromJson(Map<String, dynamic> json) {
+    final count = json['conversation_count'];
+    return SnConversationGroup(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      description: json['description']?.toString() ?? '',
+      conversationCount: count is int
+          ? count
+          : int.tryParse(count?.toString() ?? '') ?? 0,
+    );
+  }
 }
 
 /// A tool the assistant asked for while answering (metadata of a message).
@@ -350,6 +391,13 @@ double? _usageDouble(dynamic raw) {
 int? _positiveOrNull(dynamic raw) {
   final value = _usageInt(raw);
   return value > 0 ? value : null;
+}
+
+/// Reads a counter out of a small JSON envelope (`{"deleted": n}`), treating
+/// anything missing or unparseable as none.
+int _intField(dynamic data, String key) {
+  if (data is! Map) return 0;
+  return _usageInt(data[key]);
 }
 
 // ---------------------------------------------------------------------------
@@ -622,6 +670,12 @@ Future<List<SnPersonalityConversation>> personalityConversations(Ref ref) {
   return ref.watch(personalityApiProvider).listConversations();
 }
 
+/// The account's conversation groups, ordered by name.
+@riverpod
+Future<List<SnConversationGroup>> personalityConversationGroups(Ref ref) {
+  return ref.watch(personalityApiProvider).listConversationGroups();
+}
+
 /// The account's personality threads and messages, plus the run stream that
 /// drives one assistant turn.
 class PersonalityApi {
@@ -690,6 +744,94 @@ class PersonalityApi {
       throw const PersonalityException('Conversation creation returned no id.');
     }
     return id;
+  }
+
+  /// Deletes one thread, and with it its messages and runs. What the agent
+  /// learned from it stays in the memory store — removing memories is its own
+  /// explicit action.
+  Future<void> deleteConversation(String id) async {
+    await _client.delete(
+      '/personality/conversations/${Uri.encodeComponent(id)}',
+    );
+  }
+
+  /// Deletes many threads in one call, returning how many were removed.
+  ///
+  /// Ids are trimmed, de-duplicated and capped by the server; ids that are not
+  /// the account's live threads are skipped rather than failing the call, so
+  /// the count is what actually went.
+  Future<int> deleteConversations(List<String> ids) async {
+    final resp = await _client.post(
+      '/personality/conversations/batch-delete',
+      data: {'ids': ids},
+    );
+    return _intField(resp.data, 'deleted');
+  }
+
+  /// Moves [ids] into [groupId], or clears their membership when it is null.
+  /// Returns how many rows were assigned or cleared.
+  Future<int> setConversationGroup(List<String> ids, String? groupId) async {
+    final resp = await _client.post(
+      '/personality/conversations/group',
+      data: {'ids': ids, 'group_id': groupId ?? ''},
+    );
+    return _intField(resp.data, 'updated');
+  }
+
+  /// The account's conversation groups, ordered by name.
+  Future<List<SnConversationGroup>> listConversationGroups() async {
+    final resp = await _client.get('/personality/conversation-groups');
+    final data = resp.data;
+    if (data is! List) return const [];
+    return [
+      for (final e in data.whereType<Map>())
+        SnConversationGroup.fromJson(Map<String, dynamic>.from(e)),
+    ];
+  }
+
+  /// Creates a group the account owns.
+  Future<SnConversationGroup> createConversationGroup({
+    required String name,
+    String description = '',
+  }) async {
+    final resp = await _client.post(
+      '/personality/conversation-groups',
+      data: {'name': name, 'description': description},
+    );
+    final data = resp.data;
+    if (data is! Map) {
+      throw const PersonalityException('Group creation returned no group.');
+    }
+    return SnConversationGroup.fromJson(Map<String, dynamic>.from(data));
+  }
+
+  /// Renames a group and/or replaces its description. Omitted fields are left
+  /// alone; the server needs at least one of them.
+  Future<SnConversationGroup> updateConversationGroup(
+    String id, {
+    String? name,
+    String? description,
+  }) async {
+    final resp = await _client.patch(
+      '/personality/conversation-groups/${Uri.encodeComponent(id)}',
+      data: {
+        'name': ?name,
+        'description': ?description,
+      },
+    );
+    final data = resp.data;
+    if (data is! Map) {
+      throw const PersonalityException('Group update returned no group.');
+    }
+    return SnConversationGroup.fromJson(Map<String, dynamic>.from(data));
+  }
+
+  /// Deletes a group. Its threads survive and become ungrouped, and the
+  /// retention the group granted is released.
+  Future<void> deleteConversationGroup(String id) async {
+    await _client.delete(
+      '/personality/conversation-groups/${Uri.encodeComponent(id)}',
+    );
   }
 
   /// Starts one assistant turn and relays its streamed events. [cancelToken]

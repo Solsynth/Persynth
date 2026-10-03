@@ -51,7 +51,7 @@ final class InsightChatControllerProvider
 }
 
 String _$insightChatControllerHash() =>
-    r'237526ed9cfaee347842e1e4edb71fb81aff3548';
+    r'5c5f04d2ecfe555ce756e656171524dcc847261e';
 
 /// The Insight page: one live conversation against the Personality backend,
 /// plus the account's thread list. Port of FloatLand's `pages/pet/index.vue` run
