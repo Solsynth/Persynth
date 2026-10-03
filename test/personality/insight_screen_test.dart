@@ -62,6 +62,9 @@ class _FakePersonalityApi extends PersonalityApi {
   final List<({List<String> ids, String? groupId})> groupAssignments = [];
   final List<String> deletedGroups = [];
 
+  /// Every rename/archive the page asked for, in order.
+  final List<({String id, String? name, bool? archived})> groupUpdates = [];
+
   /// What the conversation total endpoint answers with. Null stands for a
   /// server that has nothing to report yet.
   final SnConversationUsage? usageTotal;
@@ -115,8 +118,18 @@ class _FakePersonalityApi extends PersonalityApi {
   }
 
   @override
-  Future<List<SnConversationGroup>> listConversationGroups() async =>
-      List.of(groups);
+  Future<List<SnConversationGroup>> listConversationGroups() async => [
+    for (final group in groups)
+      SnConversationGroup(
+        id: group.id,
+        name: group.name,
+        description: group.description,
+        archived: group.archived,
+        conversationCount: conversations
+            .where((conversation) => conversation.groupId == group.id)
+            .length,
+      ),
+  ];
 
   @override
   Future<SnConversationGroup> createConversationGroup({
@@ -137,13 +150,16 @@ class _FakePersonalityApi extends PersonalityApi {
     String id, {
     String? name,
     String? description,
+    bool? archived,
   }) async {
+    groupUpdates.add((id: id, name: name, archived: archived));
     final index = groups.indexWhere((group) => group.id == id);
     final current = groups[index];
     final updated = SnConversationGroup(
       id: current.id,
       name: name ?? current.name,
       description: description ?? current.description,
+      archived: archived ?? current.archived,
       conversationCount: current.conversationCount,
     );
     groups[index] = updated;
@@ -1308,7 +1324,7 @@ void main() {
     expect(find.text('Second thread'), findsOneWidget);
   });
 
-  testWidgets('creates a group and moves a conversation into it', (
+  testWidgets('creates a group tile and moves a conversation into it', (
     tester,
   ) async {
     final api = _FakePersonalityApi(
@@ -1327,9 +1343,11 @@ void main() {
     );
     await _pumpConversationPage(tester, api);
 
-    await tester.tap(find.byTooltip('Manage groups'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'New group'));
+    // No groups yet: today's plain list, plus the tile that makes one.
+    expect(find.text('Ungrouped'), findsNothing);
+    expect(find.text('New group'), findsOneWidget);
+
+    await tester.tap(find.text('New group'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.descendant(
@@ -1342,16 +1360,12 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
 
-    // The new group is listed in the sheet; the list's chip is already behind
-    // it. Dismiss the sheet by its scrim.
-    expect(find.text('Work'), findsNWidgets(2));
-    await tester.tapAt(const Offset(400, 20));
-    await tester.pumpAndSettle();
-
-    // With the sheet gone, the group's chip is all that is left.
+    // The new group appears collapsed, with the ungrouped rows now labelled.
     expect(find.text('Work'), findsOneWidget);
+    expect(find.text('0 conversations'), findsOneWidget);
+    expect(find.text('Ungrouped'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Symbols.more_vert).first);
+    await tester.tap(find.byTooltip('Conversation actions').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Move to group…'));
     await tester.pumpAndSettle();
@@ -1366,8 +1380,154 @@ void main() {
     expect(api.groupAssignments, hasLength(1));
     expect(api.groupAssignments.single.ids, ['c1']);
     expect(api.groupAssignments.single.groupId, 'g1');
-    // Beside the agent name, the row now wears its group too.
+    // The tile counts the thread it now holds.
+    expect(find.text('1 conversation'), findsOneWidget);
+
+    // Opening the tile shows the thread, with its group beside the agent.
+    await tester.tap(find.text('Work'));
+    await tester.pumpAndSettle();
+    expect(find.text('First thread'), findsOneWidget);
     expect(find.text('Work'), findsNWidgets(2));
+  });
+
+  testWidgets('a group tile starts collapsed and expands on tap', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(
+      conversations: [
+        SnPersonalityConversation(
+          id: 'c1',
+          agentId: 'a1',
+          title: 'First thread',
+          groupId: 'g1',
+        ),
+        SnPersonalityConversation(
+          id: 'c2',
+          agentId: 'a1',
+          title: 'Second thread',
+        ),
+      ],
+      groups: [const SnConversationGroup(id: 'g1', name: 'Work')],
+    );
+    await _pumpConversationPage(tester, api);
+
+    // The grouped thread is hidden until the tile opens; the ungrouped one is
+    // always there.
+    expect(find.text('First thread'), findsNothing);
+    expect(find.text('Second thread'), findsOneWidget);
+
+    await tester.tap(find.text('Work').first);
+    await tester.pumpAndSettle();
+    expect(find.text('First thread'), findsOneWidget);
+
+    await tester.tap(find.text('Work').first);
+    await tester.pumpAndSettle();
+    expect(find.text('First thread'), findsNothing);
+  });
+
+  testWidgets('archiving gathers a group and its threads under Archived', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(
+      conversations: [
+        SnPersonalityConversation(
+          id: 'c1',
+          agentId: 'a1',
+          title: 'First thread',
+          groupId: 'g1',
+        ),
+        SnPersonalityConversation(
+          id: 'c2',
+          agentId: 'a1',
+          title: 'Second thread',
+        ),
+      ],
+      groups: [const SnConversationGroup(id: 'g1', name: 'Work')],
+    );
+    await _pumpConversationPage(tester, api);
+
+    expect(find.text('Work'), findsOneWidget);
+    expect(find.text('Archived'), findsNothing);
+
+    // Archive from the tile's menu: immediate, no confirmation.
+    await tester.tap(find.byTooltip('Group actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Archive'));
+    await tester.pumpAndSettle();
+
+    expect(api.groupUpdates, [(id: 'g1', name: null, archived: true)]);
+    // Gone from the top level, and so is its thread.
+    expect(find.text('Work'), findsNothing);
+    expect(find.text('First thread'), findsNothing);
+    expect(find.text('Archived'), findsOneWidget);
+
+    // Reachable under Archived: open the tile, then the group inside it.
+    await tester.tap(find.text('Archived'));
+    await tester.pumpAndSettle();
+    expect(find.text('Work'), findsOneWidget);
+    await tester.tap(find.text('Work').first);
+    await tester.pumpAndSettle();
+    expect(find.text('First thread'), findsOneWidget);
+
+    // Unarchiving puts the group back at the top level.
+    await tester.tap(find.byTooltip('Group actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unarchive'));
+    await tester.pumpAndSettle();
+
+    expect(api.groupUpdates.last, (id: 'g1', name: null, archived: false));
+    expect(find.text('Archived'), findsNothing);
+    expect(find.text('First thread'), findsOneWidget);
+  });
+
+  testWidgets('moves a selection into an active group only', (tester) async {
+    final api = _FakePersonalityApi(
+      conversations: [
+        SnPersonalityConversation(
+          id: 'c1',
+          agentId: 'a1',
+          title: 'First thread',
+        ),
+        SnPersonalityConversation(
+          id: 'c2',
+          agentId: 'a1',
+          title: 'Second thread',
+        ),
+      ],
+      groups: [
+        const SnConversationGroup(id: 'g1', name: 'Work'),
+        const SnConversationGroup(id: 'g2', name: 'Old', archived: true),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    await tester.longPress(find.text('First thread'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Second thread'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 selected'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Move to group'));
+    await tester.pumpAndSettle();
+    // The archived group is not offered.
+    expect(
+      find.descendant(
+        of: find.byType(SimpleDialog),
+        matching: find.text('Old'),
+      ),
+      findsNothing,
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SimpleDialog),
+        matching: find.text('Work'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(api.groupAssignments, hasLength(1));
+    expect(api.groupAssignments.single.ids, ['c1', 'c2']);
+    expect(api.groupAssignments.single.groupId, 'g1');
   });
 
   testWidgets('deleting the open conversation resets the thread', (

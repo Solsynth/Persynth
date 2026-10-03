@@ -2488,7 +2488,13 @@ class _GroupChoice {
   final String? groupId;
 }
 
-/// The account's threads, with the group filter and the group sheet on top.
+/// The key of the collapsible tile that holds the archived groups.
+const String _archivedSectionKey = '__archived__';
+
+/// What a group tile's overflow menu asked for.
+enum _GroupAction { rename, archive, unarchive, delete }
+
+/// The account's threads, with collapsible group tiles entwined in the list.
 ///
 /// Selection is local to this widget: the wide-screen panel and the sheet each
 /// hold their own, and both feed the same controller when a thread is opened.
@@ -2525,33 +2531,68 @@ class _ConversationList extends HookConsumerWidget {
             : agent.name.trim(),
     };
 
-    // `null` = every thread, `''` = ungrouped, otherwise a group id. The loaded
-    // page is filtered here rather than on the server.
-    final filter = useState<String?>(null);
+    final activeGroups = [
+      for (final group in groups)
+        if (!group.archived) group,
+    ];
+    final archivedGroups = [
+      for (final group in groups)
+        if (group.archived) group,
+    ];
+
+    // The loaded page is split here rather than on the server: each group's
+    // threads, and the ones no (known) group holds.
+    final grouped = <String, List<SnPersonalityConversation>>{};
+    final ungrouped = <SnPersonalityConversation>[];
+    for (final conversation in conversations) {
+      final id = conversation.groupId;
+      if (id != null && groupNames.containsKey(id)) {
+        (grouped[id] ??= []).add(conversation);
+      } else {
+        ungrouped.add(conversation);
+      }
+    }
+
     final selected = useState<Set<String>>(const <String>{});
     final selecting = selected.value.isNotEmpty;
 
-    // A group deleted under the filter leaves the list on "All" rather than on
-    // a chip that no longer exists.
-    useEffect(() {
-      final id = filter.value;
-      if (id != null && id.isNotEmpty && !groupNames.containsKey(id)) {
-        filter.value = null;
-      }
-      return null;
-    }, [groups]);
+    // Expanded sections, keyed by group id; `_archivedSectionKey` is the tile
+    // that holds the archived groups. Every section starts collapsed.
+    final expanded = useState<Set<String>>(const <String>{});
 
-    final visible = switch (filter.value) {
-      null => conversations,
-      '' => [
-        for (final conversation in conversations)
-          if (conversation.groupId == null) conversation,
-      ],
-      final id => [
-        for (final conversation in conversations)
-          if (conversation.groupId == id) conversation,
-      ],
-    };
+    void toggleSection(String key) {
+      final next = Set<String>.of(expanded.value);
+      if (!next.add(key)) next.remove(key);
+      expanded.value = next;
+    }
+
+    // The group holding the open thread opens itself, and so does the archived
+    // tile when that thread lives in an archived group.
+    useEffect(() {
+      String? openGroupId;
+      for (final conversation in conversations) {
+        if (conversation.id == activeId) {
+          openGroupId = conversation.groupId;
+          break;
+        }
+      }
+      if (openGroupId == null) return null;
+      SnConversationGroup? openGroup;
+      for (final group in groups) {
+        if (group.id == openGroupId) {
+          openGroup = group;
+          break;
+        }
+      }
+      if (openGroup == null) return null;
+      final next = Set<String>.of(expanded.value);
+      var changed = next.add(openGroup.id);
+      if (openGroup.archived) {
+        changed = next.add(_archivedSectionKey) || changed;
+      }
+      if (changed) expanded.value = next;
+      return null;
+    }, [activeId, groups, conversations]);
 
     // Both providers feed this list, so every mutation refetches both, and the
     // selection never survives one.
@@ -2574,7 +2615,7 @@ class _ConversationList extends HookConsumerWidget {
     }
 
     Future<void> moveToGroup(List<String> ids) async {
-      final choice = await _pickConversationGroup(context, groups);
+      final choice = await _pickConversationGroup(context, activeGroups);
       if (choice == null) return;
       await assignGroup(ids, choice.groupId);
     }
@@ -2583,8 +2624,11 @@ class _ConversationList extends HookConsumerWidget {
       final many = ids.length > 1;
       final confirmed = await _confirmDialog(
         context,
-        title: many ? 'Delete ${ids.length} conversations?' : 'Delete conversation?',
-        message: 'The threads and their messages are removed. What the agent '
+        title: many
+            ? 'Delete ${ids.length} conversations?'
+            : 'Delete conversation?',
+        message:
+            'The threads and their messages are removed. What the agent '
             'learned in them stays in memory.',
         confirmLabel: 'Delete',
       );
@@ -2624,6 +2668,87 @@ class _ConversationList extends HookConsumerWidget {
       }
     }
 
+    // Group mutations refetch both providers and drop the selection, exactly as
+    // the row mutations do; only the success line differs.
+    Future<void> runGroupMutation(
+      Future<void> Function() action,
+      String success,
+    ) async {
+      try {
+        await action();
+        if (!context.mounted) return;
+        refresh();
+        showSnackBar(success);
+      } catch (e) {
+        showSnackBar(personalityErrorMessage(e));
+      }
+    }
+
+    void setGroupArchived(SnConversationGroup group, bool archived) {
+      final api = ref.read(personalityApiProvider);
+      runGroupMutation(
+        () => api.updateConversationGroup(group.id, archived: archived),
+        archived ? 'Archived — its memories stay pinned' : 'Group restored',
+      );
+    }
+
+    Future<void> renameGroup(SnConversationGroup group) async {
+      final name = await _promptGroupName(
+        context,
+        title: 'Rename group',
+        initial: group.name,
+      );
+      if (name == null) return;
+      final api = ref.read(personalityApiProvider);
+      await runGroupMutation(
+        () => api.updateConversationGroup(group.id, name: name),
+        'Group renamed',
+      );
+    }
+
+    Future<void> deleteGroup(SnConversationGroup group) async {
+      final confirmed = await _confirmDialog(
+        context,
+        title: 'Delete ${group.name}?',
+        message:
+            'Its conversations stay; they become ungrouped. Memories the '
+            'group pinned stop being pinned.',
+        confirmLabel: 'Delete',
+      );
+      if (confirmed != true) return;
+      final api = ref.read(personalityApiProvider);
+      await runGroupMutation(
+        () => api.deleteConversationGroup(group.id),
+        'Group deleted',
+      );
+    }
+
+    Future<void> createGroup() async {
+      final name = await _promptGroupName(context, title: 'New group');
+      if (name == null) return;
+      final api = ref.read(personalityApiProvider);
+      await runGroupMutation(
+        () => api.createConversationGroup(name: name),
+        'Group created',
+      );
+    }
+
+    Future<void> runGroupAction(
+      _GroupAction action,
+      SnConversationGroup group,
+    ) async {
+      switch (action) {
+        case _GroupAction.rename:
+          await renameGroup(group);
+        case _GroupAction.archive:
+          setGroupArchived(group, true);
+        case _GroupAction.unarchive:
+          setGroupArchived(group, false);
+        case _GroupAction.delete:
+          await deleteGroup(group);
+      }
+    }
+
     final Widget body;
     if (error != null) {
       body = Center(
@@ -2647,103 +2772,109 @@ class _ConversationList extends HookConsumerWidget {
           ),
         ),
       );
-    } else if (visible.isEmpty) {
+    } else if (loading && conversations.isEmpty && groups.isEmpty) {
       body = Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: loading
-              ? const CircularProgressIndicator()
-              : Text(
-                  conversations.isEmpty
-                      ? 'No conversations yet'
-                      : 'No conversations in this group',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
+          child: const CircularProgressIndicator(),
         ),
       );
     } else {
-      body = ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        itemCount: visible.length,
-        itemBuilder: (context, index) {
-          final conversation = visible[index];
-          final inSelection = selected.value.contains(conversation.id);
-          final active = conversation.id == activeId;
-          final title = conversation.title.trim();
-          final groupId = conversation.groupId;
-          final groupName = groupId == null ? null : groupNames[groupId];
-          final lastMessageAt = conversation.lastMessageAt;
+      // One row, flat or indented under the group that claims it.
+      Widget row(SnPersonalityConversation conversation, {double indent = 0}) {
+        final inSelection = selected.value.contains(conversation.id);
+        final active = conversation.id == activeId;
+        final title = conversation.title.trim();
+        final groupId = conversation.groupId;
+        final groupName = groupId == null ? null : groupNames[groupId];
+        final lastMessageAt = conversation.lastMessageAt;
 
-          void toggle() {
-            final next = Set<String>.of(selected.value);
-            if (!next.add(conversation.id)) next.remove(conversation.id);
-            selected.value = next;
-          }
+        void toggle() {
+          final next = Set<String>.of(selected.value);
+          if (!next.add(conversation.id)) next.remove(conversation.id);
+          selected.value = next;
+        }
 
-          return Material(
-            color: inSelection
-                ? scheme.primaryContainer.withValues(alpha: 0.5)
-                : active
-                ? scheme.secondaryContainer.withValues(alpha: 0.55)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: selecting ? toggle : () => onSelect(conversation.id),
-              onLongPress: selecting
-                  ? null
-                  : () =>
-                        selected.value = {...selected.value, conversation.id},
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title.isEmpty ? 'Untitled' : title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.1,
-                              height: 1.2,
+        final tile = Material(
+          color: inSelection
+              ? scheme.primaryContainer.withValues(alpha: 0.5)
+              : active
+              ? scheme.secondaryContainer.withValues(alpha: 0.55)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: selecting ? toggle : () => onSelect(conversation.id),
+            onLongPress: selecting
+                ? null
+                : () => selected.value = {...selected.value, conversation.id},
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title.isEmpty ? 'Untitled' : title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.1,
+                            height: 1.2,
+                          ),
+                        ),
+                      ),
+                      if (lastMessageAt != null) ...[
+                        const Gap(8),
+                        Text(
+                          _formatRelative(lastMessageAt),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant.withValues(
+                              alpha: 0.85,
+                            ),
+                            fontWeight: FontWeight.w500,
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
+                      if (!selecting)
+                        _ConversationRowMenu(
+                          grouped: groupId != null,
+                          onSelected: (action) =>
+                              runRowAction(action, conversation),
+                        ),
+                    ],
+                  ),
+                  const Gap(3),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          agentNames[conversation.agentId] ?? 'Conversation',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant.withValues(
+                              alpha: 0.85,
                             ),
                           ),
                         ),
-                        if (lastMessageAt != null) ...[
-                          const Gap(8),
-                          Text(
-                            _formatRelative(lastMessageAt),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: scheme.onSurfaceVariant.withValues(
-                                alpha: 0.85,
-                              ),
-                              fontWeight: FontWeight.w500,
-                              height: 1.2,
-                            ),
-                          ),
-                        ],
-                        if (!selecting)
-                          _ConversationRowMenu(
-                            grouped: groupId != null,
-                            onSelected: (action) =>
-                                runRowAction(action, conversation),
-                          ),
-                      ],
-                    ),
-                    const Gap(3),
-                    Row(
-                      children: [
+                      ),
+                      if (groupName != null) ...[
+                        const Gap(6),
+                        Icon(
+                          Symbols.folder_rounded,
+                          size: 12,
+                          color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                        ),
+                        const Gap(3),
                         Flexible(
                           child: Text(
-                            agentNames[conversation.agentId] ?? 'Conversation',
+                            groupName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
@@ -2753,37 +2884,176 @@ class _ConversationList extends HookConsumerWidget {
                             ),
                           ),
                         ),
-                        if (groupName != null) ...[
-                          const Gap(6),
-                          Icon(
-                            Symbols.folder_rounded,
-                            size: 12,
-                            color: scheme.onSurfaceVariant.withValues(
-                              alpha: 0.7,
-                            ),
-                          ),
-                          const Gap(3),
-                          Flexible(
-                            child: Text(
-                              groupName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: scheme.onSurfaceVariant.withValues(
-                                  alpha: 0.85,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
                       ],
-                    ),
-                  ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        return indent == 0
+            ? tile
+            : Padding(
+                padding: EdgeInsets.only(left: indent),
+                child: tile,
+              );
+      }
+
+      // A group tile: tapping it folds its conversations in and out. The
+      // overflow menu renames, archives and deletes it.
+      Widget groupTile(SnConversationGroup group, {double indent = 0}) {
+        final isExpanded = expanded.value.contains(group.id);
+        final description = group.description.trim();
+        final tile = ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          leading: Icon(
+            isExpanded ? Symbols.folder_open_rounded : Symbols.folder_rounded,
+            color: scheme.onSurfaceVariant,
+          ),
+          title: Text(
+            group.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            description.isNotEmpty
+                ? description
+                : group.conversationCount == 1
+                ? '1 conversation'
+                : '${group.conversationCount} conversations',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          trailing: PopupMenuButton<_GroupAction>(
+            tooltip: 'Group actions',
+            icon: const Icon(Symbols.more_vert),
+            onSelected: (action) => runGroupAction(action, group),
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: _GroupAction.rename,
+                child: Text('Rename'),
+              ),
+              PopupMenuItem(
+                value: group.archived
+                    ? _GroupAction.unarchive
+                    : _GroupAction.archive,
+                child: Text(group.archived ? 'Unarchive' : 'Archive'),
+              ),
+              const PopupMenuItem(
+                value: _GroupAction.delete,
+                child: Text('Delete'),
+              ),
+            ],
+          ),
+          onTap: () => toggleSection(group.id),
+        );
+        return indent == 0
+            ? tile
+            : Padding(
+                padding: EdgeInsets.only(left: indent),
+                child: tile,
+              );
+      }
+
+      // The muted tile that gathers every archived group, itself collapsible.
+      Widget archivedTile() {
+        final isExpanded = expanded.value.contains(_archivedSectionKey);
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          leading: Icon(
+            isExpanded ? Symbols.folder_open_rounded : Symbols.folder_rounded,
+            color: scheme.onSurfaceVariant,
+          ),
+          title: Text(
+            'Archived',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          subtitle: Text(
+            archivedGroups.length == 1
+                ? '1 group'
+                : '${archivedGroups.length} groups',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          onTap: () => toggleSection(_archivedSectionKey),
+        );
+      }
+
+      Widget newGroupTile() => ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+        leading: Icon(Symbols.create_new_folder_rounded, color: scheme.primary),
+        title: Text(
+          'New group',
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: scheme.primary,
+          ),
+        ),
+        onTap: () => createGroup(),
+      );
+
+      List<SnPersonalityConversation> inGroup(String id) =>
+          grouped[id] ?? const <SnPersonalityConversation>[];
+
+      body = ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        children: [
+          if (conversations.isEmpty && groups.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                'No conversations yet',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
             ),
-          );
-        },
+          for (final group in activeGroups) ...[
+            groupTile(group),
+            if (expanded.value.contains(group.id))
+              for (final conversation in inGroup(group.id))
+                row(conversation, indent: 16),
+          ],
+          if (activeGroups.isEmpty)
+            for (final conversation in ungrouped) row(conversation)
+          else ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: Text(
+                'Ungrouped',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.9),
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.4,
+                ),
+              ),
+            ),
+            for (final conversation in ungrouped) row(conversation),
+          ],
+          if (archivedGroups.isNotEmpty) ...[
+            archivedTile(),
+            if (expanded.value.contains(_archivedSectionKey))
+              for (final group in archivedGroups) ...[
+                groupTile(group, indent: 16),
+                if (expanded.value.contains(group.id))
+                  for (final conversation in inGroup(group.id))
+                    row(conversation, indent: 32),
+              ],
+          ],
+          if (!selecting) newGroupTile(),
+        ],
       );
     }
 
@@ -2823,46 +3093,6 @@ class _ConversationList extends HookConsumerWidget {
               ),
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
-          child: Row(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      ChoiceChip(
-                        label: const Text('All'),
-                        selected: filter.value == null,
-                        onSelected: (_) => filter.value = null,
-                      ),
-                      const Gap(6),
-                      for (final group in groups) ...[
-                        ChoiceChip(
-                          label: Text(group.name),
-                          selected: filter.value == group.id,
-                          onSelected: (_) => filter.value = group.id,
-                        ),
-                        const Gap(6),
-                      ],
-                      ChoiceChip(
-                        label: const Text('Ungrouped'),
-                        selected: filter.value == '',
-                        onSelected: (_) => filter.value = '',
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Manage groups',
-                onPressed: () => showConversationGroupsSheet(context),
-                icon: const Icon(Symbols.create_new_folder_rounded),
-              ),
-            ],
-          ),
-        ),
         const Divider(height: 1),
         Expanded(child: body),
       ],
@@ -2899,161 +3129,6 @@ class _ConversationRowMenu extends StatelessWidget {
   }
 }
 
-/// The sheet where groups are created, renamed and deleted.
-Future<void> showConversationGroupsSheet(BuildContext context) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (sheetContext) => SheetScaffold(
-      titleText: 'Groups',
-      onClose: () => Navigator.of(sheetContext).pop(),
-      child: const _ManageGroupsSheet(),
-    ),
-  );
-}
-
-class _ManageGroupsSheet extends HookConsumerWidget {
-  const _ManageGroupsSheet();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final groupsAsync = ref.watch(personalityConversationGroupsProvider);
-    final groups = groupsAsync.value ?? const <SnConversationGroup>[];
-    final busy = useState(false);
-
-    void refresh() {
-      ref.invalidate(personalityConversationGroupsProvider);
-      ref.invalidate(personalityConversationsProvider);
-    }
-
-    Future<void> run(Future<void> Function() action, String success) async {
-      if (busy.value) return;
-      busy.value = true;
-      try {
-        await action();
-        if (!context.mounted) return;
-        refresh();
-        showSnackBar(success);
-      } catch (e) {
-        showSnackBar(personalityErrorMessage(e));
-      } finally {
-        busy.value = false;
-      }
-    }
-
-    Future<void> create() async {
-      final name = await _promptGroupName(context, title: 'New group');
-      if (name == null) return;
-      final api = ref.read(personalityApiProvider);
-      await run(() async {
-        await api.createConversationGroup(name: name);
-      }, 'Group created');
-    }
-
-    Future<void> rename(SnConversationGroup group) async {
-      final name = await _promptGroupName(
-        context,
-        title: 'Rename group',
-        initial: group.name,
-      );
-      if (name == null) return;
-      final api = ref.read(personalityApiProvider);
-      await run(() async {
-        await api.updateConversationGroup(group.id, name: name);
-      }, 'Group renamed');
-    }
-
-    Future<void> remove(SnConversationGroup group) async {
-      final confirmed = await _confirmDialog(
-        context,
-        title: 'Delete ${group.name}?',
-        message: 'Its conversations stay; they become ungrouped. Memories the '
-            'group pinned stop being pinned.',
-        confirmLabel: 'Delete',
-      );
-      if (confirmed != true) return;
-      final api = ref.read(personalityApiProvider);
-      await run(() async {
-        await api.deleteConversationGroup(group.id);
-      }, 'Group deleted');
-    }
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Groups mark the conversations that matter: what the agent '
-                  'learns in them is kept.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              const Gap(8),
-              FilledButton.icon(
-                onPressed: busy.value ? null : create,
-                icon: const Icon(Symbols.add),
-                label: const Text('New group'),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: groups.isEmpty
-              ? Center(
-                  child: Text(
-                    'No groups yet',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                )
-              : ListView(
-                  children: [
-                    for (final group in groups)
-                      ListTile(
-                        title: Text(group.name),
-                        subtitle: Text(
-                          group.description.trim().isEmpty
-                              ? _groupCountLabel(group.conversationCount)
-                              : '${group.description.trim()}\n'
-                                    '${_groupCountLabel(group.conversationCount)}',
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Rename',
-                              onPressed: busy.value
-                                  ? null
-                                  : () => rename(group),
-                              icon: const Icon(Symbols.edit),
-                            ),
-                            IconButton(
-                              tooltip: 'Delete',
-                              onPressed: busy.value
-                                  ? null
-                                  : () => remove(group),
-                              icon: const Icon(Symbols.delete_outline),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-        ),
-      ],
-    );
-  }
-}
-
 /// The move-to-group picker: each group, plus the choice to ungroup. A null
 /// result means the reader dismissed it without choosing.
 Future<_GroupChoice?> _pickConversationGroup(
@@ -3071,18 +3146,13 @@ Future<_GroupChoice?> _pickConversationGroup(
             child: Text(group.name),
           ),
         SimpleDialogOption(
-          onPressed: () =>
-              Navigator.of(context).pop(const _GroupChoice(null)),
+          onPressed: () => Navigator.of(context).pop(const _GroupChoice(null)),
           child: const Text('Ungrouped'),
         ),
       ],
     ),
   );
 }
-
-/// How many live conversations a group holds, as a sheet line.
-String _groupCountLabel(int count) =>
-    count == 1 ? '1 conversation' : '$count conversations';
 
 /// Asks for a group name, returning the trimmed text or null when cancelled.
 Future<String?> _promptGroupName(

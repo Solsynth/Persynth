@@ -71,13 +71,18 @@ from it stays in the memory store, which is its own explicit action
 (`DELETE /personality/agents/:id/memories`).
 
 Groups (`/personality/conversation-groups`) are named collections the account
-owns, at most one per conversation, and the filter chips over the list. They
-are also the mark of the conversations that matter: what the companion learns
-while talking in a grouped thread is pinned in the memory store, injected into
-every later run outside the long-term budget and named by its group. Filing an
-existing conversation under a group pins what it has already taught. Deleting a
-group ungroups its conversations and releases that retention; the memories stay
-active, they simply go back to competing for the budget.
+owns, at most one per conversation, and appear inside the list itself as
+collapsible tiles — the accounts with no groups see the plain list. A tile
+starts folded and opens on a tap to show its conversations; its menu renames,
+archives and deletes it. They are also the mark of the conversations that
+matter: what the companion learns while talking in a grouped thread is pinned
+in the memory store, injected into every later run outside the long-term budget
+and named by its group. Filing an existing conversation under a group pins what
+it has already taught. Archiving a group takes it and its conversations out of
+the list and gathers it under an `Archived` tile, while the retention stays in
+force and unarchiving restores it. Deleting a group ungroups its conversations
+and releases that retention; the memories stay active, they simply go back to
+competing for the budget.
 
 The app passes the refreshed Solar Network user access token to Personality
 Core; it never asks for a separate Personality Core token.

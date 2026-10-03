@@ -114,12 +114,18 @@ class SnConversationGroup {
   final String id;
   final String name;
   final String description;
+
+  /// Whether the group has been archived: it and its conversations leave the
+  /// main list, but the retention it granted is untouched.
+  final bool archived;
+
   final int conversationCount;
 
   const SnConversationGroup({
     required this.id,
     required this.name,
     this.description = '',
+    this.archived = false,
     this.conversationCount = 0,
   });
 
@@ -129,6 +135,7 @@ class SnConversationGroup {
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       description: json['description']?.toString() ?? '',
+      archived: json['archived'] == true,
       conversationCount: count is int
           ? count
           : int.tryParse(count?.toString() ?? '') ?? 0,
@@ -805,19 +812,17 @@ class PersonalityApi {
     return SnConversationGroup.fromJson(Map<String, dynamic>.from(data));
   }
 
-  /// Renames a group and/or replaces its description. Omitted fields are left
-  /// alone; the server needs at least one of them.
+  /// Renames a group, replaces its description, and/or archives it. Omitted
+  /// fields are left alone; the server needs at least one of them.
   Future<SnConversationGroup> updateConversationGroup(
     String id, {
     String? name,
     String? description,
+    bool? archived,
   }) async {
     final resp = await _client.patch(
       '/personality/conversation-groups/${Uri.encodeComponent(id)}',
-      data: {
-        'name': ?name,
-        'description': ?description,
-      },
+      data: {'name': ?name, 'description': ?description, 'archived': ?archived},
     );
     final data = resp.data;
     if (data is! Map) {
