@@ -20,6 +20,7 @@ import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/screens/settings_page.dart';
 import 'package:persynth/theme/app_theme.dart';
+import 'package:persynth/widgets/media_lightbox.dart';
 
 const _agent = SnPersonalityAgent(id: 'a1', name: 'Michan', enabled: true);
 
@@ -1021,6 +1022,87 @@ void main() {
     // A restored thread has ids and nothing else, so the picture has to come
     // from the drive — and it does, with the account's own token.
     expect(_drivePictures('file-1'), findsOneWidget);
+  });
+
+  testWidgets('a queued picture opens in the viewer off the strip', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi();
+    final drive = _FakeDrive();
+    await _pumpConversationPage(tester, api, drive: drive);
+
+    _chatOf(tester).queueImages(const [
+      InsightPickedImage(name: 'pet.png', path: kTestImagePath),
+    ]);
+    await tester.pump();
+    drive.finish(kTestImagePath, id: 'file-1');
+    await tester.pump();
+
+    await tester.tap(_filePictures(kTestImagePath));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MediaLightbox), findsOneWidget);
+    expect(find.text('pet.png'), findsWidgets);
+  });
+
+  testWidgets('a sent picture opens in the viewer, and escape leaves it', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi();
+    final drive = _FakeDrive();
+    await _pumpConversationPage(tester, api, drive: drive);
+
+    _chatOf(tester).queueImages(const [
+      InsightPickedImage(name: 'pet.png', path: kTestImagePath),
+    ]);
+    await tester.pump();
+    drive.finish(kTestImagePath, id: 'file-1');
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+
+    await tester.tap(_filePictures(kTestImagePath));
+    await tester.pumpAndSettle();
+
+    // The viewer opens on the file the bubble is showing, under its name.
+    expect(find.byType(MediaLightbox), findsOneWidget);
+    expect(find.text('pet.png'), findsWidgets);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(MediaLightbox), findsNothing);
+    expect(find.text('pet.png'), findsNothing);
+  });
+
+  testWidgets('a linked picture opens from the drive, token and all', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi();
+    final drive = _FakeDrive(
+      files: const [
+        PersonalityDriveFile(
+          id: 'drive-9',
+          name: 'sunset.png',
+          mimeType: 'image/png',
+        ),
+      ],
+    );
+    await _pumpConversationPage(tester, api, drive: drive);
+
+    await tester.tap(find.byIcon(Symbols.attach_file_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('sunset.png'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(_drivePictures('drive-9'));
+    await tester.pumpAndSettle();
+
+    // A linked file has nothing on this device, so the viewer asks the drive
+    // for it with the account's own token.
+    expect(find.byType(MediaLightbox), findsOneWidget);
+    expect(find.text('sunset.png'), findsWidgets);
+    expect(_drivePictures('drive-9'), findsWidgets);
   });
 
   testWidgets('taking a tile back aborts its upload', (tester) async {

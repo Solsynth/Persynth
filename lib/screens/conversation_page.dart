@@ -22,6 +22,7 @@ import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/theme/app_theme.dart';
 import 'package:persynth/widgets/drive_image.dart';
+import 'package:persynth/widgets/media_lightbox.dart';
 import 'package:persynth/widgets/message_markdown.dart';
 
 /// Insight: a live conversation with a personality agent, with the account's
@@ -640,8 +641,79 @@ class _BubbleRow extends StatelessWidget {
   }
 }
 
+/// The [Hero] tags pictures travel under, split by the surface they were
+/// tapped on: the same attachment can sit on the composer's strip and in the
+/// sent bubble within one frame, and tags have to stay unique per route.
+const String _kStripSurface = 'strip';
+const String _kBubbleSurface = 'sent';
+
+/// The pictures of [attachments] a lightbox can show, in the order they ride
+/// the turn, each pinned to the tag its thumbnail carries.
+///
+/// A picture is read from the file on this device while the device still has
+/// it, and from the drive otherwise — the same choice the tile makes, made
+/// again here so the viewer opens on the bytes the reader was looking at. An
+/// attachment with neither is left out: an upload that has not come back has
+/// nothing to show yet.
+List<MediaLightboxItem> _lightboxImages(
+  List<InsightAttachment> attachments, {
+  required String surface,
+  required String? token,
+  required String driveBaseUrl,
+}) {
+  final bearer = token?.trim() ?? '';
+  final items = <MediaLightboxItem>[];
+  for (final attachment in attachments) {
+    if (attachment.isText) continue;
+    final path = attachment.localPath?.trim() ?? '';
+    final fileId = attachment.fileId?.trim() ?? '';
+    final ImageProvider? provider;
+    if (path.isNotEmpty && !kIsWeb && File(path).existsSync()) {
+      provider = FileImage(File(path));
+    } else if (fileId.isNotEmpty && bearer.isNotEmpty) {
+      provider = NetworkImage(
+        PersonalityCoreService.driveFileUrl(driveBaseUrl, fileId),
+        headers: {'Authorization': 'Bearer $bearer'},
+      );
+    } else {
+      provider = null;
+    }
+    if (provider == null) continue;
+    items.add(
+      MediaLightboxItem(
+        provider: provider,
+        name: attachment.name,
+        heroTag: '$surface:${attachment.id}',
+      ),
+    );
+  }
+  return items;
+}
+
+/// Opens [attachments] in the lightbox at the picture [attachmentId] names,
+/// growing out of the thumbnail carrying that surface's tag.
+void _openAttachmentLightbox(
+  BuildContext context,
+  WidgetRef ref, {
+  required List<InsightAttachment> attachments,
+  required String surface,
+  required int attachmentId,
+}) {
+  final items = _lightboxImages(
+    attachments,
+    surface: surface,
+    token: ref.read(solarAccessTokenProvider).value,
+    driveBaseUrl: ref.read(personalityDriveBaseUrlProvider),
+  );
+  final index = items.indexWhere(
+    (item) => item.heroTag == '$surface:$attachmentId',
+  );
+  if (index < 0) return;
+  showMediaLightbox(context, items: items, initialIndex: index);
+}
+
 /// User turn, styled like the chat room's own bubbles.
-class _UserBubble extends StatelessWidget {
+class _UserBubble extends ConsumerWidget {
   const _UserBubble({required this.bubble});
 
   /// The square a sent image is shown in — the same one the composer's strip
@@ -651,7 +723,7 @@ class _UserBubble extends StatelessWidget {
   final InsightBubble bubble;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -679,12 +751,29 @@ class _UserBubble extends StatelessWidget {
                           if (attachment.isText)
                             _TextAttachmentChip(attachment: attachment)
                           else
-                            SizedBox.square(
-                              dimension: _sentImageSize,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: _AttachmentPicture(
-                                  attachment: attachment,
+                            Tooltip(
+                              message: attachment.name,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => _openAttachmentLightbox(
+                                  context,
+                                  ref,
+                                  attachments: bubble.attachments,
+                                  surface: _kBubbleSurface,
+                                  attachmentId: attachment.id,
+                                ),
+                                child: SizedBox.square(
+                                  dimension: _sentImageSize,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Hero(
+                                      tag:
+                                          '$_kBubbleSurface:${attachment.id}',
+                                      child: _AttachmentPicture(
+                                        attachment: attachment,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
@@ -1274,6 +1363,13 @@ class _Composer extends ConsumerWidget {
                         separatorBuilder: (_, _) => const Gap(8),
                         itemBuilder: (context, index) => _PendingAttachment(
                           attachment: attachments[index],
+                          onOpen: () => _openAttachmentLightbox(
+                            context,
+                            ref,
+                            attachments: attachments,
+                            surface: _kStripSurface,
+                            attachmentId: attachments[index].id,
+                          ),
                           onRemove: onRemoveAttachment == null
                               ? null
                               : () => onRemoveAttachment!(index),
@@ -1680,6 +1776,7 @@ class _PendingAttachment extends StatelessWidget {
     required this.onRemove,
     this.onEdit,
     this.onRetry,
+    this.onOpen,
   });
 
   /// The tile's height, and the width of an image in it.
@@ -1696,6 +1793,10 @@ class _PendingAttachment extends StatelessWidget {
   /// still queued, so the way out is next to the problem.
   final VoidCallback? onRetry;
 
+  /// Opens the picture in the lightbox. Null for a text attachment, which has
+  /// no picture to open.
+  final VoidCallback? onOpen;
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -1709,6 +1810,7 @@ class _PendingAttachment extends StatelessWidget {
                 : _ImageAttachmentTile(
                     attachment: attachment,
                     onRetry: onRetry,
+                    onOpen: onOpen,
                   ),
           ),
           Positioned(
@@ -1745,10 +1847,18 @@ class _PendingAttachment extends StatelessWidget {
 /// upload draws on top: how far it has got while it goes, and a retry once it
 /// has failed.
 class _ImageAttachmentTile extends StatelessWidget {
-  const _ImageAttachmentTile({required this.attachment, this.onRetry});
+  const _ImageAttachmentTile({
+    required this.attachment,
+    this.onRetry,
+    this.onOpen,
+  });
 
   final InsightAttachment attachment;
   final VoidCallback? onRetry;
+
+  /// Opens the picture in the lightbox, which is what a tap on a tile that is
+  /// not asking to be retried does.
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -1766,7 +1876,7 @@ class _ImageAttachmentTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: failed ? onRetry : null,
+          onTap: failed ? onRetry : onOpen,
           child: Container(
             decoration: failed
                 ? BoxDecoration(
@@ -1777,7 +1887,10 @@ class _ImageAttachmentTile extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _AttachmentPicture(attachment: attachment),
+                Hero(
+                  tag: '$_kStripSurface:${attachment.id}',
+                  child: _AttachmentPicture(attachment: attachment),
+                ),
                 if (attachment.isUploading)
                   _UploadProgressOverlay(progress: attachment.progress),
                 if (failed)
