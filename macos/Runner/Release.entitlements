@@ -6,6 +6,12 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- file_picker's macOS handler asserts one of the user-selected file
+	     access entitlements before opening NSOpenPanel; without it every
+	     pick fails with PlatformException(ENTITLEMENT_NOT_FOUND). Read-only
+	     matches what the app does with the result: read and upload it. -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
 	<key>keychain-access-groups</key>
 	<array/>
 </dict>

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -15,9 +16,12 @@ import 'package:persynth/auth/solar_auth_controller.dart';
 import 'package:persynth/auth/solar_sign_in_panel.dart';
 import 'package:persynth/personality/insight_chat_controller.dart';
 import 'package:persynth/personality/personality_api.dart';
+import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/personality/personality_service.dart';
 import 'package:persynth/personality/reasoning_settings.dart';
 import 'package:persynth/router.dart';
 import 'package:persynth/theme/app_theme.dart';
+import 'package:persynth/widgets/drive_image.dart';
 import 'package:persynth/widgets/message_markdown.dart';
 
 /// Insight: a live conversation with a personality agent, with the account's
@@ -137,6 +141,26 @@ class ConversationPage extends HookConsumerWidget {
       ]);
     }
 
+    /// Opens the attach sheet and carries out what it hands back: a file the
+    /// drive already holds is linked by id, and nothing leaves this device; the
+    /// reader's own device is a pick, which uploads as it always has.
+    Future<void> attach() async {
+      final selection = await showModalBottomSheet<_AttachSelection>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (sheetContext) =>
+            _AttachmentSheet(onClose: () => Navigator.of(sheetContext).pop()),
+      );
+      if (selection == null || !context.mounted) return;
+      final file = selection.file;
+      if (file == null) {
+        await pickAttachments();
+        return;
+      }
+      controller.linkCloudFile(fileId: file.id, name: file.displayName);
+    }
+
     // On a narrow screen there is no room for a docked panel, so the thread
     // list becomes an on-demand sheet. It is opened with Flutter's own bottom
     // sheet rather than the sidebar's: `ResponsiveSidebar` builds its sheet on
@@ -185,6 +209,7 @@ class ConversationPage extends HookConsumerWidget {
               : _InsightThread(
                   bubbles: chat.bubbles,
                   agentName: agentName,
+                  busy: chat.busy,
                   onToggleTrace: controller.toggleTrace,
                 ),
         ),
@@ -199,7 +224,7 @@ class ConversationPage extends HookConsumerWidget {
             onSend: handleSend,
             onStop: controller.stop,
             onInputChanged: handleInputChanged,
-            onPickAttachments: pickAttachments,
+            onAttach: attach,
             onEditAttachment: chat.busy ? null : editTextAttachment,
             onRemoveAttachment: chat.busy
                 ? null
@@ -295,12 +320,25 @@ class ConversationPage extends HookConsumerWidget {
       // `openConversationsSheet`).
       body: wideScreen
           ? ResponsiveSidebar(
+              sidebarElevation: 0,
               showSidebar: showConversations,
               sidebarWidth: 320,
               minWideSidebarWidth: 260,
               maxWideSidebarWidth: 400,
               minMainContentWidth: 360,
-              mainContent: mainContent,
+              mainContent: ColoredBox(
+                color: Theme.of(context).colorScheme.surfaceContainer,
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    topRight: Radius.circular(12),
+                    topLeft: Radius.circular(12),
+                  ),
+                  child: Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    child: mainContent,
+                  ),
+                ),
+              ),
               sidebarContent: _ConversationList(
                 activeId: chat.conversationId,
                 onSelect: controller.openConversation,
@@ -513,10 +551,7 @@ class _UnauthorizedState extends StatelessWidget {
               const SolarSignInPanel(),
               if (onRetry != null) ...[
                 const Gap(8),
-                TextButton(
-                  onPressed: onRetry,
-                  child: const Text('Try again'),
-                ),
+                TextButton(onPressed: onRetry, child: const Text('Try again')),
               ],
             ],
           ),
@@ -530,11 +565,17 @@ class _InsightThread extends StatelessWidget {
   const _InsightThread({
     required this.bubbles,
     required this.agentName,
+    required this.busy,
     required this.onToggleTrace,
   });
 
   final List<InsightBubble> bubbles;
   final String agentName;
+
+  /// A turn is in flight: its rows are already streaming in, and the
+  /// indicator below them holds the assistant's slot until the turn ends.
+  final bool busy;
+
   final void Function(int index) onToggleTrace;
 
   @override
@@ -548,21 +589,29 @@ class _InsightThread extends StatelessWidget {
     }
 
     // Reversed: the newest row sits at the bottom edge, so a growing streamed
-    // reply stays in view without fighting the reader's scroll position.
+    // reply stays in view without fighting the reader's scroll position. The
+    // turn indicator is that newest row while a turn runs — one for the whole
+    // turn, not one trailing each message.
     return ListView.builder(
       reverse: true,
       padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
-      itemCount: bubbles.length,
+      itemCount: bubbles.length + (busy ? 1 : 0),
       itemBuilder: (context, index) {
-        final bubbleIndex = bubbles.length - 1 - index;
+        final Widget row;
+        if (busy && index == 0) {
+          row = const _TurnIndicator();
+        } else {
+          final bubbleIndex = bubbles.length - 1 - (busy ? index - 1 : index);
+          row = _BubbleRow(
+            bubble: bubbles[bubbleIndex],
+            onToggleTrace: () => onToggleTrace(bubbleIndex),
+          );
+        }
         return Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 760),
-            child: _BubbleRow(
-              bubble: bubbles[bubbleIndex],
-              onToggleTrace: () => onToggleTrace(bubbleIndex),
-            ),
+            child: row,
           ),
         );
       },
@@ -595,6 +644,10 @@ class _BubbleRow extends StatelessWidget {
 class _UserBubble extends StatelessWidget {
   const _UserBubble({required this.bubble});
 
+  /// The square a sent image is shown in — the same one the composer's strip
+  /// uses, so a picture looks the same before and after it is sent.
+  static const double _sentImageSize = 96;
+
   final InsightBubble bubble;
 
   @override
@@ -626,8 +679,14 @@ class _UserBubble extends StatelessWidget {
                           if (attachment.isText)
                             _TextAttachmentChip(attachment: attachment)
                           else
-                            _AttachmentThumbnail(
-                              fileId: attachment.fileId ?? '',
+                            SizedBox.square(
+                              dimension: _sentImageSize,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: _AttachmentPicture(
+                                  attachment: attachment,
+                                ),
+                              ),
                             ),
                       ],
                     ),
@@ -680,14 +739,7 @@ class _AssistantBubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
-                children: [
-                  MessageMarkdown(text: bubble.text),
-                  if (bubble.streaming)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 6),
-                      child: _BlinkingCaret(),
-                    ),
-                ],
+                children: [MessageMarkdown(text: bubble.text)],
               ),
             ),
           ),
@@ -788,19 +840,28 @@ String _contextTooltip(SnConversationUsage usage) {
   return parts.isEmpty ? 'No usage recorded yet' : parts.join('\n');
 }
 
-class _BlinkingCaret extends StatefulWidget {
-  const _BlinkingCaret();
+/// The turn in flight: the assistant's slot in the log, holding the typing
+/// dots until the turn ends — one indicator per turn, not one trailing each
+/// row, so a turn that reasons, calls tools and then answers reads as one
+/// continuous piece of work.
+///
+/// The dots are Solian's: a 1.2s cycle where each dot grows, darkens and lifts
+/// just ahead of the next, so the row ripples instead of blinking as one.
+class _TurnIndicator extends StatefulWidget {
+  const _TurnIndicator();
 
   @override
-  State<_BlinkingCaret> createState() => _BlinkingCaretState();
+  State<_TurnIndicator> createState() => _TurnIndicatorState();
 }
 
-class _BlinkingCaretState extends State<_BlinkingCaret>
+class _TurnIndicatorState extends State<_TurnIndicator>
     with SingleTickerProviderStateMixin {
+  static const _dotCount = 3;
+
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 900),
-  )..repeat(reverse: true);
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
 
   @override
   void dispose() {
@@ -808,17 +869,77 @@ class _BlinkingCaretState extends State<_BlinkingCaret>
     super.dispose();
   }
 
+  /// Where dot [index] sits in its own cycle: starts later than the dot before
+  /// it, so the phase is what moves along the row.
+  double _phase(int index, double offset) =>
+      (_controller.value - index * offset) % 1.0;
+
+  /// Size and darkness: up over the first 55% of the cycle, down over the rest.
+  double _progress(int index) {
+    final phase = _phase(index, 0.14);
+    return phase < 0.55
+        ? Curves.easeOutCubic.transform(phase / 0.55)
+        : 1 - Curves.easeInCubic.transform((phase - 0.55) / 0.45);
+  }
+
+  /// The bounce: a single pixel, offset from [index]'s size cycle.
+  double _lift(int index) {
+    final phase = _phase(index, 0.16);
+    return phase < 0.5
+        ? Curves.easeOut.transform(phase / 0.5)
+        : 1 - Curves.easeIn.transform((phase - 0.5) / 0.5);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: Tween<double>(begin: 1, end: 0.15).animate(_controller),
-      child: SizedBox(
-        width: 8,
-        height: 14,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.circular(2),
+    final scheme = Theme.of(context).colorScheme;
+    final dot = scheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Semantics(
+          label: 'Waiting for the reply',
+          child: Material(
+            color: scheme.surfaceContainer,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            // The padding lands on a one-line reply's height, so the slot the
+            // dots hold is the slot the reply will fill.
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              child: SizedBox(
+                width: 28,
+                height: 12,
+                child: AnimatedBuilder(
+                  animation: _controller,
+                  builder: (context, child) => Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(_dotCount, (index) {
+                      final progress = _progress(index);
+                      final size = 3.4 + progress * 1.8;
+                      return Transform.translate(
+                        offset: Offset(0, -_lift(index)),
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                          width: size,
+                          height: size,
+                          decoration: BoxDecoration(
+                            color: Color.lerp(
+                              dot.withValues(alpha: 0.32),
+                              dot,
+                              progress,
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -1085,7 +1206,7 @@ class _Composer extends ConsumerWidget {
     required this.onSend,
     required this.onStop,
     required this.onInputChanged,
-    required this.onPickAttachments,
+    required this.onAttach,
     required this.onEditAttachment,
     required this.onRemoveAttachment,
     required this.onRetryAttachment,
@@ -1103,7 +1224,10 @@ class _Composer extends ConsumerWidget {
   final VoidCallback onSend;
   final VoidCallback onStop;
   final ValueChanged<String> onInputChanged;
-  final VoidCallback? onPickAttachments;
+
+  /// Opens the attach sheet: a file on this device to upload, or one the drive
+  /// already holds to link.
+  final VoidCallback? onAttach;
 
   /// Opens one queued text attachment for editing.
   final void Function(int index)? onEditAttachment;
@@ -1167,10 +1291,8 @@ class _Composer extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       IconButton(
-                        tooltip: 'Attach images',
-                        onPressed: busy || onPickAttachments == null
-                            ? null
-                            : onPickAttachments,
+                        tooltip: 'Attach',
+                        onPressed: busy || onAttach == null ? null : onAttach,
                         icon: const Icon(Symbols.attach_file_rounded),
                       ),
                       Expanded(
@@ -1435,10 +1557,7 @@ class _ContextStatus extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (hasWindow) ...[
-            _ContextRing(ratio: used / window),
-            const Gap(8),
-          ],
+          if (hasWindow) ...[_ContextRing(ratio: used / window), const Gap(8)],
           Flexible(
             child: Text(
               _contextSummary(usage),
@@ -1590,7 +1709,6 @@ class _PendingAttachment extends StatelessWidget {
                 : _ImageAttachmentTile(
                     attachment: attachment,
                     onRetry: onRetry,
-                    size: _size,
                   ),
           ),
           Positioned(
@@ -1620,26 +1738,21 @@ class _PendingAttachment extends StatelessWidget {
   }
 }
 
-/// A picked image on the composer's strip, painted from the file on this device
-/// — the picture is the same before and after the upload, and a preview that
-/// had to come back over the network would be a slower, blurrier one. The
+/// A picked or linked image on the composer's strip. The picture is the file
+/// on this device while there is one — what was picked is what is shown, with
+/// no request standing between the reader and their own file — and the drive's
+/// copy once the file is only an id, which is all a linked file ever is. The
 /// upload draws on top: how far it has got while it goes, and a retry once it
 /// has failed.
 class _ImageAttachmentTile extends StatelessWidget {
-  const _ImageAttachmentTile({
-    required this.attachment,
-    required this.size,
-    this.onRetry,
-  });
+  const _ImageAttachmentTile({required this.attachment, this.onRetry});
 
   final InsightAttachment attachment;
-  final double size;
   final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final path = attachment.localPath;
     final failed = attachment.hasFailed;
     return Tooltip(
       message: failed
@@ -1664,25 +1777,7 @@ class _ImageAttachmentTile extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (path == null)
-                  _AttachmentThumbnail(fileId: attachment.fileId ?? '', size: size)
-                else if (kIsWeb)
-                  // A picked file on the web is a blob, not a path.
-                  Image.network(path, fit: BoxFit.cover)
-                else
-                  Image.file(
-                    File(path),
-                    fit: BoxFit.cover,
-                    // The tile is 60 logical pixels: painting it from a
-                    // full-resolution file would decode megabytes for a
-                    // thumbnail. This decodes at the size it is drawn at.
-                    cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))
-                        .round(),
-                    errorBuilder: (context, _, _) => _AttachmentThumbnail(
-                      fileId: attachment.fileId ?? '',
-                      size: size,
-                    ),
-                  ),
+                _AttachmentPicture(attachment: attachment),
                 if (attachment.isUploading)
                   _UploadProgressOverlay(progress: attachment.progress),
                 if (failed)
@@ -1917,26 +2012,353 @@ class _TextAttachmentDialog extends HookWidget {
   }
 }
 
-class _AttachmentThumbnail extends StatelessWidget {
-  const _AttachmentThumbnail({required this.fileId, this.size = 96});
+/// An image attachment's picture wherever it is shown — the composer's strip
+/// and a sent turn both wear it, so a picture looks the same on either side of
+/// the send.
+///
+/// The file on this device wins while there is one: it is the picture the
+/// reader picked, it costs nothing to draw, and a preview that had to come back
+/// over the network would be a slower, blurrier copy of it. What is left when
+/// there is no such file — a linked cloud file, or a turn replayed from the
+/// server — is the drive's own copy, drawn from the id.
+class _AttachmentPicture extends StatelessWidget {
+  const _AttachmentPicture({required this.attachment});
 
-  final String fileId;
-  final double size;
+  final InsightAttachment attachment;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
+    final path = attachment.localPath;
+    if (path == null || path.isEmpty) {
+      return DriveImage(fileId: attachment.fileId ?? '');
+    }
+    if (kIsWeb) {
+      // A picked file on the web is a blob, not a path.
+      return Image.network(path, fit: BoxFit.cover);
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final side = constraints.biggest.shortestSide;
+        final ratio = MediaQuery.devicePixelRatioOf(context);
+        return Image.file(
+          File(path),
+          fit: BoxFit.cover,
+          // The picture is drawn at the size of its box: painting it from a
+          // full-resolution file would decode megabytes for a thumbnail.
+          cacheWidth: side.isFinite ? (side * ratio).round() : null,
+          errorBuilder: (context, _, _) =>
+              DriveImage(fileId: attachment.fileId ?? ''),
+        );
+      },
+    );
+  }
+}
+
+/// What the attach sheet handed back: a file the drive already holds, or the
+/// reader's own device to pick one from.
+@immutable
+class _AttachSelection {
+  const _AttachSelection.device() : file = null;
+
+  const _AttachSelection.cloud(PersonalityDriveFile this.file);
+
+  /// The file to link, or null when the pick is the reader's own device.
+  final PersonalityDriveFile? file;
+}
+
+/// The attach sheet: a file on this device to upload, or one the drive already
+/// holds to link.
+///
+/// Linking is the point of the second half. A file uploaded for an earlier
+/// message is already in the drive; attaching it again would push the same
+/// bytes over the same link for a second time, so the turn references the id
+/// the file already has instead. The list is the account's own drive, newest
+/// first and searchable by name — which is how a file from months ago is found
+/// by what it was called, rather than by paging back to it — and a file the
+/// list does not show can be linked by its id.
+class _AttachmentSheet extends HookConsumerWidget {
+  const _AttachmentSheet({required this.onClose});
+
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final query = useState('');
+    // Typing is not a question: the drive is asked again once the reader has
+    // stopped, so a name typed out is one request rather than one per letter.
+    final asked = useState('');
+    useEffect(() {
+      final timer = Timer(
+        const Duration(milliseconds: 300),
+        () => asked.value = query.value,
+      );
+      return timer.cancel;
+    }, [query.value]);
+
+    final files = ref.watch(driveImageFilesProvider(asked.value));
+    final images = files.value ?? const <PersonalityDriveFile>[];
+
+    return SheetScaffold(
+      heightFactor: 0.7,
+      titleText: 'Attach',
+      onClose: onClose,
+      actions: [
+        IconButton(
+          tooltip: 'Link a file by id',
+          onPressed: () => _linkById(context, ref),
+          icon: const Icon(Symbols.tag_rounded),
+        ),
+      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ListTile(
+            leading: const Icon(Symbols.photo_library_rounded),
+            title: const Text('Photo from this device'),
+            subtitle: const Text(
+              'Upload it to the drive and send it with the message',
+            ),
+            onTap: () =>
+                Navigator.of(context).pop(const _AttachSelection.device()),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: TextField(
+              onChanged: (value) => query.value = value,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Search your drive',
+                prefixIcon: const Icon(Symbols.search_rounded, size: 18),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: files.hasError
+                ? _SheetFailure(
+                    message: personalityErrorMessage(files.error!),
+                    onRetry: () =>
+                        ref.invalidate(driveImageFilesProvider(asked.value)),
+                  )
+                : files.isLoading && !files.hasValue
+                ? const Center(child: CircularProgressIndicator())
+                : images.isEmpty
+                ? _EmptyState(
+                    icon: Symbols.image_search_rounded,
+                    title: asked.value.isEmpty
+                        ? 'No images in your drive'
+                        : 'Nothing matches “${asked.value}”',
+                    description:
+                        'A message can carry an image already in '
+                        'your drive, whatever it was uploaded for.',
+                  )
+                : GridView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 160,
+                          mainAxisSpacing: 10,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: 0.88,
+                        ),
+                    itemCount: images.length,
+                    itemBuilder: (context, index) {
+                      final file = images[index];
+                      return _CloudFileTile(
+                        file: file,
+                        onTap: () => Navigator.of(
+                          context,
+                        ).pop(_AttachSelection.cloud(file)),
+                      );
+                    },
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Text(
+              'Linked files are sent by id: nothing is uploaded again, and the '
+              'drive keeps the copy the message reads.',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
       ),
-      child: Icon(
-        Symbols.image_rounded,
-        size: size * 0.4,
-        color: scheme.onSurfaceVariant,
+    );
+  }
+
+  /// Asks the drive for the file behind an id and links it: the id the reader
+  /// pasted is resolved before it becomes an attachment, so the tile wears the
+  /// name the drive keeps rather than the paste.
+  Future<void> _linkById(BuildContext context, WidgetRef ref) async {
+    final file = await showDialog<PersonalityDriveFile>(
+      context: context,
+      builder: (_) => const _LinkByIdDialog(),
+    );
+    if (file == null || !context.mounted) return;
+    Navigator.of(context).pop(_AttachSelection.cloud(file));
+  }
+}
+
+/// One file in the attach sheet's grid: its picture, its name, and what the
+/// drive says it weighs. Tapping it links the file and closes the sheet.
+class _CloudFileTile extends StatelessWidget {
+  const _CloudFileTile({required this.file, required this.onTap});
+
+  final PersonalityDriveFile file;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final size = file.byteSize;
+    return Tooltip(
+      message: 'Link ${file.displayName}',
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: DriveImage(fileId: file.id)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      file.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium,
+                    ),
+                    if (size != null && size > 0)
+                      Text(
+                        _formatBytes(size),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontSize: 11,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The way to a file the listing does not show: the reader pastes a drive file
+/// id, the drive answers with the file it names, and that file is what gets
+/// linked.
+class _LinkByIdDialog extends HookConsumerWidget {
+  const _LinkByIdDialog();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = useTextEditingController();
+    final busy = useState(false);
+    final error = useState<String?>(null);
+
+    Future<void> link() async {
+      final id = controller.text.trim();
+      if (id.isEmpty) {
+        error.value = 'Paste the file id first.';
+        return;
+      }
+      busy.value = true;
+      error.value = null;
+      try {
+        final file = await ref
+            .read(personalityCoreServiceProvider)
+            .driveFile(
+              id,
+              driveBaseUrl: ref.read(personalityDriveBaseUrlProvider),
+            );
+        if (!context.mounted) return;
+        Navigator.of(context).pop(file);
+      } catch (e) {
+        busy.value = false;
+        error.value = personalityErrorMessage(e);
+      }
+    }
+
+    return AlertDialog(
+      title: const Text('Link a file by id'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: TextField(
+          controller: controller,
+          autofocus: true,
+          onSubmitted: (_) => link(),
+          decoration: InputDecoration(
+            labelText: 'File id',
+            helperText: 'The id from the file’s page in the drive',
+            errorText: error.value,
+            errorMaxLines: 3,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: busy.value ? null : link,
+          child: busy.value
+              ? const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Link'),
+        ),
+      ],
+    );
+  }
+}
+
+/// What a failed drive listing leaves in the sheet: why, and the retry.
+class _SheetFailure extends StatelessWidget {
+  const _SheetFailure({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Could not read your drive: $message',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            ),
+            const Gap(8),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
       ),
     );
   }
@@ -2151,6 +2573,13 @@ const int kPasteTextAttachmentChars = 1000;
   final text = after.substring(start, after.length - suffix);
   if (after.replaceRange(start, start + text.length, '') != before) return null;
   return (start: start, text: text);
+}
+
+/// A file's size as a tile can hold it: `812 B`, `12.3 kB`, `4.5 MB`.
+String _formatBytes(int bytes) {
+  if (bytes < 1000) return '$bytes B';
+  if (bytes < 1000000) return _scaled(bytes / 1000, 'kB');
+  return _scaled(bytes / 1000000, 'MB');
 }
 
 /// `812` stays `812`, `12,345` becomes `12.3k`. The same shape the context

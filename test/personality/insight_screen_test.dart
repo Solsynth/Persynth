@@ -136,6 +136,15 @@ class _StubSolarAuthNotifier extends SolarAuthNotifier {
 /// watched while it is still going up — the tile, its progress, the turn
 /// waiting on it — instead of only once it has landed.
 class _FakeDrive extends PersonalityCoreService {
+  _FakeDrive({this.files = const []});
+
+  /// What the drive listing answers with, newest first.
+  final List<PersonalityDriveFile> files;
+
+  /// Every search the picker ran, in order — the bare listing when the sheet
+  /// opens, then whatever was typed into it.
+  final List<String?> searched = [];
+
   /// Every path an upload was started for, in the order they were started.
   final List<String> started = [];
 
@@ -143,6 +152,33 @@ class _FakeDrive extends PersonalityCoreService {
   final List<String> aborted = [];
 
   final Map<String, _PendingUpload> _pending = {};
+
+  @override
+  Future<List<PersonalityDriveFile>> listDriveFiles({
+    String driveBaseUrl = PersonalityCoreService.productionDriveBaseUrl,
+    String? query,
+    int offset = 0,
+    int take = 40,
+  }) async {
+    searched.add(query);
+    final needle = query?.toLowerCase() ?? '';
+    if (needle.isEmpty) return files;
+    return [
+      for (final file in files)
+        if (file.displayName.toLowerCase().contains(needle)) file,
+    ];
+  }
+
+  @override
+  Future<PersonalityDriveFile> driveFile(
+    String fileId, {
+    String driveBaseUrl = PersonalityCoreService.productionDriveBaseUrl,
+  }) async {
+    for (final file in files) {
+      if (file.id == fileId) return file;
+    }
+    throw PersonalityCoreException('No file "$fileId" in the drive.');
+  }
 
   /// Reports progress for an upload still in flight, as a socket would.
   void reportProgress(String path, double ratio) {
@@ -195,10 +231,9 @@ class _PendingUpload {
 
 /// The chat controller behind the pumped page, for driving the pieces a test
 /// cannot pick by hand.
-InsightChatController _chatOf(WidgetTester tester) =>
-    ProviderScope.containerOf(
-      tester.element(find.byType(TextField)),
-    ).read(insightChatControllerProvider.notifier);
+InsightChatController _chatOf(WidgetTester tester) => ProviderScope.containerOf(
+  tester.element(find.byType(TextField)),
+).read(insightChatControllerProvider.notifier);
 
 /// The composer's send button, whatever it is doing at the moment.
 IconButton _sendButton(WidgetTester tester) => tester.widget<IconButton>(
@@ -212,6 +247,41 @@ IconButton _sendButton(WidgetTester tester) => tester.widget<IconButton>(
 /// say in 60 pixels.
 Finder _tooltipSaying(String text) => find.byWidgetPredicate(
   (widget) => widget is Tooltip && (widget.message ?? '').contains(text),
+);
+
+/// A real image in the repository, for the tests that need a picked file to
+/// exist on disk: `Image.file` decodes it instead of falling back.
+const kTestImagePath = 'test/fixtures/pet_image.png';
+
+/// The provider an image actually decodes with: a bounded decode wraps the
+/// real provider in a [ResizeImage], which is what a picture drawn at the size
+/// of its box always has.
+ImageProvider _decodedBy(Image image) {
+  final provider = image.image;
+  return provider is ResizeImage ? provider.imageProvider : provider;
+}
+
+/// Pictures drawn from a drive id — what a linked or replayed image wears,
+/// and what the placeholder is not.
+Finder _drivePictures(String fileId) => find.byWidgetPredicate((widget) {
+  if (widget is! Image) return false;
+  final provider = _decodedBy(widget);
+  return provider is NetworkImage &&
+      provider.url.contains('/drive/files/$fileId') &&
+      provider.headers?['Authorization'] == 'Bearer test-token';
+});
+
+/// Pictures drawn from a file on this device.
+Finder _filePictures(String path) => find.byWidgetPredicate((widget) {
+  if (widget is! Image) return false;
+  final provider = _decodedBy(widget);
+  return provider is FileImage && provider.file.path == path;
+});
+
+/// The attach sheet's search field, by the hint it carries.
+Finder _driveSearch() => find.byWidgetPredicate(
+  (widget) =>
+      widget is TextField && widget.decoration?.hintText == 'Search your drive',
 );
 
 Future<void> _pumpConversationPage(
@@ -235,6 +305,10 @@ Future<void> _pumpConversationPage(
           solarAuthStateProvider.overrideWith(
             () => _StubSolarAuthNotifier(authState),
           ),
+          // A drive preview is an `Image.network` carrying the account token,
+          // which in the app is read from the session; the test states one so
+          // the picture is asked for rather than falling back to the tile.
+          solarAccessTokenProvider.overrideWith((ref) => 'test-token'),
           if (drive != null)
             personalityCoreServiceProvider.overrideWithValue(drive),
         ],
@@ -340,8 +414,7 @@ void main() {
     expect(
       find.byWidgetPredicate(
         (widget) =>
-            widget is SelectableText &&
-            (widget.data?.contains('"q"') ?? false),
+            widget is SelectableText && (widget.data?.contains('"q"') ?? false),
       ),
       findsOneWidget,
     );
@@ -497,10 +570,7 @@ void main() {
     await tester.tap(find.text('First thread'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text('7.2k / 128k · 57.5k tok · 12 runs'),
-      findsOneWidget,
-    );
+    expect(find.text('7.2k / 128k · 57.5k tok · 12 runs'), findsOneWidget);
     // The title is the companion's name, not a ledger.
     expect(find.textContaining('tokens ·'), findsNothing);
   });
@@ -554,10 +624,7 @@ void main() {
     expect(find.text('Low'), findsOneWidget);
     expect(find.text('Medium'), findsOneWidget);
     expect(find.text('High'), findsOneWidget);
-    expect(
-      find.byTooltip('Reasoning effort: Model default'),
-      findsOneWidget,
-    );
+    expect(find.byTooltip('Reasoning effort: Model default'), findsOneWidget);
 
     await tester.tap(find.text('High'));
     await tester.pumpAndSettle();
@@ -565,9 +632,7 @@ void main() {
     final preferences = await SharedPreferences.getInstance();
     expect(preferences.getString(kReasoningSettingStoreKey), 'high');
     expect(
-      find.byTooltip(
-        'Reasoning effort: High\nTap again for the model default',
-      ),
+      find.byTooltip('Reasoning effort: High\nTap again for the model default'),
       findsOneWidget,
     );
 
@@ -600,7 +665,10 @@ void main() {
     await tester.pump();
 
     // The field keeps the message; the document keeps the document.
-    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, '');
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '',
+    );
     expect(find.textContaining('Pasted text'), findsOneWidget);
     expect(find.text('1.5k characters · Edit'), findsOneWidget);
   });
@@ -621,10 +689,7 @@ void main() {
       of: find.byType(AlertDialog),
       matching: find.byType(TextField),
     );
-    expect(
-      tester.widget<TextField>(dialogField).controller!.text.length,
-      1200,
-    );
+    expect(tester.widget<TextField>(dialogField).controller!.text.length, 1200);
 
     await tester.enterText(dialogField, 'edited body');
     await tester.tap(find.text('Save'));
@@ -789,6 +854,175 @@ void main() {
     ]);
   });
 
+  testWidgets('a file the drive already holds is linked, not uploaded', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(
+      reply: const [PersonalityRunCompleted('Got it')],
+    );
+    final drive = _FakeDrive(
+      files: const [
+        PersonalityDriveFile(
+          id: 'drive-9',
+          name: 'sunset.png',
+          mimeType: 'image/png',
+          byteSize: 2400000,
+        ),
+      ],
+    );
+    await _pumpConversationPage(tester, api, drive: drive);
+
+    await tester.tap(find.byIcon(Symbols.attach_file_rounded));
+    await tester.pumpAndSettle();
+
+    // The sheet opens on the account's own drive: whatever was uploaded
+    // before, offered as it is — beside the device option, not instead of it.
+    expect(drive.searched, [null]);
+    expect(find.text('Photo from this device'), findsOneWidget);
+    expect(find.text('sunset.png'), findsOneWidget);
+    expect(find.text('2.4MB'), findsOneWidget);
+
+    await tester.tap(find.text('sunset.png'));
+    await tester.pumpAndSettle();
+
+    // Queued as the drive's file: no upload was started, and the turn is
+    // ready to leave with it.
+    expect(drive.started, isEmpty);
+    expect(find.byTooltip('sunset.png'), findsOneWidget);
+    expect(_sendButton(tester).onPressed, isNotNull);
+
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+
+    expect(api.sentMessages, ['']);
+    expect(api.sentAttachments, [
+      ['drive-9'],
+    ]);
+
+    // The sent turn wears the same picture, drawn from the id: a linked file
+    // has nothing on this device to preview it with.
+    expect(_drivePictures('drive-9'), findsOneWidget);
+  });
+
+  testWidgets('the link sheet searches the drive by name', (tester) async {
+    final drive = _FakeDrive(
+      files: const [
+        PersonalityDriveFile(
+          id: 'drive-1',
+          name: 'sunset.png',
+          mimeType: 'image/png',
+        ),
+        PersonalityDriveFile(
+          id: 'drive-2',
+          name: 'sheep.png',
+          mimeType: 'image/png',
+        ),
+      ],
+    );
+    await _pumpConversationPage(tester, _FakePersonalityApi(), drive: drive);
+
+    await tester.tap(find.byIcon(Symbols.attach_file_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('sunset.png'), findsOneWidget);
+    expect(find.text('sheep.png'), findsOneWidget);
+
+    await tester.enterText(_driveSearch(), 'sheep');
+    await tester.pump();
+    // A keystroke is not a question: the drive is asked once typing stops.
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(drive.searched, [null, 'sheep']);
+    expect(find.text('sunset.png'), findsNothing);
+    expect(find.text('sheep.png'), findsOneWidget);
+  });
+
+  testWidgets('a file linked by id is resolved by the drive', (tester) async {
+    final api = _FakePersonalityApi(
+      reply: const [PersonalityRunCompleted('Got it')],
+    );
+    final drive = _FakeDrive(
+      files: const [
+        PersonalityDriveFile(
+          id: 'drive-7',
+          name: 'old-photo.jpg',
+          mimeType: 'image/jpeg',
+        ),
+      ],
+    );
+    await _pumpConversationPage(tester, api, drive: drive);
+
+    await tester.tap(find.byIcon(Symbols.attach_file_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Link a file by id'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      'drive-7',
+    );
+    await tester.tap(find.text('Link'));
+    await tester.pumpAndSettle();
+
+    // The tile wears the name the drive keeps, not the id that was pasted.
+    expect(find.byTooltip('old-photo.jpg'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+    expect(api.sentAttachments, [
+      ['drive-7'],
+    ]);
+  });
+
+  testWidgets('a picked image keeps its picture after it is sent', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi();
+    final drive = _FakeDrive();
+    await _pumpConversationPage(tester, api, drive: drive);
+
+    _chatOf(tester).queueImages(const [
+      InsightPickedImage(name: 'pet.png', path: kTestImagePath),
+    ]);
+    await tester.pump();
+    drive.finish(kTestImagePath, id: 'file-1');
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+
+    expect(api.sentAttachments, [
+      ['file-1'],
+    ]);
+    // The sent turn draws the file it was picked as: the preview the strip
+    // showed does not disappear at the send, and no request stands between the
+    // reader and their own file.
+    expect(_filePictures(kTestImagePath), findsOneWidget);
+  });
+
+  testWidgets('a replayed image is drawn from the drive', (tester) async {
+    final api = _FakePersonalityApi(
+      history: const [
+        SnPersonalityMessage(
+          role: 'user',
+          content: 'look at this',
+          attachmentIds: ['file-1'],
+        ),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    await tester.tap(find.text('First thread'));
+    await tester.pumpAndSettle();
+
+    // A restored thread has ids and nothing else, so the picture has to come
+    // from the drive — and it does, with the account's own token.
+    expect(_drivePictures('file-1'), findsOneWidget);
+  });
+
   testWidgets('taking a tile back aborts its upload', (tester) async {
     final api = _FakePersonalityApi();
     final drive = _FakeDrive();
@@ -809,13 +1043,11 @@ void main() {
     expect(_tooltipSaying('upload aborted'), findsNothing);
     expect(_sendButton(tester).onPressed, isNull);
   });
-
 }
 
 /// Matches a plain [Text] by its data, ignoring selectable trace detail.
-Finder _plainText(String data) => find.byWidgetPredicate(
-  (widget) => widget is Text && widget.data == data,
-);
+Finder _plainText(String data) =>
+    find.byWidgetPredicate((widget) => widget is Text && widget.data == data);
 
 /// A server refusal of the request the app was authenticated for.
 DioException _forbidden() {

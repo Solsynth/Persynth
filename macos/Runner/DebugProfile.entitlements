@@ -18,6 +18,13 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- file_picker's macOS handler asserts one of the user-selected file
+	     access entitlements before opening NSOpenPanel; without it every
+	     pick fails with PlatformException(ENTITLEMENT_NOT_FOUND) instead of
+	     returning a path. Read-only is sufficient: conversation_page reads
+	     the picked image out of the sandbox extension to upload it. -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>keychain-access-groups</key>

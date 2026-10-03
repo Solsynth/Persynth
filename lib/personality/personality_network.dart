@@ -23,9 +23,9 @@ class PersonalityServerUrlNotifier extends Notifier<String> {
   @override
   String build() {
     final stored = ref.watch(
-      sharedPreferencesProvider.select((prefs) => prefs.getString(
-        kPersonalityServerStoreKey,
-      )),
+      sharedPreferencesProvider.select(
+        (prefs) => prefs.getString(kPersonalityServerStoreKey),
+      ),
     );
     return stored == null || stored.trim().isEmpty
         ? kPersonalityServerDefault
@@ -155,3 +155,40 @@ final personalityApiProvider = Provider<PersonalityApi>(
 final personalityCoreServiceProvider = Provider<PersonalityCoreService>(
   (ref) => const PersonalityCoreService(),
 );
+
+/// The Solar Network drive on the deployment the app is configured for: the
+/// files sit beside the Personality server, so uploads, cloud-file listings
+/// and preview URLs all address the one host.
+final personalityDriveBaseUrlProvider = Provider<String>(
+  (ref) => '${ref.watch(personalityServerUrlProvider)}/drive',
+);
+
+/// The account token for the requests Flutter's own image widgets make. A
+/// drive preview is an `Image.network`, which does not go through the API
+/// client's Dio, and the drive's file endpoint is behind the account — so the
+/// token is read here, once, and re-read whenever the session changes.
+final solarAccessTokenProvider = FutureProvider<String?>((ref) async {
+  ref.watch(solarAuthStateProvider.select((state) => state.status));
+  return ref.read(solarAuthProvider).accessToken();
+});
+
+/// The account's drive images the composer can link, newest first, as
+/// [query] narrows them by name.
+///
+/// Images only: a run hands its drive files to the model as images, so the
+/// files it could not read are not offered. The listing itself is every file
+/// the account owns — folders and other media included — because the server's
+/// own filters are narrower than the drive's contents.
+final driveImageFilesProvider = FutureProvider.autoDispose
+    .family<List<PersonalityDriveFile>, String>((ref, query) async {
+      final files = await ref
+          .watch(personalityCoreServiceProvider)
+          .listDriveFiles(
+            driveBaseUrl: ref.watch(personalityDriveBaseUrlProvider),
+            query: query.isEmpty ? null : query,
+          );
+      return [
+        for (final file in files)
+          if (file.isImage) file,
+      ];
+    });

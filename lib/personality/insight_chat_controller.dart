@@ -1,8 +1,7 @@
 import 'dart:async';
 
 import 'package:collection/collection.dart';
-import 'package:dio/dio.dart'
-    show CancelToken, DioException, DioExceptionType;
+import 'package:dio/dio.dart' show CancelToken, DioException, DioExceptionType;
 import 'package:flutter/foundation.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
@@ -27,8 +26,10 @@ enum InsightAttachmentUpload {
   /// Nothing is outstanding: the drive has the file, or the attachment is text
   /// that never becomes one.
   ready,
+
   /// The file is on its way up. [InsightAttachment.progress] says how far.
   uploading,
+
   /// The upload did not finish. The attachment stays in the queue — visibly
   /// failed, retryable, removable — and the turn it belongs to is not sent
   /// until it is resolved, so a file the reader picked never goes missing
@@ -489,6 +490,35 @@ class InsightChatController extends _$InsightChatController {
     _pumpUploads();
   }
 
+  /// Queues a file the drive already holds, by id.
+  ///
+  /// Nothing is uploaded and nothing leaves this device but the id: the turn
+  /// references the file the reader linked, and the tile previews it from the
+  /// drive. The attachment is sendable the moment it is queued — there is no
+  /// upload to wait for — which is what makes a file from months ago as cheap
+  /// to attach as one just picked. The same file linked twice is one
+  /// attachment while it is still queued.
+  void linkCloudFile({required String fileId, String name = ''}) {
+    final id = fileId.trim();
+    if (id.isEmpty) return;
+    if (state.pendingAttachments.any((queued) => queued.fileId == id)) {
+      return;
+    }
+    _set(
+      state.copyWith(
+        pendingAttachments: [
+          ...state.pendingAttachments,
+          InsightAttachment(
+            id: ++_attachmentSerial,
+            fileId: id,
+            name: name,
+            upload: InsightAttachmentUpload.ready,
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Sends one failed attachment up again.
   void retryAttachment(int index) {
     if (index < 0 || index >= state.pendingAttachments.length) return;
@@ -577,6 +607,7 @@ class InsightChatController extends _$InsightChatController {
           .read(personalityCoreServiceProvider)
           .uploadAttachment(
             filePath: attachment.localPath!,
+            driveBaseUrl: ref.read(personalityDriveBaseUrlProvider),
             contentType: attachment.contentType,
             abortTrigger: abort.future,
             onProgress: (sent, total) =>
