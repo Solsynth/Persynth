@@ -463,7 +463,7 @@ void main() {
   ) async {
     await _pumpConversationPage(tester, _FakePersonalityApi());
 
-    // The agent appears twice: in the header picker and as the row subtitle.
+    // The agent appears twice: in the header picker and beside the row title.
     expect(find.text('Michan'), findsNWidgets(2));
     expect(
       tester
@@ -1293,7 +1293,9 @@ void main() {
     expect(find.text('2 selected'), findsNothing);
   });
 
-  testWidgets('deletes one conversation from its row menu', (tester) async {
+  testWidgets('deletes a single conversation from the selection strip', (
+    tester,
+  ) async {
     final api = _FakePersonalityApi(
       conversations: [
         SnPersonalityConversation(
@@ -1310,9 +1312,12 @@ void main() {
     );
     await _pumpConversationPage(tester, api);
 
-    await tester.tap(find.byIcon(Symbols.more_vert).first);
+    // A row's own menu is a secondary click, so a one-off deletion goes
+    // through the same strip the batch does.
+    await tester.longPress(find.text('First thread'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete'));
+    expect(find.text('1 selected'), findsOneWidget);
+    await tester.tap(find.byTooltip('Delete'));
     await tester.pumpAndSettle();
     expect(find.text('Delete conversation?'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
@@ -1365,9 +1370,9 @@ void main() {
     expect(find.text('0 conversations'), findsOneWidget);
     expect(find.text('Ungrouped'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Conversation actions').first);
+    await tester.longPress(find.text('First thread'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Move to group…'));
+    await tester.tap(find.byTooltip('Move to group'));
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
@@ -1383,11 +1388,11 @@ void main() {
     // The tile counts the thread it now holds.
     expect(find.text('1 conversation'), findsOneWidget);
 
-    // Opening the tile shows the thread, with its group beside the agent.
+    // Opening the tile shows the thread under it.
     await tester.tap(find.text('Work'));
     await tester.pumpAndSettle();
     expect(find.text('First thread'), findsOneWidget);
-    expect(find.text('Work'), findsNWidgets(2));
+    expect(find.text('Work'), findsOneWidget);
   });
 
   testWidgets('a group tile starts collapsed and expands on tap', (
@@ -1425,7 +1430,7 @@ void main() {
     expect(find.text('First thread'), findsNothing);
   });
 
-  testWidgets('archiving gathers a group and its threads under Archived', (
+  testWidgets('an archived group and its threads live under Archived', (
     tester,
   ) async {
     final api = _FakePersonalityApi(
@@ -1442,41 +1447,25 @@ void main() {
           title: 'Second thread',
         ),
       ],
-      groups: [const SnConversationGroup(id: 'g1', name: 'Work')],
+      groups: [
+        const SnConversationGroup(id: 'g1', name: 'Work', archived: true),
+      ],
     );
     await _pumpConversationPage(tester, api);
 
-    expect(find.text('Work'), findsOneWidget);
-    expect(find.text('Archived'), findsNothing);
-
-    // Archive from the tile's menu: immediate, no confirmation.
-    await tester.tap(find.byTooltip('Group actions'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Archive'));
-    await tester.pumpAndSettle();
-
-    expect(api.groupUpdates, [(id: 'g1', name: null, archived: true)]);
-    // Gone from the top level, and so is its thread.
+    // Filed away: neither the group nor its thread is at the top level.
     expect(find.text('Work'), findsNothing);
     expect(find.text('First thread'), findsNothing);
+    expect(find.text('Second thread'), findsOneWidget);
     expect(find.text('Archived'), findsOneWidget);
+    expect(find.text('1 group'), findsOneWidget);
 
     // Reachable under Archived: open the tile, then the group inside it.
     await tester.tap(find.text('Archived'));
     await tester.pumpAndSettle();
     expect(find.text('Work'), findsOneWidget);
-    await tester.tap(find.text('Work').first);
+    await tester.tap(find.text('Work'));
     await tester.pumpAndSettle();
-    expect(find.text('First thread'), findsOneWidget);
-
-    // Unarchiving puts the group back at the top level.
-    await tester.tap(find.byTooltip('Group actions'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Unarchive'));
-    await tester.pumpAndSettle();
-
-    expect(api.groupUpdates.last, (id: 'g1', name: null, archived: false));
-    expect(find.text('Archived'), findsNothing);
     expect(find.text('First thread'), findsOneWidget);
   });
 
@@ -1544,9 +1533,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('what is up'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Symbols.more_vert).first);
+    await tester.longPress(find.text('First thread'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete'));
+    await tester.tap(find.byTooltip('Delete'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
@@ -1561,6 +1550,7 @@ void main() {
     );
     expect(find.text('First thread'), findsNothing);
   });
+
 }
 
 /// Matches a plain [Text] by its data, ignoring selectable trace detail.

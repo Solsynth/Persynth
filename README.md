@@ -61,28 +61,36 @@ whose context ceiling the server cannot resolve gets a token count with no
 window rather than a ratio against a guess — and no ring.
 
 The thread list — the sidebar on a wide window, the sheet on a narrow one — is
-where a conversation is managed. Long-pressing a row starts a selection: the
-strip above the list moves the selection into a group, or deletes the whole
-set behind one confirmation, and a row's own menu does the same for a single
-thread. Deletion takes the thread with its messages and runs
+where a conversation is managed, and it is dense on purpose: a conversation is
+one line, its title leading and its agent and last activity trailing it, so a
+long account stays scannable. A row's actions are its context menu, on a
+secondary click: move it into a group, take it out of one, or delete it, with
+deletion as the marked-destructive item. Nothing separates the rows. Selecting
+is still the long press — the first one starts a selection, and the strip above
+the list moves the whole set into a group or deletes it behind one
+confirmation. Deletion takes the thread with its messages and runs
 (`DELETE /personality/conversations/:id`,
 `POST /personality/conversations/batch-delete`); what the companion learned
 from it stays in the memory store, which is its own explicit action
 (`DELETE /personality/agents/:id/memories`).
 
+On Android and iOS the long press belongs to the selection, so rows carry no
+context menu there and those actions are the strip's; a group tile never joins
+a selection, so its menu opens on a long press on every target.
+
 Groups (`/personality/conversation-groups`) are named collections the account
 owns, at most one per conversation, and appear inside the list itself as
 collapsible tiles — the accounts with no groups see the plain list. A tile
-starts folded and opens on a tap to show its conversations; its menu renames,
-archives and deletes it. They are also the mark of the conversations that
-matter: what the companion learns while talking in a grouped thread is pinned
-in the memory store, injected into every later run outside the long-term budget
-and named by its group. Filing an existing conversation under a group pins what
-it has already taught. Archiving a group takes it and its conversations out of
-the list and gathers it under an `Archived` tile, while the retention stays in
-force and unarchiving restores it. Deleting a group ungroups its conversations
-and releases that retention; the memories stay active, they simply go back to
-competing for the budget.
+starts folded and opens on a tap to show its conversations; its context menu
+renames, archives and deletes it. They are also the mark of the conversations
+that matter: what the companion learns while talking in a grouped thread is
+pinned in the memory store, injected into every later run outside the long-term
+budget and named by its group. Filing an existing conversation under a group
+pins what it has already taught. Archiving a group takes it and its
+conversations out of the list and gathers it under an `Archived` tile, while
+the retention stays in force and unarchiving restores it. Deleting a group
+ungroups its conversations and releases that retention; the memories stay
+active, they simply go back to competing for the budget.
 
 The app passes the refreshed Solar Network user access token to Personality
 Core; it never asks for a separate Personality Core token.

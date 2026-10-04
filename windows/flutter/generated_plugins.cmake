@@ -7,8 +7,10 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_webview_window
   flutter_js
   flutter_secure_storage_windows
+  irondash_engine_context
   screen_retriever_windows
   speech_to_text_windows
+  super_native_extensions
   url_launcher_windows
   window_manager
   window_to_front

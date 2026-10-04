@@ -81,6 +81,7 @@ dependencies:
   file_picker: ^13.1.0
   http_parser: ^4.1.2
   mcp_client: ^2.2.1
+  super_context_menu: ^0.9.1
 
 dev_dependencies:
   auto_route_generator: ^10.6.0
@@ -191,3 +192,10 @@ flutter_native_splash:
     color_dark: "#14171b"
     icon_background_color: "#f5b9c0"
     icon_background_color_dark: "#f5b9c0"
+
+dependency_overrides:
+  # super_context_menu 0.9.1 caps device_info_plus below 12, which pins win32
+  # below 6; flutter_secure_storage_windows needs win32 6. The only API
+  # super_native_extensions reads from device_info_plus is the platform info of
+  # the device it runs on, so the newer major is safe to force.
+  device_info_plus: ^13.0.0
