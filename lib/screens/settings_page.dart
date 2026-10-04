@@ -1,20 +1,34 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
+import 'package:gap/gap.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:persynth/auth/solar_auth_controller.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
 import 'package:persynth/auth/solar_sign_in_panel.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/personality/personality_service.dart';
 import 'package:persynth/personality/personality_session.dart';
 import 'package:persynth/plugins/mcp_servers_section.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/screens/ai_console_tabs.dart';
 
+/// The width the settings content is held to, matching the conversation's
+/// reading column so a wide window shows the same measure everywhere.
+const double _kSettingsContentWidth = 760;
+
 /// The pushed settings page: the account and server in General, with the AI
 /// console (agents, models, billing, credentials) folded in as its own tabs.
+///
+/// The page is a phone layout that also has to survive a desktop window, so
+/// both the tab strip and the tab bodies are held to
+/// [_kSettingsContentWidth] and centered: cards keep an 800px-wide window
+/// from stretching a row of controls across it, and the tabs stay listed
+/// under the cards' left edge instead of spreading out over the whole
+/// toolbar.
 @RoutePage()
 class SettingsPage extends HookConsumerWidget {
   const SettingsPage({super.key});
@@ -31,23 +45,73 @@ class SettingsPage extends HookConsumerWidget {
             onPressed: () => context.router.maybePop(),
           ),
           title: const Text('Settings'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(icon: Icon(Symbols.tune_rounded), text: 'General'),
-              Tab(icon: Icon(Symbols.extension), text: 'Catalog'),
-              Tab(icon: Icon(Symbols.receipt_long), text: 'Billing'),
-              Tab(icon: Icon(Symbols.key), text: 'Credentials'),
-            ],
+          // Aligned rather than centered on the vertical axis so the strip
+          // sits exactly where a full-width TabBar would, indicator included.
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(kTextTabBarHeight),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: _kSettingsContentWidth,
+                ),
+                child: const TabBar(
+                  // Not `fill`: equal-width tabs would either clip a label on
+                  // a phone or hand each of the four a quarter of a desktop
+                  // window. The strip scrolls once the labels stop fitting.
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  tabs: [
+                    _SettingsTab(Symbols.tune_rounded, 'General'),
+                    _SettingsTab(Symbols.extension, 'Catalog'),
+                    _SettingsTab(Symbols.receipt_long, 'Billing'),
+                    _SettingsTab(Symbols.key, 'Credentials'),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
-        body: const TabBarView(
-          children: [
-            _GeneralSettingsTab(),
-            AiConsoleCatalogTab(),
-            AiConsoleBillingTab(),
-            AiConsoleCredentialsTab(),
-          ],
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: _kSettingsContentWidth),
+            child: const TabBarView(
+              children: [
+                _GeneralSettingsTab(),
+                AiConsoleCatalogTab(),
+                AiConsoleBillingTab(),
+                AiConsoleCredentialsTab(),
+              ],
+            ),
+          ),
         ),
+      ),
+    );
+  }
+}
+
+/// One tab, drawn as its icon beside its label rather than stacked above it.
+///
+/// The colors come from the surrounding `TabBar` — `_TabStyle` hands the tab
+/// an `IconTheme` and a `DefaultTextStyle` for the selected and unselected
+/// states — so nothing here has to know whether the tab is current.
+class _SettingsTab extends StatelessWidget {
+  const _SettingsTab(this.icon, this.label);
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tab(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18),
+          const Gap(8),
+          Text(label, softWrap: false, overflow: TextOverflow.fade),
+        ],
       ),
     );
   }
@@ -60,7 +124,6 @@ class _GeneralSettingsTab extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final authState = ref.watch(solarAuthStateProvider);
     final savingUrl = useState(false);
 
@@ -101,13 +164,7 @@ class _GeneralSettingsTab extends HookConsumerWidget {
             padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
             child: Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: scheme.primaryContainer,
-                  child: Icon(
-                    Symbols.person_rounded,
-                    color: scheme.onPrimaryContainer,
-                  ),
-                ),
+                _AccountAvatar(user: authState.user),
                 const SizedBox(width: 12),
                 Expanded(
                   child: authState.user == null
@@ -196,6 +253,61 @@ class _GeneralSettingsTab extends HookConsumerWidget {
         _SectionHeader('Connections'),
         const McpServersSection(),
       ],
+    );
+  }
+}
+
+/// The signed-in account's picture on the tinted disc, or the neutral person
+/// where there is none to draw: signed out, a profile that never set a
+/// picture, and a file whose bytes never arrive all land on the same fallback.
+///
+/// The picture is a drive file behind the account, so it is fetched with the
+/// bearer token — read here rather than threaded through, because the widget
+/// that draws it is the only thing that needs it.
+class _AccountAvatar extends ConsumerWidget {
+  const _AccountAvatar({this.user});
+
+  /// The account on the card, or null while nobody is signed in.
+  final SolarUser? user;
+
+  /// The disc's diameter: the pixels a picture is decoded down to, so a
+  /// full-size photo is never held in memory to fill a 40px circle.
+  static const double _diameter = 40;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final fallback = Icon(
+      Symbols.person_rounded,
+      color: scheme.onPrimaryContainer,
+    );
+    final pictureId = user?.pictureId;
+    final token = ref.watch(solarAccessTokenProvider).value?.trim() ?? '';
+    if (pictureId == null || token.isEmpty) {
+      return CircleAvatar(
+        backgroundColor: scheme.primaryContainer,
+        child: fallback,
+      );
+    }
+    final provider = NetworkImage(
+      user!.pictureUrl ??
+          PersonalityCoreService.driveFileUrl(
+            ref.watch(personalityDriveBaseUrlProvider),
+            pictureId,
+          ),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return CircleAvatar(
+      backgroundColor: scheme.primaryContainer,
+      foregroundImage: ResizeImage(
+        provider,
+        width: (_diameter * MediaQuery.devicePixelRatioOf(context)).round(),
+        policy: ResizeImagePolicy.fit,
+      ),
+      // Keeps the icon up rather than throwing when the picture cannot be
+      // drawn — a file since deleted, a refused request, a non-image.
+      onForegroundImageError: (_, _) {},
+      child: fallback,
     );
   }
 }

@@ -255,6 +255,14 @@ server. Settings → **Connections** takes a name, an endpoint and an optional
 access token; the server then appears among the plugin switches like anything
 else, and its tools load by name once the model asks for them.
 
+**Paste JSON config** in the same section takes the file another client
+already has — `mcpServers` as Claude Desktop, Cursor, Windsurf and `.mcp.json`
+write it, `servers` as VS Code does — and adds its http(s) servers, bearer
+tokens included. What it cannot take it reports by name: a `command` entry is a
+stdio server, which this app does not launch, and headers beyond the
+authorization one are dropped because the connection carries only a token
+(`lib/plugins/mcp_config.dart`).
+
 The app is an MCP client over Streamable HTTP (`lib/plugins/mcp_client.dart`).
 It lists the server's tools, offers them on the run with the definitions the
 server wrote, and forwards the model's calls back to the server they came from.

@@ -35,6 +35,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/plugins/mcp_client.dart';
+import 'package:persynth/plugins/mcp_config.dart';
 
 /// The `SharedPreferences` key the configured servers are stored under.
 const String kMcpServersStoreKey = 'persynth_mcp_servers';
@@ -242,13 +243,32 @@ class McpServersNotifier extends Notifier<List<SnMcpServer>> {
 
   /// The endpoint the user typed, or a throw the settings row reports.
   Uri _checked(String url) {
-    final uri = Uri.tryParse(url.trim());
-    if (uri == null || !uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https') || uri.host.isEmpty) {
+    final uri = mcpEndpoint(url);
+    if (uri == null) {
       throw const FormatException(
         'Enter the server\'s http:// or https:// endpoint.',
       );
     }
     return uri;
+  }
+
+  /// Adds every server a pasted configuration file names, and answers what it
+  /// added and what it left out.
+  ///
+  /// The file is read in full before anything is written, so a paste the app
+  /// cannot read leaves the list as it was. Each server goes in the way the
+  /// form adds one — same ids, same keychain — and the changed list is what
+  /// rebuilds and re-probes the catalogue, exactly as if it had been typed.
+  Future<McpConfigImport> importConfig(String text) async {
+    final config = readMcpConfig(text);
+    for (final server in config.servers) {
+      await add(
+        name: server.name,
+        url: server.url.toString(),
+        token: server.token,
+      );
+    }
+    return config;
   }
 }
 

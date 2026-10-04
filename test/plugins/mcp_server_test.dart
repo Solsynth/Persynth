@@ -371,6 +371,104 @@ void main() {
     expect(find.text('No MCP servers connected'), findsOneWidget);
   });
 
+  test('a pasted config becomes servers the companion can call', () async {
+    final gateway = _FakeGateway(tools: [_tool('read_file')]);
+    final tokens = _MemoryTokens();
+    final container = await _launch(gateway: gateway, tokens: tokens);
+
+    final imported = await container
+        .read(mcpServersProvider.notifier)
+        .importConfig('''
+{
+  "mcpServers": {
+    "home": {
+      "url": "http://127.0.0.1:4317/mcp",
+      "headers": {"Authorization": "Bearer secret"}
+    },
+    "filesystem": {"command": "npx", "args": ["-y", "server-filesystem"]}
+  }
+}
+''');
+    await pumpEventQueue();
+    await container.read(mcpCatalogueProvider.notifier).refreshAll();
+
+    // A pasted server is a configured server: same id, same keychain, and the
+    // row behind it reports what the server answered.
+    final server = container.read(mcpServersProvider).single;
+    expect(server.name, 'home');
+    expect(server.url, Uri.parse('http://127.0.0.1:4317/mcp'));
+    expect(tokens.values[server.id], 'secret');
+    expect(
+      container.read(mcpCatalogueProvider)[server.id]!.tools.single.name,
+      'read_file',
+    );
+    expect(imported.skipped.single, contains('filesystem'));
+
+    // The paste is also what the user is left holding: nothing was written for
+    // a config the app cannot read at all.
+    await expectLater(
+      container
+          .read(mcpServersProvider.notifier)
+          .importConfig('{"mcpServers": {'),
+      throwsFormatException,
+    );
+    expect(container.read(mcpServersProvider), hasLength(1));
+  });
+
+  testWidgets('a config is pasted into the Connections section', (
+    tester,
+  ) async {
+    final gateway = _FakeGateway(tools: [_tool('read_file')]);
+    final container = await _launch(gateway: gateway);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: McpServersSection())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Paste JSON config'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField),
+      '{"mcpServers": {"home": {"url": "http://127.0.0.1:4317/mcp"}}}',
+    );
+    await tester.tap(find.text('Import'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(mcpServersProvider).single.name, 'home');
+    expect(find.text('1 server added.'), findsOneWidget);
+
+    // Importing again cannot add the same servers twice: the field the paste
+    // came from is the one the import empties.
+    await tester.tap(find.text('Import'));
+    await tester.pumpAndSettle();
+    expect(container.read(mcpServersProvider), hasLength(1));
+  });
+
+  testWidgets('a config the app cannot read is refused in the form', (
+    tester,
+  ) async {
+    final container = await _launch(gateway: _FakeGateway());
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: McpServersSection())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Paste JSON config'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '{"mcpServers": {"home": {');
+    await tester.tap(find.text('Import'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(mcpServersProvider), isEmpty);
+    expect(find.textContaining('not JSON'), findsOneWidget);
+  });
+
   testWidgets('an endpoint the app cannot use is refused in the form', (
     tester,
   ) async {

@@ -2,14 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:persynth/auth/solar_auth_controller.dart';
+import 'package:persynth/auth/solar_auth_service.dart';
 import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/plugins/social_plugin.dart';
 import 'package:persynth/plugins/web_tools_plugin.dart';
 import 'package:persynth/screens/settings_page.dart';
 import 'package:persynth/theme/app_theme.dart';
+
+/// A signed-in account with no launch read behind it: the card under test only
+/// needs the state, not the session lookup the real notifier performs.
+class _SignedInAuth extends SolarAuthNotifier {
+  _SignedInAuth(this.user);
+
+  final SolarUser user;
+
+  @override
+  SolarAuthState build() => SolarAuthState(SolarAuthStatus.signedIn, user);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -174,5 +188,80 @@ void main() {
       'mark_all_notifications_read',
     ]);
     expect(preferences.getBool('persynth_plugin_notifications'), isTrue);
+  });
+
+  testWidgets('the account picture is drawn from the drive, token and all', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(preferences),
+          solarAuthStateProvider.overrideWith(
+            () => _SignedInAuth(
+              const SolarUser(
+                name: 'Michan',
+                handle: 'michan',
+                pictureId: 'pic-1',
+              ),
+            ),
+          ),
+          solarAccessTokenProvider.overrideWith((ref) async => 'token-1'),
+        ],
+        child: MaterialApp(
+          theme: buildPersynthTheme(Brightness.light),
+          home: const SettingsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SettingsPage)),
+    );
+    final avatar = tester.widget<CircleAvatar>(find.byType(CircleAvatar));
+    final image =
+        (avatar.foregroundImage! as ResizeImage).imageProvider as NetworkImage;
+
+    // The profile's picture is a drive file, so its URL is the drive's and the
+    // request has to carry the account's token — the endpoint is behind it.
+    expect(
+      image.url,
+      '${container.read(personalityDriveBaseUrlProvider)}/files/pic-1',
+    );
+    expect(image.headers, {'Authorization': 'Bearer token-1'});
+  });
+
+  testWidgets('an account with no picture falls back to the person icon', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(preferences),
+          solarAuthStateProvider.overrideWith(
+            () => _SignedInAuth(
+              const SolarUser(name: 'Michan', handle: 'michan'),
+            ),
+          ),
+          solarAccessTokenProvider.overrideWith((ref) async => 'token-1'),
+        ],
+        child: MaterialApp(
+          theme: buildPersynthTheme(Brightness.light),
+          home: const SettingsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final avatar = tester.widget<CircleAvatar>(find.byType(CircleAvatar));
+    expect(avatar.foregroundImage, isNull);
+    expect(find.byIcon(Symbols.person_rounded), findsOneWidget);
   });
 }

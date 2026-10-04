@@ -27,18 +27,40 @@ class SolarDeviceAuthorization {
 }
 
 class SolarUser {
-  const SolarUser({required this.name, required this.handle});
+  const SolarUser({
+    required this.name,
+    required this.handle,
+    this.pictureId,
+    this.pictureUrl,
+  });
 
   final String name;
   final String handle;
 
+  /// The drive file the profile uses as its picture, or null for an account
+  /// that never set one.
+  final String? pictureId;
+
+  /// Where that file is served from, when the profile names a host of its own
+  /// rather than the deployment's drive. Null means the app builds the drive
+  /// URL itself.
+  final String? pictureUrl;
+
   factory SolarUser.fromJson(Map<String, dynamic> json) {
     final displayName = json['nick']?.toString();
+    // The profile's picture rides the same payload as the name: a drive file
+    // reference the settings page draws as the account's avatar.
+    final profile = json['profile'];
+    final picture = profile is Map ? profile['picture'] : null;
+    final pictureId = picture is Map ? picture['id']?.toString() : null;
+    final pictureUrl = picture is Map ? picture['url']?.toString() : null;
     return SolarUser(
       name: displayName?.isNotEmpty == true
           ? displayName!
           : 'Solar Network user',
       handle: json['name']?.toString() ?? '',
+      pictureId: pictureId == null || pictureId.isEmpty ? null : pictureId,
+      pictureUrl: pictureUrl == null || pictureUrl.isEmpty ? null : pictureUrl,
     );
   }
 }

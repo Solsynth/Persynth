@@ -8,7 +8,9 @@
 /// call.
 ///
 /// A server is added by name and endpoint, with an optional token that goes to
-/// the keychain rather than to the preferences the list is stored in. The row
+/// the keychain rather than to the preferences the list is stored in — or by
+/// pasting the configuration file another client already wrote, which is the
+/// same thing with the token the user does not have to find again. The row
 /// reports reachability honestly — never checked, checking, connected with n
 /// tools, or why the last check failed — because a server that is switched on
 /// and answering nothing looks exactly like a broken app otherwise.
@@ -20,7 +22,9 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import 'package:persynth/plugins/mcp_config.dart';
 import 'package:persynth/plugins/mcp_servers.dart';
+import 'package:persynth/theme/app_theme.dart';
 
 /// The MCP servers the user connected, and what each one last answered.
 class McpServersSection extends ConsumerWidget {
@@ -81,6 +85,19 @@ class McpServersSection extends ConsumerWidget {
               ),
             ),
             onTap: () => showMcpServerDialog(context, ref),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Symbols.content_paste_rounded),
+            title: const Text('Paste JSON config'),
+            subtitle: Text(
+              'A config from Claude Desktop, Cursor or VS Code. Its http:// and '
+              'https:// servers are added as they are, token included.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            onTap: () => showMcpConfigDialog(context),
           ),
         ],
       ),
@@ -190,6 +207,151 @@ Future<void> showMcpServerDialog(
     context: context,
     builder: (context) => _McpServerDialog(server: server),
   );
+}
+
+/// Opens the paste form: a whole MCP configuration file, read into servers.
+Future<void> showMcpConfigDialog(BuildContext context) {
+  return showDialog<void>(
+    context: context,
+    builder: (context) => const _McpConfigDialog(),
+  );
+}
+
+/// The paste form: one configuration file in, its servers added.
+///
+/// The text is read in full before anything is written, so a paste the app
+/// cannot make sense of is answered in the field it was typed in and leaves the
+/// list alone. What the file said that this app does not carry over — a server
+/// it would have to launch itself, headers beyond the bearer token, a transport
+/// it does not speak — is listed under the field rather than dropped quietly:
+/// the user is the only one who can decide about their own config.
+class _McpConfigDialog extends HookConsumerWidget {
+  const _McpConfigDialog();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final config = useTextEditingController();
+    final error = useState<String?>(null);
+    final outcome = useState<McpConfigImport?>(null);
+    final busy = useState(false);
+
+    Future<void> import() async {
+      busy.value = true;
+      error.value = null;
+      try {
+        final imported = await ref
+            .read(mcpServersProvider.notifier)
+            .importConfig(config.text);
+        if (!context.mounted) return;
+        outcome.value = imported;
+        // Emptied, so pressing Import twice cannot add the same servers twice.
+        config.clear();
+      } on FormatException catch (failure) {
+        error.value = failure.message;
+      } catch (failure) {
+        error.value = 'Could not store a token: $failure';
+      } finally {
+        busy.value = false;
+      }
+    }
+
+    final result = outcome.value;
+    return AlertDialog(
+      title: const Text('Paste an MCP config'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: config,
+                autofocus: true,
+                minLines: 6,
+                maxLines: 12,
+                style: const TextStyle(
+                  fontFamily: PersynthFonts.mono,
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Configuration JSON',
+                  alignLabelWithHint: true,
+                  hintText:
+                      '{"mcpServers": {"weather": {"url": '
+                      '"https://example.com/mcp"}}}',
+                ),
+              ),
+              if (error.value != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  error.value!,
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
+              ],
+              if (result != null) ...[
+                const SizedBox(height: 16),
+                _ImportOutcome(outcome: result),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: busy.value ? null : () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        FilledButton(
+          onPressed: busy.value ? null : import,
+          child: const Text('Import'),
+        ),
+      ],
+    );
+  }
+}
+
+/// What one paste did: the servers it added, and the ones it left out.
+class _ImportOutcome extends StatelessWidget {
+  const _ImportOutcome({required this.outcome});
+
+  final McpConfigImport outcome;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final added = outcome.servers.length;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          added == 0
+              ? 'No servers were added.'
+              : '$added server${added == 1 ? '' : 's'} added.',
+          style: theme.textTheme.titleSmall,
+        ),
+        const SizedBox(height: 4),
+        for (final server in outcome.servers) ...[
+          Text(server.name, style: theme.textTheme.bodyMedium),
+          Text(server.url.toString(), style: muted),
+          if (server.note != null) Text(server.note!, style: muted),
+          const SizedBox(height: 8),
+        ],
+        if (outcome.skipped.isNotEmpty) ...[
+          Text('Not added', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 4),
+          for (final line in outcome.skipped) Text(line, style: muted),
+        ],
+      ],
+    );
+  }
 }
 
 /// The add/edit form.
