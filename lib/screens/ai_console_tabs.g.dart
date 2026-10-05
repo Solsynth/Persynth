@@ -134,48 +134,6 @@ final class PersonalityCredentialsProvider
 String _$personalityCredentialsHash() =>
     r'9720295c7f4e6e862f8d61b5c77b3f5a640c0139';
 
-@ProviderFor(personalityOAuthStatus)
-final personalityOAuthStatusProvider = PersonalityOAuthStatusProvider._();
-
-final class PersonalityOAuthStatusProvider
-    extends
-        $FunctionalProvider<
-          AsyncValue<SnPersonalityOAuthStatus>,
-          SnPersonalityOAuthStatus,
-          FutureOr<SnPersonalityOAuthStatus>
-        >
-    with
-        $FutureModifier<SnPersonalityOAuthStatus>,
-        $FutureProvider<SnPersonalityOAuthStatus> {
-  PersonalityOAuthStatusProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'personalityOAuthStatusProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
-
-  @override
-  String debugGetCreateSourceHash() => _$personalityOAuthStatusHash();
-
-  @$internal
-  @override
-  $FutureProviderElement<SnPersonalityOAuthStatus> $createElement(
-    $ProviderPointer pointer,
-  ) => $FutureProviderElement(pointer);
-
-  @override
-  FutureOr<SnPersonalityOAuthStatus> create(Ref ref) {
-    return personalityOAuthStatus(ref);
-  }
-}
-
-String _$personalityOAuthStatusHash() =>
-    r'7d3805015619ae99c7e0bc97a6e5bdf41b19cb4c';
-
 /// The account's charges in the window, newest first, narrowed by the reader's
 /// chosen breakdown key.
 
