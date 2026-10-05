@@ -52,7 +52,7 @@ void main() {
 
     // General holds the account/server settings; the rest are the AI console,
     // built for a full screen and now hosted a tab bar lower.
-    for (final label in ['General', 'Catalog', 'Billing', 'Credentials']) {
+    for (final label in ['General', 'Catalog', 'Billing', 'Usage', 'Credentials']) {
       await tester.tap(find.text(label));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: '$label did not fit');

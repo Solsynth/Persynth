@@ -9,6 +9,8 @@ import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:persynth/personality/personality_api.dart';
 import 'package:persynth/personality/personality_network.dart';
+import 'package:persynth/plugins/plugin_registry.dart';
+import 'package:persynth/plugins/web_tools_plugin.dart';
 import 'package:persynth/screens/authorize_client_info.dart';
 import 'package:persynth/theme/app_theme.dart';
 
@@ -290,6 +292,323 @@ const kUserScopedAbilities = <String>{
 };
 
 // ---------------------------------------------------------------------------
+// Audit — the billing ledger, and where searches run
+// ---------------------------------------------------------------------------
+
+/// One charge in the account's billing ledger, as the audit reads it.
+///
+/// A row states both what was consumed ([action], [model], the token counts and
+/// [originalAmount]) and which call consumed it ([surface], [credentialId],
+/// [clientIp], [deviceId], [userAgent]). [threadId] and [agentId] come from the
+/// run the charge belongs to and are empty for a charge that has no run.
+class SnLedgerEntry {
+  final String id;
+  final String action;
+  final String surface;
+  final String model;
+  final String currency;
+  final String? threadId;
+  final String? agentId;
+  final String clientIp;
+  final String deviceId;
+  final int inputTokens;
+  final int outputTokens;
+
+  /// The price the usage was incurred at. The row's `amount` shrinks as a
+  /// partial payment settles it, so an audit reads this one.
+  final String originalAmount;
+
+  final DateTime? createdAt;
+
+  const SnLedgerEntry({
+    required this.id,
+    required this.action,
+    required this.surface,
+    required this.model,
+    required this.currency,
+    this.threadId,
+    this.agentId,
+    this.clientIp = '',
+    this.deviceId = '',
+    this.inputTokens = 0,
+    this.outputTokens = 0,
+    this.originalAmount = '0',
+    this.createdAt,
+  });
+
+  factory SnLedgerEntry.fromJson(Map<String, dynamic> json) => SnLedgerEntry(
+    id: json['id']?.toString() ?? '',
+    action: json['action']?.toString() ?? '',
+    surface: json['surface']?.toString() ?? '',
+    model: json['model']?.toString() ?? '',
+    currency: json['currency']?.toString() ?? '',
+    threadId: _optionalText(json['thread_id']),
+    agentId: _optionalText(json['agent_id']),
+    clientIp: json['client_ip']?.toString() ?? '',
+    deviceId: json['device_id']?.toString() ?? '',
+    inputTokens: _jsonInt(json['input_tokens']),
+    outputTokens: _jsonInt(json['output_tokens']),
+    originalAmount: json['original_amount']?.toString() ?? '0',
+    createdAt: DateTime.tryParse(
+      json['created_at']?.toString() ?? '',
+    )?.toLocal(),
+  );
+}
+
+/// One line of the audit's breakdown: how much a single key consumed.
+///
+/// Every bucket is single-currency, because summing different currencies means
+/// nothing; a key that spans currencies yields one bucket per currency.
+class SnLedgerBucket {
+  final String key;
+  final String currency;
+  final int entries;
+  final int inputTokens;
+  final int outputTokens;
+  final String amount;
+
+  const SnLedgerBucket({
+    required this.key,
+    required this.currency,
+    this.entries = 0,
+    this.inputTokens = 0,
+    this.outputTokens = 0,
+    this.amount = '0',
+  });
+
+  factory SnLedgerBucket.fromJson(Map<String, dynamic> json) =>
+      SnLedgerBucket(
+        key: json['key']?.toString() ?? '',
+        currency: json['currency']?.toString() ?? '',
+        entries: _jsonInt(json['entries']),
+        inputTokens: _jsonInt(json['input_tokens']),
+        outputTokens: _jsonInt(json['output_tokens']),
+        amount: json['amount']?.toString() ?? '0',
+      );
+
+  static List<SnLedgerBucket> listFrom(dynamic raw) {
+    if (raw is! List) return const [];
+    return [
+      for (final entry in raw.whereType<Map>())
+        SnLedgerBucket.fromJson(Map<String, dynamic>.from(entry)),
+    ];
+  }
+}
+
+/// What the account consumed in the window, split along every audit dimension
+/// at once — which is what lets the reader find the call that spent the money
+/// without knowing which dimension it belongs to.
+class SnLedgerSummary {
+  final int entries;
+  final List<SnLedgerBucket> byAction;
+  final List<SnLedgerBucket> bySurface;
+  final List<SnLedgerBucket> byModel;
+  final List<SnLedgerBucket> byCurrency;
+  final List<SnLedgerBucket> byClientIp;
+  final List<SnLedgerBucket> byDeviceId;
+  final List<SnLedgerBucket> byCredential;
+  final List<SnLedgerBucket> byDay;
+
+  const SnLedgerSummary({
+    this.entries = 0,
+    this.byAction = const [],
+    this.bySurface = const [],
+    this.byModel = const [],
+    this.byCurrency = const [],
+    this.byClientIp = const [],
+    this.byDeviceId = const [],
+    this.byCredential = const [],
+    this.byDay = const [],
+  });
+
+  factory SnLedgerSummary.fromJson(Map<String, dynamic> json) =>
+      SnLedgerSummary(
+        entries: _jsonInt(json['entries']),
+        byAction: SnLedgerBucket.listFrom(json['by_action']),
+        bySurface: SnLedgerBucket.listFrom(json['by_surface']),
+        byModel: SnLedgerBucket.listFrom(json['by_model']),
+        byCurrency: SnLedgerBucket.listFrom(json['by_currency']),
+        byClientIp: SnLedgerBucket.listFrom(json['by_client_ip']),
+        byDeviceId: SnLedgerBucket.listFrom(json['by_device_id']),
+        byCredential: SnLedgerBucket.listFrom(json['by_credential']),
+        byDay: SnLedgerBucket.listFrom(json['by_day']),
+      );
+}
+
+/// One engine a search can be kept on, and what one query through it costs.
+class SnWebSearchEngine {
+  final String id;
+  final String price;
+  final bool metered;
+  final bool free;
+
+  const SnWebSearchEngine({
+    required this.id,
+    this.price = '',
+    this.metered = false,
+    this.free = false,
+  });
+
+  factory SnWebSearchEngine.fromJson(Map<String, dynamic> json) =>
+      SnWebSearchEngine(
+        id: json['id']?.toString() ?? '',
+        price: json['price']?.toString() ?? '',
+        metered: json['metered'] == true,
+        free: json['free'] == true,
+      );
+}
+
+class SnWebSearchCatalog {
+  final String currency;
+  final List<SnWebSearchEngine> engines;
+
+  const SnWebSearchCatalog({this.currency = '', this.engines = const []});
+
+  factory SnWebSearchCatalog.fromJson(Map<String, dynamic> json) =>
+      SnWebSearchCatalog(
+        currency: json['currency']?.toString() ?? '',
+        engines: [
+          for (final entry in (json['engines'] as List? ?? const []).whereType<Map>())
+            SnWebSearchEngine.fromJson(Map<String, dynamic>.from(entry)),
+        ],
+      );
+}
+
+/// The account's chosen engine. Empty means the server's own order decides.
+class SnWebSearchPreference {
+  final String engine;
+  final String currency;
+
+  const SnWebSearchPreference({this.engine = '', this.currency = ''});
+
+  factory SnWebSearchPreference.fromJson(Map<String, dynamic> json) =>
+      SnWebSearchPreference(
+        engine: json['engine']?.toString() ?? '',
+        currency: json['currency']?.toString() ?? '',
+      );
+}
+
+/// The engine choice as one read: the engines to choose between, and the one
+/// this account is on.
+class SnWebSearchChoice {
+  final SnWebSearchCatalog catalog;
+  final SnWebSearchPreference preference;
+
+  const SnWebSearchChoice({required this.catalog, required this.preference});
+}
+
+/// What the audit is narrowed to: a rolling window, and at most one breakdown
+/// key the reader tapped. Rolling rather than calendar days, because a charge
+/// is metered when it happens, not at a day boundary.
+class SnLedgerQuery {
+  const SnLedgerQuery({this.days = 7, this.key, this.value});
+
+  final int days;
+
+  /// The breakdown dimension the reader narrowed to — `action`, `surface`,
+  /// `device`, `ip` or `credential` — and the key within it.
+  final String? key;
+  final String? value;
+
+  SnLedgerQuery narrowed(String key, String value) =>
+      SnLedgerQuery(days: days, key: key, value: value);
+
+  Map<String, String> toQueryParameters() => {
+    'take': '50',
+    'from': DateTime.now().toUtc().subtract(Duration(days: days)).toIso8601String(),
+    if (key == 'action' && value != null) 'action': value!,
+    if (key == 'surface' && value != null) 'surface': value!,
+    if (key == 'device' && value != null) 'device_id': value!,
+    if (key == 'ip' && value != null) 'client_ip': value!,
+    if (key == 'credential' && value != null) 'credential_id': value!,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is SnLedgerQuery &&
+      other.days == days &&
+      other.key == key &&
+      other.value == value;
+
+  @override
+  int get hashCode => Object.hash(days, key, value);
+}
+
+String? _optionalText(dynamic raw) {
+  final value = raw?.toString().trim() ?? '';
+  return value.isEmpty ? null : value;
+}
+
+int _jsonInt(dynamic raw) {
+  if (raw is int) return raw;
+  if (raw is num) return raw.toInt();
+  return int.tryParse(raw?.toString() ?? '') ?? 0;
+}
+
+/// The rolling windows the audit offers.
+const _ledgerWindows = <int, String>{1: '24 hours', 7: '7 days', 30: '30 days'};
+
+/// How many rows of a breakdown are listed before the rest are counted up.
+const _kBreakdownRows = 4;
+
+/// The audit's name for a ledger action: the ledger's own vocabulary is
+/// machine-shaped, and a reader looking for what spent the money is better
+/// served by "Reply" and "Search · tavily" than by "generation" and
+/// "web_search/tavily". The raw value is still what a filter sends.
+String _actionLabel(String action) {
+  final parts = action.split('/');
+  switch (parts.first) {
+    case 'generation':
+      return 'Reply';
+    case 'web_search':
+      final engine = parts.length > 1 ? parts[1].trim() : '';
+      final label = parts.length > 2 && parts[2] == 'tokens'
+          ? 'Search tokens'
+          : 'Search';
+      return engine.isEmpty ? label : '$label · $engine';
+    default:
+      return action.isEmpty ? 'Charge' : action;
+  }
+}
+
+/// A ledger amount as a reader reads it: two decimals, with a charge too small
+/// to show kept visible rather than rounded to a free-looking zero.
+String _formatAmount(String raw) {
+  final value = double.tryParse(raw.trim()) ?? 0;
+  if (value == 0) return '0';
+  if (value.abs() < 0.01) return '<0.01';
+  return value.toStringAsFixed(2);
+}
+
+/// What one query through [engine] costs, in the catalog's currency.
+String _engineCost(SnWebSearchEngine engine, String currency) {
+  if (engine.free) return 'free';
+  final unit = _localizeCurrency(currency).toLowerCase();
+  final parts = <String>[
+    if (engine.price.isNotEmpty) '${_formatAmount(engine.price)} $unit a search',
+    if (engine.metered) 'provider tokens billed',
+  ];
+  return parts.isEmpty ? 'free' : parts.join(' · ');
+}
+
+String _ledgerDimensionLabel(String key) {
+  switch (key) {
+    case 'action':
+      return 'Action';
+    case 'surface':
+      return 'Endpoint';
+    case 'device':
+      return 'Device';
+    case 'ip':
+      return 'Address';
+    case 'credential':
+      return 'Credential';
+    default:
+      return key;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Providers
 // ---------------------------------------------------------------------------
 
@@ -353,6 +672,61 @@ Future<void> revokePersonalityOAuth(WidgetRef ref) async {
   await dio.delete('/personality/oauth');
 }
 
+/// The account's charges in the window, newest first, narrowed by the reader's
+/// chosen breakdown key.
+@riverpod
+Future<List<SnLedgerEntry>> personalityBillingLedger(
+  Ref ref,
+  SnLedgerQuery query,
+) async {
+  final dio = ref.read(personalityApiClientProvider);
+  final resp = await dio.get(
+    '/personality/billing/me/ledger',
+    queryParameters: query.toQueryParameters(),
+  );
+  final data = resp.data;
+  if (data is! List) return const [];
+  return [
+    for (final entry in data.whereType<Map>())
+      SnLedgerEntry.fromJson(Map<String, dynamic>.from(entry)),
+  ];
+}
+
+/// The window's spend along every audit dimension. The reader's filter is
+/// deliberately not part of this: the breakdown is the overview the filter is
+/// chosen from, so narrowing the list must not narrow the breakdown with it.
+@riverpod
+Future<SnLedgerSummary> personalityLedgerSummary(
+  Ref ref,
+  SnLedgerQuery query,
+) async {
+  final dio = ref.read(personalityApiClientProvider);
+  final resp = await dio.get(
+    '/personality/billing/me/ledger/summary',
+    queryParameters: query.toQueryParameters(),
+  );
+  return SnLedgerSummary.fromJson(Map<String, dynamic>.from(resp.data as Map));
+}
+
+/// The engines a search can be kept on, and the one this account is on, read
+/// together because the picker needs both to draw a single choice.
+@riverpod
+Future<SnWebSearchChoice> personalitySearchChoice(Ref ref) async {
+  final dio = ref.read(personalityApiClientProvider);
+  final responses = await Future.wait([
+    dio.get('/personality/web/search/engines'),
+    dio.get('/personality/web/search/preference'),
+  ]);
+  return SnWebSearchChoice(
+    catalog: SnWebSearchCatalog.fromJson(
+      Map<String, dynamic>.from(responses[0].data as Map),
+    ),
+    preference: SnWebSearchPreference.fromJson(
+      Map<String, dynamic>.from(responses[1].data as Map),
+    ),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tabs — hosted by the settings page
 // ---------------------------------------------------------------------------
@@ -407,7 +781,12 @@ class _KeyValue extends StatelessWidget {
 }
 
 class _EmptyNote extends StatelessWidget {
-  const _EmptyNote();
+  const _EmptyNote({this.message = 'Nothing here yet.'});
+
+  /// What the empty screen says. Defaults to the pass-through note, so a
+  /// surface with something more useful to tell the reader can say it.
+  final String message;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -415,7 +794,8 @@ class _EmptyNote extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          'Nothing here yet.',
+          message,
+          textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
@@ -1104,6 +1484,559 @@ class AiConsoleBillingTab extends HookConsumerWidget {
     } finally {
       if (context.mounted) _hideLoadingModal(context);
     }
+  }
+}
+
+/// The account's spending, as a receipt: what the companion consumed, which
+/// call consumed it, and where that call came from.
+///
+/// The breakdown rows are the filter. Tapping a device, an endpoint or an
+/// action narrows the charge list to it, so finding "what spent my golds" never
+/// means filling in a form — and because the breakdown is not narrowed with the
+/// list, the overview stays whole while the reader drills down.
+class AiConsoleUsageTab extends HookConsumerWidget {
+  const AiConsoleUsageTab({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final days = useState<int>(7);
+    final filterKey = useState<String?>(null);
+    final filterValue = useState<String?>(null);
+    final windowQuery = SnLedgerQuery(days: days.value);
+    final listQuery = SnLedgerQuery(
+      days: days.value,
+      key: filterKey.value,
+      value: filterValue.value,
+    );
+    final summary = ref.watch(personalityLedgerSummaryProvider(windowQuery));
+    final ledger = ref.watch(personalityBillingLedgerProvider(listQuery));
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        spacing: 16,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _SectionTitle('Search provider'),
+          const _SearchProviderCard(),
+          const _SectionTitle('Spend'),
+          _SpendControls(
+            query: listQuery,
+            onWindow: (value) => days.value = value,
+            onClear: () {
+              filterKey.value = null;
+              filterValue.value = null;
+            },
+          ),
+          summary.when(
+            data: (value) => _SpendBreakdown(
+              summary: value,
+              onFilter: (key, value) {
+                filterKey.value = key;
+                filterValue.value = value;
+              },
+            ),
+            error: (e, _) => _ResponseError(
+              error: e,
+              onRetry: () =>
+                  ref.invalidate(personalityLedgerSummaryProvider(windowQuery)),
+            ),
+            loading: () => const _ResponseLoading(),
+          ),
+          const _SectionTitle('Recent charges'),
+          ledger.when(
+            data: (entries) => _LedgerCard(entries: entries),
+            error: (e, _) => _ResponseError(
+              error: e,
+              onRetry: () =>
+                  ref.invalidate(personalityBillingLedgerProvider(listQuery)),
+            ),
+            loading: () => const _ResponseLoading(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Where the companion's searches run, and what each choice costs.
+///
+/// The choice only means anything while the server runs the search: with the
+/// on-device search plugin on, the call leaves from this machine and the server
+/// never sees it, so the card says so rather than showing a setting that does
+/// nothing.
+class _SearchProviderCard extends ConsumerWidget {
+  const _SearchProviderCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final choice = ref.watch(personalitySearchChoiceProvider);
+    final onDevice = ref
+        .watch(pluginEnablementProvider)
+        .contains(const WebSearchPlugin().id);
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          spacing: 8,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Where searches run', style: theme.textTheme.titleSmall),
+            Text(
+              onDevice
+                  ? 'Searches run on this device right now. This choice applies once Web search is off in General.'
+                  : 'Only the chosen engine is queried, so the price of a search is the one you picked.',
+              style: theme.textTheme.labelSmall,
+            ),
+            const Gap(4),
+            choice.when(
+              data: (value) => Column(
+                children: [
+                  _EngineRow(
+                    label: 'Server default',
+                    detail: 'whichever engine answers first',
+                    selected: value.preference.engine.isEmpty,
+                    onTap: () => _chooseEngine(context, ref, ''),
+                  ),
+                  for (final engine in value.catalog.engines)
+                    _EngineRow(
+                      label: engine.id,
+                      detail: _engineCost(engine, value.catalog.currency),
+                      selected: value.preference.engine == engine.id,
+                      onTap: () => _chooseEngine(context, ref, engine.id),
+                    ),
+                ],
+              ),
+              error: (e, _) => _ResponseError(
+                error: e,
+                onRetry: () =>
+                    ref.invalidate(personalitySearchChoiceProvider),
+              ),
+              loading: () => const _ResponseLoading(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _chooseEngine(
+    BuildContext context,
+    WidgetRef ref,
+    String engine,
+  ) async {
+    _showLoadingModal(context);
+    try {
+      final dio = ref.read(personalityApiClientProvider);
+      await dio.put(
+        '/personality/web/search/preference',
+        data: {'engine': engine},
+      );
+      ref.invalidate(personalitySearchChoiceProvider);
+      if (context.mounted) {
+        showSnackBar(
+          engine.isEmpty
+              ? 'Searches will use any engine'
+              : 'Searches will use $engine',
+        );
+      }
+    } catch (e) {
+      if (context.mounted) _showErrorAlert(context, e);
+    } finally {
+      if (context.mounted) _hideLoadingModal(context);
+    }
+  }
+}
+
+/// One engine, as a row of the choice. The radio is the whole row's target.
+class _EngineRow extends StatelessWidget {
+  const _EngineRow({
+    required this.label,
+    required this.detail,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final String detail;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Symbols.radio_button_checked
+                  : Symbols.radio_button_unchecked,
+              size: 18,
+              color: selected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+            const Gap(10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontFamily: PersynthFonts.mono,
+                    ),
+                  ),
+                  if (detail.isNotEmpty)
+                    Text(detail, style: theme.textTheme.labelSmall),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The window and the active narrowing, as the chips above the spend card.
+class _SpendControls extends StatelessWidget {
+  const _SpendControls({
+    required this.query,
+    required this.onWindow,
+    required this.onClear,
+  });
+
+  final SnLedgerQuery query;
+  final ValueChanged<int> onWindow;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final entry in _ledgerWindows.entries)
+          _Pill(
+            label: entry.value,
+            selected: query.days == entry.key,
+            onTap: () => onWindow(entry.key),
+          ),
+        if (query.key != null && query.value != null)
+          _Pill(
+            label:
+                '${_ledgerDimensionLabel(query.key!)}: ${query.value}',
+            selected: true,
+            icon: Symbols.close,
+            onTap: onClear,
+          ),
+      ],
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  const _Pill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.icon,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final foreground = selected
+        ? scheme.onPrimaryContainer
+        : scheme.onSurfaceVariant;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected
+                ? scheme.primaryContainer
+                : scheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: foreground,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+              if (icon != null) ...[
+                const Gap(6),
+                Icon(icon, size: 14, color: foreground),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The window's total, then what made it up — by action, endpoint, device,
+/// address and credential. Each row is the way into the charges behind it.
+class _SpendBreakdown extends StatelessWidget {
+  const _SpendBreakdown({required this.summary, required this.onFilter});
+
+  final SnLedgerSummary summary;
+  final void Function(String key, String value) onFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final total = summary.byCurrency.isEmpty
+        ? '0'
+        : summary.byCurrency
+              .map(
+                (bucket) =>
+                    '${_formatAmount(bucket.amount)} ${_localizeCurrency(bucket.currency)}',
+              )
+              .join(' · ');
+    final credentials = summary.byCredential
+        .where((bucket) => bucket.key.isNotEmpty)
+        .toList();
+    final groups = <(String, String, List<SnLedgerBucket>)>[
+      ('By action', 'action', summary.byAction),
+      ('By endpoint', 'surface', summary.bySurface),
+      ('By device', 'device', summary.byDeviceId),
+      ('By address', 'ip', summary.byClientIp),
+      ('By credential', 'credential', credentials),
+    ];
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          spacing: 12,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Expanded(
+                  child: Text(
+                    total,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontFamily: PersynthFonts.mono,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${summary.entries} ${summary.entries == 1 ? 'charge' : 'charges'}',
+                  style: theme.textTheme.labelSmall,
+                ),
+              ],
+            ),
+            if (summary.entries == 0)
+              Text(
+                'Nothing was metered in this window.',
+                style: theme.textTheme.bodySmall,
+              )
+            else
+              for (final (title, dimension, buckets) in groups)
+                if (buckets.isNotEmpty)
+                  _BucketGroup(
+                    title: title,
+                    dimension: dimension,
+                    buckets: buckets,
+                    onFilter: onFilter,
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BucketGroup extends StatelessWidget {
+  const _BucketGroup({
+    required this.title,
+    required this.dimension,
+    required this.buckets,
+    required this.onFilter,
+  });
+
+  final String title;
+  final String dimension;
+  final List<SnLedgerBucket> buckets;
+  final void Function(String key, String value) onFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // A reader knows "Reply" and "Search · tavily"; a device, an endpoint and an
+    // address are identifiers, and identifiers stay in mono.
+    final identifier = dimension != 'action';
+    final shown = buckets.take(_kBreakdownRows).toList();
+    final hidden = buckets.length - shown.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 2,
+      children: [
+        Text(
+          title,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        for (final bucket in shown)
+          InkWell(
+            onTap: () => onFilter(dimension, bucket.key),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      identifier
+                          ? (bucket.key.isEmpty ? 'none' : bucket.key)
+                          : _actionLabel(bucket.key),
+                      style: identifier
+                          ? theme.textTheme.bodySmall?.copyWith(
+                              fontFamily: PersynthFonts.mono,
+                            )
+                          : theme.textTheme.bodyMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Text(
+                    '${_formatAmount(bucket.amount)} ${_localizeCurrency(bucket.currency)}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        if (hidden > 0)
+          Padding(
+            padding: const EdgeInsets.only(left: 2, top: 2),
+            child: Text('+$hidden more', style: theme.textTheme.labelSmall),
+          ),
+      ],
+    );
+  }
+}
+
+class _LedgerCard extends StatelessWidget {
+  const _LedgerCard({required this.entries});
+
+  final List<SnLedgerEntry> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: entries.isEmpty
+          ? const _EmptyNote(message: 'No charges in this window.')
+          : Column(
+              children: [
+                for (final (index, entry) in entries.indexed) ...[
+                  if (index > 0) const Divider(height: 1),
+                  _LedgerRow(entry: entry),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+/// One charge. The amount is right-aligned and set in mono so a column of them
+/// scans like a receipt; under it sits the priced model and the call the charge
+/// came from.
+class _LedgerRow extends StatelessWidget {
+  const _LedgerRow({required this.entry});
+
+  final SnLedgerEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final model = entry.model == entry.action ? '' : entry.model;
+    final where = [
+      if (entry.surface.isNotEmpty) entry.surface,
+      if (entry.deviceId.isNotEmpty) entry.deviceId,
+      if (entry.clientIp.isNotEmpty) entry.clientIp,
+      if (entry.createdAt != null) _formatCreatedAt(entry.createdAt!),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: 3,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Expanded(
+                child: Text(
+                  _actionLabel(entry.action),
+                  style: theme.textTheme.bodyMedium,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const Gap(12),
+              Text(
+                '${_formatAmount(entry.originalAmount)} ${_localizeCurrency(entry.currency)}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          if (model.isNotEmpty)
+            Text(
+              model,
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: PersynthFonts.mono,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          if (where.isNotEmpty)
+            Text(
+              where.join(' · '),
+              style: theme.textTheme.labelSmall,
+              overflow: TextOverflow.ellipsis,
+            ),
+        ],
+      ),
+    );
   }
 }
 

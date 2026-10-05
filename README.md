@@ -63,6 +63,31 @@ taking the accent as the window fills and the error tone at its end. A model
 whose context ceiling the server cannot resolve gets a token count with no
 window rather than a ratio against a guess — and no ring.
 
+Settings → **Usage** is the account side of that readout: where the composer
+says what one turn cost, the tab says what the account has spent and which call
+spent it. It reads the ledger the server already keeps for settlement
+(`GET /personality/billing/me/ledger`), so the figures are the charges that were
+actually metered rather than a client-side tally. A window — 24 hours, 7 days, 30
+days — totals the spend per currency (a total each, because adding golds to bits
+means nothing) and then breaks the same window down by action, by endpoint, by
+device, by address and by credential. Those breakdown rows are the filter:
+tapping one narrows the charges listed under it to that device, endpoint or
+action, and the breakdown keeps showing the whole window while it does, so
+drilling down never loses the overview it was chosen from. A charge reads as a
+receipt line, its amount right-aligned in mono — the action it was, the model or
+engine it was priced as, and the endpoint, device, address and time of the call
+behind it.
+
+The engine choice sits above that breakdown, because it is the one setting that
+decides the price of a search rather than reporting it. The engines the server
+offers are priced one by one (`GET /personality/web/search/engines`) and the
+pick is recorded (`PUT /personality/web/search/preference`); the choice restricts
+searches to that engine rather than merely preferring it, and it covers the
+`web_search` the model runs mid-conversation, not only the ones asked for by
+hand. Keeping to a free engine is therefore a real answer to cost, and needs no
+payment wallet. The card says so plainly while the on-device search plugin is
+on — then the call leaves from this machine and the server never sees it.
+
 The thread list — the sidebar on a wide window, the sheet on a narrow one — is
 where a conversation is managed, and it is dense on purpose: a conversation is
 one line, its title leading and its agent and last activity trailing it, so a

@@ -36,7 +36,7 @@ class SettingsPage extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
@@ -66,6 +66,7 @@ class SettingsPage extends HookConsumerWidget {
                     _SettingsTab(Symbols.tune_rounded, 'General'),
                     _SettingsTab(Symbols.extension, 'Catalog'),
                     _SettingsTab(Symbols.receipt_long, 'Billing'),
+                    _SettingsTab(Symbols.query_stats, 'Usage'),
                     _SettingsTab(Symbols.key, 'Credentials'),
                   ],
                 ),
@@ -81,6 +82,7 @@ class SettingsPage extends HookConsumerWidget {
                 _GeneralSettingsTab(),
                 AiConsoleCatalogTab(),
                 AiConsoleBillingTab(),
+                AiConsoleUsageTab(),
                 AiConsoleCredentialsTab(),
               ],
             ),
