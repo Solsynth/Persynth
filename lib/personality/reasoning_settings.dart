@@ -46,6 +46,17 @@ enum ReasoningSetting {
   /// Whether to send the run's `disable_reasoning` switch.
   final bool disabled;
 
+  /// The run's `disable_reasoning` switch as the wire carries it: true turns
+  /// thinking off, false is an explicit "reason — the level I named" that
+  /// overrides an agent shipped with thinking disabled, and null leaves the
+  /// agent's own setting in charge.
+  ///
+  /// An effort without this would be a request the server drops on any agent
+  /// whose config disables thinking, so the pill would read as a control that
+  /// does nothing.
+  bool? get disableReasoning =>
+      disabled ? true : (effort == null ? null : false);
+
   /// Reads a stored token back, treating anything unrecognized — including a
   /// level a newer build knows and this one does not — as the default. A
   /// half-remembered setting is worse than an explicit one.

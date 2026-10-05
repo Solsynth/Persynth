@@ -322,8 +322,6 @@ class InsightChatState {
 /// handling, including its reasoning/tool trace folding rules.
 @riverpod
 class InsightChatController extends _$InsightChatController {
-  static final RegExp _paragraphBreak = RegExp(r'\n\s*\n');
-
   CancelToken? _cancelToken;
   int _turnSerial = 0;
   bool _disposed = false;
@@ -785,7 +783,7 @@ class InsightChatController extends _$InsightChatController {
         overrides: ref.read(pluginOverridesProvider),
         context: ref.read(pluginSystemPromptProvider),
         reasoningEffort: reasoning.effort,
-        disableReasoning: reasoning.disabled,
+        disableReasoning: reasoning.disableReasoning,
         cancelToken: cancelToken,
       )) {
         if (_disposed) return;
@@ -1032,6 +1030,12 @@ class InsightChatController extends _$InsightChatController {
     _set(state.copyWith(bubbles: bubbles));
   }
 
+  /// Appends one reply delta to the turn's open text.
+  ///
+  /// A reply reaches the log as it is written: deltas join the row the turn is
+  /// already filling, and a reply that resumes after a tool call opens a new
+  /// one. Blank lines are just text inside a row — one chunk of reply, one
+  /// bubble — so the model's own paragraphing never re-splits a message.
   void _appendAssistantDelta(String delta, int turnId) {
     // The reply has started; reasoning is over.
     _foldThinking();
@@ -1052,7 +1056,6 @@ class InsightChatController extends _$InsightChatController {
       );
     }
     _set(state.copyWith(bubbles: bubbles));
-    _splitStreamingBubble(turnId);
   }
 
   void _completeToolCall(
@@ -1090,54 +1093,36 @@ class InsightChatController extends _$InsightChatController {
     _set(state.copyWith(bubbles: bubbles));
   }
 
+  /// Ends the turn with the authoritative text of its final reply.
+  ///
+  /// That text is only the last model call's: a turn that wrote, called a
+  /// tool, then wrote again persisted the earlier text as its own assistant
+  /// message, and the stream already rendered it. So the rows this replaces
+  /// are the trailing assistant rows of [turnId] — the ones the final call
+  /// streamed — and the chunks before them stand as they were written.
   void _completeTurn(String content, int turnId) {
-    // Deltas are already rendered; replace every row of this turn with the
-    // authoritative persisted text, including segments split mid-stream.
-    final bubbles = [
-      for (final bubble in state.bubbles)
-        if (bubble.turnId != turnId) bubble,
-    ];
-    for (final part in content.split(_paragraphBreak)) {
-      final trimmed = part.trim();
-      if (trimmed.isNotEmpty) {
-        bubbles.add(
+    final bubbles = List.of(state.bubbles);
+    var start = bubbles.length;
+    while (start > 0 &&
+        bubbles[start - 1].kind == InsightBubbleKind.assistant &&
+        bubbles[start - 1].turnId == turnId) {
+      start--;
+    }
+    final trimmed = content.trim();
+    bubbles.replaceRange(
+      start,
+      bubbles.length,
+      [
+        if (trimmed.isNotEmpty)
           InsightBubble(
             kind: InsightBubbleKind.assistant,
             text: trimmed,
             turnId: turnId,
           ),
-        );
-      }
-    }
+      ],
+    );
     _set(state.copyWith(bubbles: bubbles));
     _foldThinking();
-  }
-
-  /// The assistant marks message boundaries with a blank line; promote each
-  /// finished segment into its own row while streaming.
-  void _splitStreamingBubble(int turnId) {
-    final bubbles = List.of(state.bubbles);
-    final last = bubbles.lastOrNull;
-    if (last == null || last.kind != InsightBubbleKind.assistant) return;
-    if (!last.streaming) return;
-
-    final parts = last.text.split(_paragraphBreak);
-    if (parts.length < 2) return;
-
-    bubbles[bubbles.length - 1] = last.copyWith(
-      text: parts.removeLast().trim(),
-    );
-    bubbles.insertAll(bubbles.length - 1, [
-      for (final part in parts)
-        if (part.trim().isNotEmpty)
-          InsightBubble(
-            kind: InsightBubbleKind.assistant,
-            text: part.trim(),
-            streaming: true,
-            turnId: turnId,
-          ),
-    ]);
-    _set(state.copyWith(bubbles: bubbles));
   }
 
   /// The reply started or the turn ended; fold every open reasoning trace
@@ -1217,28 +1202,23 @@ List<InsightBubble> _bubblesFromMessage(SnPersonalityMessage message) {
           ),
         );
       }
-      for (final part in message.content.split(
-        InsightChatController._paragraphBreak,
-      )) {
-        final trimmed = part.trim();
-        if (trimmed.isNotEmpty) {
-          bubbles.add(
-            InsightBubble(kind: InsightBubbleKind.assistant, text: trimmed),
-          );
-        }
+      final content = message.content.trim();
+      if (content.isNotEmpty) {
+        bubbles.add(
+          InsightBubble(kind: InsightBubbleKind.assistant, text: content),
+        );
       }
       return bubbles;
     case 'user':
+      final content = message.content.trim();
+      final attachments = _attachmentsFromMessage(message);
+      if (content.isEmpty && attachments.isEmpty) return const [];
       return [
-        for (final part in message.content.split(
-          InsightChatController._paragraphBreak,
-        ))
-          if (part.trim().isNotEmpty)
-            InsightBubble(
-              kind: InsightBubbleKind.user,
-              text: part.trim(),
-              attachments: _attachmentsFromMessage(message),
-            ),
+        InsightBubble(
+          kind: InsightBubbleKind.user,
+          text: content,
+          attachments: attachments,
+        ),
       ];
     default:
       // Tool results belong to the call above them; skip orphaned rows.

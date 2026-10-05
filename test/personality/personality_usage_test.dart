@@ -46,7 +46,7 @@ class _UsageApi extends PersonalityApi {
     List<String> overrides = const [],
     List<String> context = const [],
     String? reasoningEffort,
-    bool disableReasoning = false,
+    bool? disableReasoning,
     CancelToken? cancelToken,
   }) async* {
     yield const PersonalityMessageDelta('Paris.');

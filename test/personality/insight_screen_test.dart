@@ -21,6 +21,7 @@ import 'package:persynth/router.dart';
 import 'package:persynth/screens/settings_page.dart';
 import 'package:persynth/theme/app_theme.dart';
 import 'package:persynth/widgets/media_lightbox.dart';
+import 'package:persynth/widgets/message_markdown.dart';
 
 const _agent = SnPersonalityAgent(id: 'a1', name: 'Michan', enabled: true);
 
@@ -80,6 +81,8 @@ class _FakePersonalityApi extends PersonalityApi {
   final Object? failure;
 
   final List<String> sentMessages = [];
+  final List<String?> sentReasoningEfforts = [];
+  final List<bool?> sentDisableReasoning = [];
   final List<List<String>> sentAttachments = [];
   final List<List<SnRunInputPart>> sentInputParts = [];
   List<SnLocalTool> lastClientTools = const [];
@@ -212,12 +215,14 @@ class _FakePersonalityApi extends PersonalityApi {
     List<String> overrides = const [],
     List<String> context = const [],
     String? reasoningEffort,
-    bool disableReasoning = false,
+    bool? disableReasoning,
     CancelToken? cancelToken,
   }) async* {
     sentMessages.add(message);
     sentAttachments.add(attachmentIds);
     sentInputParts.add(inputParts);
+    sentReasoningEfforts.add(reasoningEffort);
+    sentDisableReasoning.add(disableReasoning);
     lastClientTools = clientTools;
     final error = failure;
     if (error != null) throw error;
@@ -504,6 +509,47 @@ void main() {
     expect(find.text('thought'), findsOneWidget);
   });
 
+  testWidgets('keeps one row per reply chunk, across a tool call', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(
+      reply: const [
+        PersonalityMessageDelta('Before the tool.\n\nSecond thought.'),
+        PersonalityToolCallStarted(
+          id: 'c1',
+          name: 'search',
+          arguments: {'q': 'x'},
+        ),
+        PersonalityToolCallCompleted(
+          id: 'c1',
+          name: 'search',
+          arguments: {'q': 'x'},
+          result: 'ok',
+        ),
+        PersonalityMessageDelta('After the tool.'),
+        PersonalityRunCompleted('After the tool.'),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    await tester.enterText(find.byType(TextField), 'look it up');
+    await tester.pump();
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+
+    // A blank line is the model's own paragraphing, not a boundary between
+    // bubbles: the reply written before the tool call is one row — the two
+    // paragraph texts share it — and the reply after the tool is another.
+    expect(find.byType(MessageMarkdown), findsNWidgets(2));
+    expect(find.text('Before the tool.', findRichText: true), findsOneWidget);
+    expect(find.text('Second thought.', findRichText: true), findsOneWidget);
+    // The authoritative text of the final call replaces only that chunk, so
+    // what was written before the tool call is still on screen when the turn
+    // settles.
+    expect(find.text('After the tool.', findRichText: true), findsOneWidget);
+    expect(find.text('search'), findsOneWidget);
+  });
+
   testWidgets('folds finished tool calls into one expandable row', (
     tester,
   ) async {
@@ -662,7 +708,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('what is up'), findsOneWidget);
-    // Blank lines split the assistant reply into paragraph rows.
+    // One assistant message is one row; the blank line inside it is the
+    // model's own paragraphing, not a boundary between bubbles.
     expect(find.text('All good.', findRichText: true), findsOneWidget);
     expect(find.text('Second paragraph.', findRichText: true), findsOneWidget);
     // Reasoning and tool calls survive the round trip as folded traces.
@@ -740,7 +787,8 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
-    await _pumpConversationPage(tester, _FakePersonalityApi());
+    final api = _FakePersonalityApi();
+    await _pumpConversationPage(tester, api);
 
     // The pill is the three levels, and nothing is lit on the model default.
     expect(find.text('Low'), findsOneWidget);
@@ -758,11 +806,31 @@ void main() {
       findsOneWidget,
     );
 
+    // The level rides the run as an effort, and as an explicit "do reason":
+    // without the switch an agent that ships with thinking disabled would
+    // drop the request and the pill would read as a control that does
+    // nothing.
+    await tester.enterText(find.byType(TextField), 'think hard');
+    await tester.pump();
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+    expect(api.sentReasoningEfforts, ['high']);
+    expect(api.sentDisableReasoning, [false]);
+
     // Tapping the lit level again gives the turn back to the model's default,
     // so the untouched state is reachable from the pill alone.
     await tester.tap(find.text('High'));
     await tester.pumpAndSettle();
     expect(preferences.getString(kReasoningSettingStoreKey), 'default');
+
+    // The untouched state states neither control, leaving the agent's own
+    // setting in charge of how the companion thinks.
+    await tester.enterText(find.byType(TextField), 'just answer');
+    await tester.pump();
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+    expect(api.sentReasoningEfforts, ['high', null]);
+    expect(api.sentDisableReasoning, [false, null]);
   });
 
   testWidgets('a short paste stays in the message field', (tester) async {

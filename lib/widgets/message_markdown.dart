@@ -19,9 +19,10 @@ String _stickerUrl(String placeholder) =>
 
 /// Renders one assistant message body.
 ///
-/// The agent marks message boundaries with blank lines, so the text is split
-/// into paragraphs. A paragraph that is only sticker placeholders renders as
-/// stickers; everything else renders through [SolarMarkdownContent].
+/// The body is drawn a paragraph at a time so a paragraph that is only sticker
+/// placeholders can render as stickers; everything else renders through
+/// [SolarMarkdownContent]. A blank line here is plain text, not a boundary
+/// between messages — the log's rows come from the run's own events.
 class MessageMarkdown extends StatelessWidget {
   const MessageMarkdown({super.key, required this.text, this.textStyle});
 

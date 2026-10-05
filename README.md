@@ -12,8 +12,11 @@ An Island-style Flutter desktop pet companion.
   `High`, sent with every run as `reasoning_effort` and remembered across
   launches. No level lit is the model's own default — the run goes out without
   an effort, leaving the decision to the provider — and tapping the lit level
-  again returns to it. A level an older build stored under its own token still
-  reads back as itself.
+  again returns to it. A chosen level also states `disable_reasoning: false`,
+  so the run reasons even on an agent whose config turns thinking off by
+  default; the untouched state leaves that field out and lets the agent
+  decide. A level an older build stored under its own token still reads back
+  as itself.
 - AI behavior harness lets Personality Core change mood, face, status, and animation through a validated JSON directive.
 - Programmatic simulation owns energy, affection, idle decay, and feed/play/rest reactions.
 - Pet chat accepts typed messages on every target and speech-to-text on Android, iOS, and web when available. A block pasted into the composer at least 1000 characters long becomes a text attachment instead of message text: it can be opened and edited in place until the turn is sent, and then travels with the run as a named text part — the companion reads it as a document, and nothing is uploaded to Solar Network drive.

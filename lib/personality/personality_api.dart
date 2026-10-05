@@ -861,6 +861,11 @@ class PersonalityApi {
   /// the effort is forwarded verbatim and [disableReasoning] turns the
   /// provider's thinking mode off, which wins over any effort. Both are read
   /// when the run starts, so a client that cares states them on every run.
+  ///
+  /// [disableReasoning] is tri-state. Null leaves the agent's own setting in
+  /// charge — the model's default, as the composer's unlit pill promises;
+  /// false re-enables reasoning an agent ships with it disabled, which is what
+  /// an explicit effort level asks for; true turns thinking off outright.
   Stream<PersonalityRunEvent> runConversation({
     required String conversationId,
     required String message,
@@ -871,7 +876,7 @@ class PersonalityApi {
     List<String> overrides = const [],
     List<String> context = const [],
     String? reasoningEffort,
-    bool disableReasoning = false,
+    bool? disableReasoning,
     CancelToken? cancelToken,
   }) async* {
     final response = await _streamClient().post<ResponseBody>(
@@ -890,7 +895,7 @@ class PersonalityApi {
         if (context.isNotEmpty) 'context': context,
         if (reasoningEffort != null && reasoningEffort.trim().isNotEmpty)
           'reasoning_effort': reasoningEffort.trim(),
-        if (disableReasoning) 'disable_reasoning': true,
+        'disable_reasoning': ?disableReasoning,
       },
       cancelToken: cancelToken,
       options: Options(

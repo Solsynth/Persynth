@@ -36,7 +36,7 @@ class _ScriptedApi extends PersonalityApi {
     List<String> overrides = const [],
     List<String> context = const [],
     String? reasoningEffort,
-    bool disableReasoning = false,
+    bool? disableReasoning,
     CancelToken? cancelToken,
   }) => events.stream;
 }
