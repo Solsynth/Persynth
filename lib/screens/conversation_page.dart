@@ -1390,10 +1390,13 @@ class _Composer extends ConsumerWidget {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      IconButton(
-                        tooltip: 'Attach',
-                        onPressed: busy || onAttach == null ? null : onAttach,
-                        icon: const Icon(Symbols.attach_file_rounded),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: IconButton(
+                          tooltip: 'Attach',
+                          onPressed: busy || onAttach == null ? null : onAttach,
+                          icon: const Icon(Symbols.attach_file_rounded),
+                        ),
                       ),
                       Expanded(
                         child: TextField(
