@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +15,8 @@ import 'package:persynth/plugins/web_tools_plugin.dart';
 import 'package:persynth/screens/settings_page.dart';
 import 'package:persynth/theme/app_theme.dart';
 
+import 'localization_harness.dart';
+
 /// A signed-in account with no launch read behind it: the card under test only
 /// needs the state, not the session lookup the real notifier performs.
 class _SignedInAuth extends SolarAuthNotifier {
@@ -27,6 +30,8 @@ class _SignedInAuth extends SolarAuthNotifier {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(initializeLocalization);
 
   testWidgets('every settings tab renders without overflowing', (tester) async {
     SharedPreferences.setMockInitialValues({});
@@ -42,9 +47,14 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
-        child: MaterialApp(
-          theme: buildPersynthTheme(Brightness.light),
-          home: const SettingsPage(),
+        child: localizedApp(
+          (context) => MaterialApp(
+            theme: buildPersynthTheme(Brightness.light),
+            locale: context.locale,
+            supportedLocales: context.supportedLocales,
+            localizationsDelegates: context.localizationDelegates,
+            home: const SettingsPage(),
+          ),
         ),
       ),
     );
@@ -68,9 +78,14 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
-        child: MaterialApp(
-          theme: buildPersynthTheme(Brightness.light),
-          home: const SettingsPage(),
+        child: localizedApp(
+          (context) => MaterialApp(
+            theme: buildPersynthTheme(Brightness.light),
+            locale: context.locale,
+            supportedLocales: context.supportedLocales,
+            localizationsDelegates: context.localizationDelegates,
+            home: const SettingsPage(),
+          ),
         ),
       ),
     );
@@ -129,9 +144,14 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
-        child: MaterialApp(
-          theme: buildPersynthTheme(Brightness.light),
-          home: const SettingsPage(),
+        child: localizedApp(
+          (context) => MaterialApp(
+            theme: buildPersynthTheme(Brightness.light),
+            locale: context.locale,
+            supportedLocales: context.supportedLocales,
+            localizationsDelegates: context.localizationDelegates,
+            home: const SettingsPage(),
+          ),
         ),
       ),
     );
@@ -210,9 +230,14 @@ void main() {
           ),
           solarAccessTokenProvider.overrideWith((ref) async => 'token-1'),
         ],
-        child: MaterialApp(
-          theme: buildPersynthTheme(Brightness.light),
-          home: const SettingsPage(),
+        child: localizedApp(
+          (context) => MaterialApp(
+            theme: buildPersynthTheme(Brightness.light),
+            locale: context.locale,
+            supportedLocales: context.supportedLocales,
+            localizationsDelegates: context.localizationDelegates,
+            home: const SettingsPage(),
+          ),
         ),
       ),
     );
@@ -251,9 +276,14 @@ void main() {
           ),
           solarAccessTokenProvider.overrideWith((ref) async => 'token-1'),
         ],
-        child: MaterialApp(
-          theme: buildPersynthTheme(Brightness.light),
-          home: const SettingsPage(),
+        child: localizedApp(
+          (context) => MaterialApp(
+            theme: buildPersynthTheme(Brightness.light),
+            locale: context.locale,
+            supportedLocales: context.supportedLocales,
+            localizationsDelegates: context.localizationDelegates,
+            home: const SettingsPage(),
+          ),
         ),
       ),
     );
@@ -262,5 +292,62 @@ void main() {
     final avatar = tester.widget<CircleAvatar>(find.byType(CircleAvatar));
     expect(avatar.foregroundImage, isNull);
     expect(find.byIcon(Symbols.person_rounded), findsOneWidget);
+  });
+
+  testWidgets('the language picker overrides the machine and hands it back', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+          (call) async => null,
+        );
+    final preferences = await SharedPreferences.getInstance();
+
+    Future<void> pump() => tester.pumpWidget(
+      ProviderScope(
+        overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+        child: localizedApp(
+          (context) => MaterialApp(
+            theme: buildPersynthTheme(Brightness.light),
+            locale: context.locale,
+            supportedLocales: context.supportedLocales,
+            localizationsDelegates: context.localizationDelegates,
+            home: const SettingsPage(),
+          ),
+        ),
+      ),
+    );
+
+    await pump();
+    await tester.pumpAndSettle();
+    expect(find.text('Display language'), findsOneWidget);
+
+    // The machine reports English, and Chinese is not installed on it, so the
+    // choice is the only way to read the other catalogue at all.
+    await tester.tap(find.byType(DropdownButton<String?>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('简体中文').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('显示语言'), findsOneWidget);
+    expect(preferences.getString('persynth_language'), 'zh-CN');
+
+    // Handing it back to the machine is a choice in its own right, so it has
+    // to stay chosen rather than snapping to whatever resolved.
+    await tester.tap(find.byType(DropdownButton<String?>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('跟随系统').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Display language'), findsOneWidget);
+    expect(preferences.getString('persynth_language'), isNull);
+    expect(
+      tester.widget<DropdownButton<String?>>(
+        find.byType(DropdownButton<String?>),
+      ).value,
+      isNull,
+    );
   });
 }

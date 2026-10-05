@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:super_context_menu/super_context_menu.dart';
 
@@ -17,17 +18,17 @@ Menu conversationRowMenu({
   return Menu(
     children: [
       MenuAction(
-        title: 'Move to group…',
+        title: 'moveToGroupAction'.tr(),
         callback: () => onSelected(ConversationRowAction.moveToGroup),
       ),
       if (grouped)
         MenuAction(
-          title: 'Remove from group',
+          title: 'removeFromGroup'.tr(),
           callback: () => onSelected(ConversationRowAction.removeFromGroup),
         ),
       MenuSeparator(),
       MenuAction(
-        title: 'Delete',
+        title: 'delete'.tr(),
         attributes: const MenuActionAttributes(destructive: true),
         callback: () => onSelected(ConversationRowAction.delete),
       ),
@@ -45,11 +46,11 @@ Menu conversationGroupMenu({
   return Menu(
     children: [
       MenuAction(
-        title: 'Rename',
+        title: 'rename'.tr(),
         callback: () => onSelected(ConversationGroupAction.rename),
       ),
       MenuAction(
-        title: archived ? 'Unarchive' : 'Archive',
+        title: archived ? 'unarchive'.tr() : 'archive'.tr(),
         callback: () => onSelected(
           archived
               ? ConversationGroupAction.unarchive
@@ -58,7 +59,7 @@ Menu conversationGroupMenu({
       ),
       MenuSeparator(),
       MenuAction(
-        title: 'Delete',
+        title: 'delete'.tr(),
         attributes: const MenuActionAttributes(destructive: true),
         callback: () => onSelected(ConversationGroupAction.delete),
       ),

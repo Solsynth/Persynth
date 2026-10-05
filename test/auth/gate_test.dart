@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter_test/flutter_test.dart';
+
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -80,9 +82,20 @@ Future<void> _pumpApp(
           ),
           solarAuthStateProvider.overrideWith(() => auth),
         ],
-        child: MaterialApp.router(
-          routerConfig: _GateTestRouter().config(),
-          theme: buildPersynthTheme(Brightness.light),
+        child: EasyLocalization(
+          supportedLocales: const [Locale('en', 'US'), Locale('zh', 'CN')],
+          path: 'assets/i18n',
+          fallbackLocale: const Locale('en', 'US'),
+          useFallbackTranslations: true,
+          child: Builder(
+            builder: (context) => MaterialApp.router(
+              routerConfig: _GateTestRouter().config(),
+              theme: buildPersynthTheme(Brightness.light),
+              locale: context.locale,
+              supportedLocales: context.supportedLocales,
+              localizationsDelegates: context.localizationDelegates,
+            ),
+          ),
         ),
       ),
     );
@@ -118,7 +131,13 @@ Future<void> _pumpRealApp(
             (ref) async => const <SnPersonalityConversation>[],
           ),
         ],
-        child: MyApp(useDesktopFrame: false),
+        child: EasyLocalization(
+          supportedLocales: const [Locale('en', 'US'), Locale('zh', 'CN')],
+          path: 'assets/i18n',
+          fallbackLocale: const Locale('en', 'US'),
+          useFallbackTranslations: true,
+          child: MyApp(useDesktopFrame: false),
+        ),
       ),
     );
     await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -127,7 +146,10 @@ Future<void> _pumpRealApp(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUpAll(() => SharedPreferences.setMockInitialValues({}));
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await EasyLocalization.ensureInitialized();
+  });
 
   testWidgets('holds the app at the sign-in until there is a session', (
     tester,

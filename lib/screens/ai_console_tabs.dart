@@ -12,6 +12,7 @@ import 'package:persynth/plugins/web_tools_plugin.dart';
 import 'package:persynth/theme/app_theme.dart';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 part 'ai_console_tabs.g.dart';
 
@@ -461,7 +462,11 @@ int _jsonInt(dynamic raw) {
 }
 
 /// The rolling windows the audit offers.
-const _ledgerWindows = <int, String>{1: '24 hours', 7: '7 days', 30: '30 days'};
+Map<int, String> get _ledgerWindows => <int, String>{
+      1: 'window24h'.tr(),
+      7: 'window7d'.tr(),
+      30: 'window30d'.tr(),
+    };
 
 /// How many rows of a breakdown are listed before the rest are counted up.
 const _kBreakdownRows = 4;
@@ -474,15 +479,15 @@ String _actionLabel(String action) {
   final parts = action.split('/');
   switch (parts.first) {
     case 'generation':
-      return 'Reply';
+      return 'actionReply'.tr();
     case 'web_search':
       final engine = parts.length > 1 ? parts[1].trim() : '';
       final label = parts.length > 2 && parts[2] == 'tokens'
-          ? 'Search tokens'
-          : 'Search';
+          ? 'actionSearchTokens'.tr()
+          : 'actionSearch'.tr();
       return engine.isEmpty ? label : '$label · $engine';
     default:
-      return action.isEmpty ? 'Charge' : action;
+      return action.isEmpty ? 'actionCharge'.tr() : action;
   }
 }
 
@@ -497,27 +502,28 @@ String _formatAmount(String raw) {
 
 /// What one query through [engine] costs, in the catalog's currency.
 String _engineCost(SnWebSearchEngine engine, String currency) {
-  if (engine.free) return 'free';
+  if (engine.free) return 'engineCostFree'.tr();
   final unit = _localizeCurrency(currency).toLowerCase();
   final parts = <String>[
-    if (engine.price.isNotEmpty) '${_formatAmount(engine.price)} $unit a search',
-    if (engine.metered) 'provider tokens billed',
+    if (engine.price.isNotEmpty)
+      '${_formatAmount(engine.price)} $unit ${'perSearch'.tr()}',
+    if (engine.metered) 'providerTokensBilled'.tr(),
   ];
-  return parts.isEmpty ? 'free' : parts.join(' · ');
+  return parts.isEmpty ? 'engineCostFree'.tr() : parts.join(' · ');
 }
 
 String _ledgerDimensionLabel(String key) {
   switch (key) {
     case 'action':
-      return 'Action';
+      return 'dimensionAction'.tr();
     case 'surface':
-      return 'Endpoint';
+      return 'dimensionEndpoint'.tr();
     case 'device':
-      return 'Device';
+      return 'dimensionDevice'.tr();
     case 'ip':
-      return 'Address';
+      return 'dimensionAddress'.tr();
     case 'credential':
-      return 'Credential';
+      return 'dimensionCredential'.tr();
     default:
       return key;
   }
@@ -672,7 +678,7 @@ class _KeyValue extends StatelessWidget {
 }
 
 class _EmptyNote extends StatelessWidget {
-  const _EmptyNote({this.message = 'Nothing here yet.'});
+  _EmptyNote({String? message}) : message = message ?? 'nothingHere'.tr();
 
   /// What the empty screen says. Defaults to the pass-through note, so a
   /// surface with something more useful to tell the reader can say it.
@@ -710,14 +716,14 @@ class AiConsoleCatalogTab extends ConsumerWidget {
         spacing: 16,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionTitle('Agents'),
+          _SectionTitle('agents'.tr()),
           agents.when(
             data: (list) {
               return Column(
                 spacing: 8,
                 children: [
                   for (final a in list) _AgentCard(agent: a),
-                  if (list.isEmpty) const _EmptyNote(),
+                  if (list.isEmpty) _EmptyNote(),
                 ],
               );
             },
@@ -727,13 +733,13 @@ class AiConsoleCatalogTab extends ConsumerWidget {
             ),
             loading: () => const _ResponseLoading(),
           ),
-          const _SectionTitle('Models'),
+          _SectionTitle('models'.tr()),
           models.when(
             data: (list) => Column(
               spacing: 8,
               children: [
                 for (final m in list) _ModelCard(model: m),
-                if (list.isEmpty) const _EmptyNote(),
+                if (list.isEmpty) _EmptyNote(),
               ],
             ),
             error: (e, _) => _ResponseError(
@@ -787,7 +793,7 @@ class _AgentCard extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    agent.enabled ? 'Enabled' : 'Disabled',
+                    agent.enabled ? 'enabled'.tr() : 'disabled'.tr(),
                     style: theme.textTheme.labelSmall,
                   ),
                 ),
@@ -795,7 +801,7 @@ class _AgentCard extends ConsumerWidget {
             ),
             if (agent.description != null)
               Text(agent.description!, style: theme.textTheme.bodySmall),
-            if (agent.model != null) _KeyValue('Model', agent.model!),
+            if (agent.model != null) _KeyValue('modelLabel'.tr(), agent.model!),
             if (agent.abilities.isNotEmpty)
               Wrap(
                 spacing: 6,
@@ -833,17 +839,17 @@ class _ModelCard extends StatelessWidget {
           spacing: 6,
           children: [
             Text(model.name, style: theme.textTheme.titleMedium),
-            _KeyValue('Provider', model.provider),
-            if (model.type != null) _KeyValue('Type', model.type!),
+            _KeyValue('provider'.tr(), model.provider),
+            if (model.type != null) _KeyValue('type'.tr(), model.type!),
             if (model.modalities.isNotEmpty)
-              _KeyValue('Modalities', model.modalities.join(', ')),
+              _KeyValue('modalities'.tr(), model.modalities.join(', ')),
             if (pricing != null)
               _KeyValue(
-                'Pricing',
+                'pricing'.tr(),
                 '${pricing.input ?? '?'} / ${pricing.output ?? '?'}'
                     ' (${_localizeCurrency(pricing.currency ?? 'USD')})',
                 trailing: Text(
-                  'per 1K tokens',
+                  'per1kTokens'.tr(),
                   style: theme.textTheme.labelSmall,
                 ),
               ),
@@ -856,11 +862,14 @@ class _ModelCard extends StatelessWidget {
 
 /// Localizes a wallet currency code (`points` → "Bits", `golds` → "Golds"),
 /// like the payment overlay does. Unknown codes (e.g. `USD`) pass through.
-const _currencyLabels = <String, String>{'points': 'Bits', 'golds': 'Golds'};
+const _currencyLabels = <String, String>{
+  'points': 'currencyPoints',
+  'golds': 'currencyGolds',
+};
 
 String _localizeCurrency(String currency) {
   if (currency.isEmpty) return currency;
-  return _currencyLabels[currency.toLowerCase()] ?? currency;
+  return (_currencyLabels[currency.toLowerCase()] ?? currency).tr();
 }
 
 class AiConsoleBillingTab extends HookConsumerWidget {
@@ -923,7 +932,7 @@ class AiConsoleBillingTab extends HookConsumerWidget {
         data: {'spending_quota': value},
       );
       ref.invalidate(personalityBillingProvider);
-      if (context.mounted) showSnackBar('Settings saved');
+      if (context.mounted) showSnackBar('settingsSaved'.tr());
     } catch (e) {
       if (context.mounted) _showErrorAlert(context, e);
     } finally {
@@ -937,7 +946,7 @@ class AiConsoleBillingTab extends HookConsumerWidget {
       final dio = ref.read(personalityApiClientProvider);
       await dio.post('/personality/billing/me/settle');
       ref.invalidate(personalityBillingProvider);
-      if (context.mounted) showSnackBar('Usage settled');
+      if (context.mounted) showSnackBar('usageSettled'.tr());
     } catch (e) {
       if (context.mounted) _showErrorAlert(context, e);
     } finally {
@@ -982,15 +991,17 @@ class _BillingStandingCard extends StatelessWidget {
                     spacing: 2,
                     children: [
                       Text(
-                        blacklisted ? 'Billing suspended' : 'Active',
+                        blacklisted
+                            ? 'billingSuspended'.tr()
+                            : 'billingActive'.tr(),
                         style: theme.textTheme.titleSmall?.copyWith(
                           color: blacklisted ? scheme.error : null,
                         ),
                       ),
                       Text(
                         blacklisted
-                            ? 'New runs are stopped until the account settles.'
-                            : 'Runs are metered and billed as usual.',
+                            ? 'billingSuspendedDesc'.tr()
+                            : 'billingActiveDesc'.tr(),
                         style: theme.textTheme.bodySmall,
                       ),
                     ],
@@ -1004,7 +1015,7 @@ class _BillingStandingCard extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: onSettle,
                   icon: const Icon(Symbols.paid),
-                  label: const Text('Settle unpaid usage'),
+                  label: Text('settleUnpaidUsage'.tr()),
                 ),
               ),
           ],
@@ -1039,10 +1050,9 @@ class _SpendingQuotaCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           spacing: 12,
           children: [
-            Text('Spending quota', style: theme.textTheme.titleSmall),
+            Text('spendingQuota'.tr(), style: theme.textTheme.titleSmall),
             Text(
-              'Charge the wallet once unpaid usage reaches this amount. '
-              '0 settles only in the daily run.',
+              'chargeWalletDescription'.tr(),
               style: theme.textTheme.bodySmall,
             ),
             Row(
@@ -1063,7 +1073,7 @@ class _SpendingQuotaCard extends StatelessWidget {
                 const Gap(8),
                 FilledButton(
                   onPressed: canSave ? onSave : null,
-                  child: const Text('Save quota'),
+                  child: Text('saveQuota'.tr()),
                 ),
               ],
             ),
@@ -1092,15 +1102,15 @@ class _MeteredUsageCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           spacing: 12,
           children: [
-            Text('Metered usage', style: theme.textTheme.titleSmall),
+            Text('meteredUsage'.tr(), style: theme.textTheme.titleSmall),
             if (empty)
               Text(
-                'Nothing metered this hour or today.',
+                'nothingMeteredToday'.tr(),
                 style: theme.textTheme.bodySmall,
               )
             else ...[
-              _UsageInterval(label: 'This hour', usage: usage.hourlyUsage),
-              _UsageInterval(label: 'Today', usage: usage.dailyUsage),
+              _UsageInterval(label: 'thisHour'.tr(), usage: usage.hourlyUsage),
+              _UsageInterval(label: 'today'.tr(), usage: usage.dailyUsage),
             ],
           ],
         ),
@@ -1134,7 +1144,7 @@ class _UsageInterval extends StatelessWidget {
           ),
         ),
         if (rows.isEmpty)
-          Text('Nothing metered.', style: theme.textTheme.bodySmall)
+          Text('nothingMetered'.tr(), style: theme.textTheme.bodySmall)
         else
           for (final row in rows)
             _UsageRow(label: _localizeCurrency(row.key), usage: row.value),
@@ -1165,7 +1175,7 @@ class _UsageRow extends StatelessWidget {
             Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
             Text(
               max == null
-                  ? '${_formatAmount(usage.used)} used'
+                  ? '${_formatAmount(usage.used)} ${'usedSuffix'.tr()}'
                   : '${_formatAmount(usage.used)} / ${_formatAmount(usage.max!)}',
               style: theme.textTheme.labelSmall?.copyWith(
                 color: theme.colorScheme.onSurface,
@@ -1218,9 +1228,9 @@ class AiConsoleUsageTab extends HookConsumerWidget {
         spacing: 16,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _SectionTitle('Search provider'),
+          _SectionTitle('searchProvider'.tr()),
           const _SearchProviderCard(),
-          const _SectionTitle('Spend'),
+          _SectionTitle('spend'.tr()),
           _SpendControls(
             query: listQuery,
             onWindow: (value) => days.value = value,
@@ -1244,7 +1254,7 @@ class AiConsoleUsageTab extends HookConsumerWidget {
             ),
             loading: () => const _ResponseLoading(),
           ),
-          const _SectionTitle('Recent charges'),
+          _SectionTitle('recentCharges'.tr()),
           ledger.when(
             data: (entries) => _LedgerCard(entries: entries),
             error: (e, _) => _ResponseError(
@@ -1285,11 +1295,11 @@ class _SearchProviderCard extends ConsumerWidget {
           spacing: 8,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Where searches run', style: theme.textTheme.titleSmall),
+            Text('whereSearchesRun'.tr(), style: theme.textTheme.titleSmall),
             Text(
               onDevice
-                  ? 'Searches run on this device right now. This choice applies once Web search is off in General.'
-                  : 'Only the chosen engine is queried, so the price of a search is the one you picked.',
+                  ? 'searchesOnDevice'.tr()
+                  : 'onlyChosenEngineQueried'.tr(),
               style: theme.textTheme.labelSmall,
             ),
             const Gap(4),
@@ -1297,8 +1307,8 @@ class _SearchProviderCard extends ConsumerWidget {
               data: (value) => Column(
                 children: [
                   _EngineRow(
-                    label: 'Server default',
-                    detail: 'whichever engine answers first',
+                    label: 'serverDefault'.tr(),
+                    detail: 'whicheverEngineFirst'.tr(),
                     selected: value.preference.engine.isEmpty,
                     onTap: () => _chooseEngine(context, ref, ''),
                   ),
@@ -1340,8 +1350,8 @@ class _SearchProviderCard extends ConsumerWidget {
       if (context.mounted) {
         showSnackBar(
           engine.isEmpty
-              ? 'Searches will use any engine'
-              : 'Searches will use $engine',
+              ? 'searchesWillUseAny'.tr()
+              : 'searchesWillUse'.tr(namedArgs: {'engine': engine}),
         );
       }
     } catch (e) {
@@ -1523,11 +1533,11 @@ class _SpendBreakdown extends StatelessWidget {
         .where((bucket) => bucket.key.isNotEmpty)
         .toList();
     final groups = <(String, String, List<SnLedgerBucket>)>[
-      ('By action', 'action', summary.byAction),
-      ('By endpoint', 'surface', summary.bySurface),
-      ('By device', 'device', summary.byDeviceId),
-      ('By address', 'ip', summary.byClientIp),
-      ('By credential', 'credential', credentials),
+      ('breakdownByAction'.tr(), 'action', summary.byAction),
+      ('breakdownByEndpoint'.tr(), 'surface', summary.bySurface),
+      ('breakdownByDevice'.tr(), 'device', summary.byDeviceId),
+      ('breakdownByAddress'.tr(), 'ip', summary.byClientIp),
+      ('breakdownByCredential'.tr(), 'credential', credentials),
     ];
 
     return Card(
@@ -1551,14 +1561,14 @@ class _SpendBreakdown extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${summary.entries} ${summary.entries == 1 ? 'charge' : 'charges'}',
+                  'chargeCount'.plural(summary.entries),
                   style: theme.textTheme.labelSmall,
                 ),
               ],
             ),
             if (summary.entries == 0)
               Text(
-                'Nothing was metered in this window.',
+                'nothingMeteredInWindow'.tr(),
                 style: theme.textTheme.bodySmall,
               )
             else
@@ -1621,7 +1631,7 @@ class _BucketGroup extends StatelessWidget {
                   Expanded(
                     child: Text(
                       identifier
-                          ? (bucket.key.isEmpty ? 'none' : bucket.key)
+                          ? (bucket.key.isEmpty ? 'noneValue'.tr() : bucket.key)
                           : _actionLabel(bucket.key),
                       style: identifier
                           ? theme.textTheme.bodySmall?.copyWith(
@@ -1645,7 +1655,7 @@ class _BucketGroup extends StatelessWidget {
         if (hidden > 0)
           Padding(
             padding: const EdgeInsets.only(left: 2, top: 2),
-            child: Text('+$hidden more', style: theme.textTheme.labelSmall),
+            child: Text('moreResults'.tr(namedArgs: {'count': hidden.toString()}), style: theme.textTheme.labelSmall),
           ),
       ],
     );
@@ -1662,7 +1672,7 @@ class _LedgerCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: entries.isEmpty
-          ? const _EmptyNote(message: 'No charges in this window.')
+          ? _EmptyNote(message: 'noChargesInWindow'.tr())
           : Column(
               children: [
                 for (final (index, entry) in entries.indexed) ...[
@@ -1755,13 +1765,13 @@ class AiConsoleCredentialsTab extends ConsumerWidget {
           child: FilledButton.icon(
             onPressed: () => _showCreateSheet(context, ref),
             icon: const Icon(Symbols.add),
-            label: Text('Create credential'),
+            label: Text('createCredential'.tr()),
           ),
         ),
         Expanded(
           child: creds.when(
             data: (list) => list.isEmpty
-                ? const Center(child: _EmptyNote())
+                ? Center(child: _EmptyNote())
                 : ListView.builder(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
@@ -1823,15 +1833,15 @@ class _CredentialCard extends ConsumerWidget {
                 children: [
                   Text(credential.name, style: theme.textTheme.titleMedium),
                   Text(
-                    '${'Token'}: ${credential.tokenPrefix}',
+                    '${'tokenLabel'.tr()}: ${credential.tokenPrefix}',
                     style: theme.textTheme.labelSmall,
                   ),
                   Text(
-                    '${'Usage'}: ${credential.usageUsed} / ${credential.usageLimit} ${_localizeCurrency(credential.usageCurrency)}',
+                    '${'usageLabel'.tr()}: ${credential.usageUsed} / ${credential.usageLimit} ${_localizeCurrency(credential.usageCurrency)}',
                     style: theme.textTheme.labelSmall,
                   ),
                   Text(
-                    '${'Created'}: $created',
+                    '${'createdLabel'.tr()}: $created',
                     style: theme.textTheme.labelSmall,
                   ),
                 ],
@@ -1854,8 +1864,8 @@ class _CredentialCard extends ConsumerWidget {
   ) async {
     final confirm = await _showConfirmAlert(
       context,
-      'Revoke this credential? This cannot be undone.',
-      'Revoke',
+      'revokeCredentialMessage'.tr(),
+      'revoke'.tr(),
       isDanger: true,
     );
     if (!confirm || !context.mounted) return;
@@ -1866,7 +1876,7 @@ class _CredentialCard extends ConsumerWidget {
         '/personality/openai/credentials/${Uri.encodeComponent(c.id)}',
       );
       ref.invalidate(personalityCredentialsProvider);
-      if (context.mounted) showSnackBar('Settings saved');
+      if (context.mounted) showSnackBar('settingsSaved'.tr());
     } catch (e) {
       if (context.mounted) _showErrorAlert(context, e);
     } finally {
@@ -1887,7 +1897,7 @@ class _CreateCredentialSheet extends HookConsumerWidget {
     final createdToken = useState<String?>(null);
 
     return SheetScaffold(
-      titleText: 'Create credential',
+      titleText: 'createCredential'.tr(),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: createdToken.value != null
@@ -1901,16 +1911,16 @@ class _CreateCredentialSheet extends HookConsumerWidget {
                 children: [
                   TextField(
                     controller: name,
-                    decoration: InputDecoration(labelText: 'Name'),
+                    decoration: InputDecoration(labelText: 'name'.tr()),
                   ),
                   TextField(
                     controller: limit,
                     keyboardType: TextInputType.number,
-                    decoration: InputDecoration(labelText: 'Usage limit'),
+                    decoration: InputDecoration(labelText: 'usageLimit'.tr()),
                   ),
                   TextField(
                     controller: currency,
-                    decoration: InputDecoration(labelText: 'Currency'),
+                    decoration: InputDecoration(labelText: 'currency'.tr()),
                   ),
                   const Gap(8),
                   FilledButton(
@@ -1918,7 +1928,7 @@ class _CreateCredentialSheet extends HookConsumerWidget {
                         ? null
                         : () async {
                             if (name.text.trim().isEmpty) {
-                              _showErrorAlert(context, 'Name');
+                              _showErrorAlert(context, 'name'.tr());
                               return;
                             }
                             submitting.value = true;
@@ -1956,7 +1966,7 @@ class _CreateCredentialSheet extends HookConsumerWidget {
                               submitting.value = false;
                             }
                           },
-                    child: Text('Create credential'),
+                    child: Text('createCredential'.tr()),
                   ),
                 ],
               ),
@@ -1978,9 +1988,9 @@ class _TokenReveal extends StatelessWidget {
       spacing: 12,
       children: [
         Icon(Symbols.key, size: 40, color: theme.colorScheme.primary),
-        Text('Credential created', style: theme.textTheme.titleMedium),
+        Text('credentialCreated'.tr(), style: theme.textTheme.titleMedium),
         Text(
-          'Copy this token now. It will not be shown again.',
+          'copyTokenDescription'.tr(),
           style: theme.textTheme.bodySmall,
           textAlign: TextAlign.center,
         ),
@@ -2001,12 +2011,12 @@ class _TokenReveal extends StatelessWidget {
               child: OutlinedButton.icon(
                 onPressed: () => Clipboard.setData(ClipboardData(text: token)),
                 icon: const Icon(Symbols.content_copy),
-                label: Text('Copy token'),
+                label: Text('copyToken'.tr()),
               ),
             ),
             const Gap(8),
             Expanded(
-              child: FilledButton(onPressed: onDone, child: Text('Done')),
+              child: FilledButton(onPressed: onDone, child: Text('done'.tr())),
             ),
           ],
         ),
@@ -2064,7 +2074,7 @@ class _ResponseError extends StatelessWidget {
                 ),
               ),
               const Gap(8),
-              TextButton(onPressed: onRetry, child: const Text('Retry')),
+              TextButton(onPressed: onRetry, child: Text('retry'.tr())),
             ],
           ),
         ),
@@ -2095,7 +2105,7 @@ Future<bool> _showConfirmAlert(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Cancel'),
+          child: Text('cancel'.tr()),
         ),
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(true),

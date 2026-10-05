@@ -18,8 +18,15 @@ import 'package:persynth/router.dart';
 import 'package:persynth/shared/desktop_window_service.dart';
 import 'package:persynth/theme/app_theme.dart';
 
+import 'package:easy_localization/easy_localization.dart';
 Future<void> main(List<String> args) async {
+  // The binding has to exist before anything reaches for a platform channel,
+  // and the localization plugin reaches for one on its way in — it reads the
+  // saved locale out of `SharedPreferences`. Calling it first would throw out
+  // of `main` before a widget was ever built, which is a black window rather
+  // than an error anyone can read.
   WidgetsFlutterBinding.ensureInitialized();
+  await EasyLocalization.ensureInitialized();
   final preferences = await SharedPreferences.getInstance();
 
   // The script-plugin runtime starts before the app does, so the plugins the
@@ -75,9 +82,15 @@ Future<void> main(List<String> args) async {
   scope.read(mcpCatalogueProvider);
 
   runApp(
-    UncontrolledProviderScope(
-      container: scope,
-      child: MyApp(isPetWindow: isPetWindow),
+    EasyLocalization(
+      supportedLocales: const [Locale('en', 'US'), Locale('zh', 'CN')],
+      path: 'assets/i18n',
+      fallbackLocale: const Locale('en', 'US'),
+      useFallbackTranslations: true,
+      child: UncontrolledProviderScope(
+        container: scope,
+        child: MyApp(isPetWindow: isPetWindow),
+      ),
     ),
   );
 
@@ -109,10 +122,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: isPetWindow ? 'Mochi' : 'Persynth',
+      title: isPetWindow ? 'appNameMochi'.tr() : 'appNamePersynth'.tr(),
       theme: buildPersynthTheme(Brightness.light),
       darkTheme: buildPersynthTheme(Brightness.dark),
       themeMode: ThemeMode.system,
+      locale: context.locale,
+      supportedLocales: context.supportedLocales,
+      localizationsDelegates: context.localizationDelegates,
       routerConfig: _router.config(),
       builder: (context, child) {
         Widget content = child ?? const SizedBox.shrink();
@@ -153,7 +169,7 @@ class MyApp extends StatelessWidget {
           child: DesktopWindowFrame(
             isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
             title: Text(
-              isPetWindow ? 'Mochi' : 'Persynth',
+              isPetWindow ? 'appNameMochi'.tr() : 'appNamePersynth'.tr(),
               style: TextStyle(
                 fontFamily: PersynthFonts.sans,
                 fontSize: 11,

@@ -22,6 +22,7 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:persynth/plugins/mcp_config.dart';
 import 'package:persynth/plugins/mcp_servers.dart';
 import 'package:persynth/theme/app_theme.dart';
@@ -34,15 +35,12 @@ class McpServersSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     if (kIsWeb) {
-      return const Card(
+      return Card(
         margin: EdgeInsets.zero,
         child: ListTile(
-          leading: Icon(Symbols.devices_rounded),
-          title: Text('MCP servers'),
-          subtitle: Text(
-            'Your own MCP servers can be connected in the desktop and mobile '
-            'apps. A browser cannot reach a server on your machine.',
-          ),
+          leading: const Icon(Symbols.devices_rounded),
+          title: Text('mcpServers'.tr()),
+          subtitle: Text('mcpServersWebNote'.tr()),
         ),
       );
     }
@@ -57,10 +55,9 @@ class McpServersSection extends ConsumerWidget {
           if (servers.isEmpty)
             ListTile(
               leading: const Icon(Symbols.hub_rounded),
-              title: const Text('No MCP servers connected'),
+              title: Text('noMcpServers'.tr()),
               subtitle: Text(
-                'Connect a server and its tools become a plugin the companion '
-                'can load.',
+                'connectMcpServerHint'.tr(),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -76,10 +73,9 @@ class McpServersSection extends ConsumerWidget {
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Symbols.add_rounded),
-            title: const Text('Add server'),
+            title: Text('addServer'.tr()),
             subtitle: Text(
-              'An http:// or https:// MCP endpoint. A server on this machine '
-              'is usually http://127.0.0.1:<port>/mcp.',
+              'addServerHint'.tr(),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -89,10 +85,9 @@ class McpServersSection extends ConsumerWidget {
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Symbols.content_paste_rounded),
-            title: const Text('Paste JSON config'),
+            title: Text('pasteJsonConfig'.tr()),
             subtitle: Text(
-              'A config from Claude Desktop, Cursor or VS Code. Its http:// and '
-              'https:// servers are added as they are, token included.',
+              'pasteJsonConfigHint'.tr(),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -121,11 +116,13 @@ class _ServerRow extends ConsumerWidget {
     final settled = status?.checked ?? false;
 
     final detail = switch (status) {
-      null => 'Checking the server…',
-      McpServerState(checked: false) => 'Checking the server…',
-      McpServerState(error: final error?) => 'Not reachable: $error',
-      McpServerState(tools: final tools) =>
-        '${tools.length} tool${tools.length == 1 ? '' : 's'} available',
+      null => 'checkingServer'.tr(),
+      McpServerState(checked: false) => 'checkingServer'.tr(),
+      McpServerState(error: final error?) =>
+        'notReachable'.tr(namedArgs: {'error': error}),
+      McpServerState(tools: final tools) => tools.length == 1
+          ? 'toolAvailable'.tr(namedArgs: {'count': '${tools.length}'})
+          : 'toolsAvailable'.tr(namedArgs: {'count': '${tools.length}'}),
     };
 
     return ListTile(
@@ -149,20 +146,20 @@ class _ServerRow extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            tooltip: 'Check again',
+            tooltip: 'checkAgain'.tr(),
             icon: const Icon(Symbols.refresh),
             onPressed: () => ref
                 .read(mcpCatalogueProvider.notifier)
                 .refresh(server.id),
           ),
           IconButton(
-            tooltip: 'Edit',
+            tooltip: 'edit'.tr(),
             icon: const Icon(Symbols.edit),
             onPressed: () =>
                 showMcpServerDialog(context, ref, server: server),
           ),
           IconButton(
-            tooltip: 'Remove',
+            tooltip: 'remove'.tr(),
             icon: const Icon(Symbols.delete_outline),
             onPressed: () => _confirmRemove(context, ref),
           ),
@@ -175,19 +172,16 @@ class _ServerRow extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Remove ${server.name}?'),
-        content: const Text(
-          'The companion loses this server\'s tools, and the token stored for '
-          'it is deleted. The server itself is not touched.',
-        ),
+        title: Text('removeServerConfirmation'.tr(namedArgs: {'name': server.name})),
+        content: Text('removeServerDescription'.tr()),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text('cancel'.tr()),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Remove'),
+            child: Text('remove'.tr()),
           ),
         ],
       ),
@@ -250,7 +244,7 @@ class _McpConfigDialog extends HookConsumerWidget {
       } on FormatException catch (failure) {
         error.value = failure.message;
       } catch (failure) {
-        error.value = 'Could not store a token: $failure';
+        error.value = 'couldNotStoreToken'.tr(namedArgs: {'error': '$failure'});
       } finally {
         busy.value = false;
       }
@@ -258,7 +252,7 @@ class _McpConfigDialog extends HookConsumerWidget {
 
     final result = outcome.value;
     return AlertDialog(
-      title: const Text('Paste an MCP config'),
+      title: Text('pasteMcpConfig'.tr()),
       content: SizedBox(
         width: 420,
         child: SingleChildScrollView(
@@ -276,8 +270,8 @@ class _McpConfigDialog extends HookConsumerWidget {
                   fontSize: 12,
                   height: 1.4,
                 ),
-                decoration: const InputDecoration(
-                  labelText: 'Configuration JSON',
+                decoration: InputDecoration(
+                  labelText: 'configurationJson'.tr(),
                   alignLabelWithHint: true,
                   hintText:
                       '{"mcpServers": {"weather": {"url": '
@@ -302,11 +296,11 @@ class _McpConfigDialog extends HookConsumerWidget {
       actions: [
         TextButton(
           onPressed: busy.value ? null : () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text('close'.tr()),
         ),
         FilledButton(
           onPressed: busy.value ? null : import,
-          child: const Text('Import'),
+          child: Text('import'.tr()),
         ),
       ],
     );
@@ -333,8 +327,8 @@ class _ImportOutcome extends StatelessWidget {
       children: [
         Text(
           added == 0
-              ? 'No servers were added.'
-              : '$added server${added == 1 ? '' : 's'} added.',
+              ? 'noServersAdded'.tr()
+              : 'serversAdded'.plural(added),
           style: theme.textTheme.titleSmall,
         ),
         const SizedBox(height: 4),
@@ -345,7 +339,7 @@ class _ImportOutcome extends StatelessWidget {
           const SizedBox(height: 8),
         ],
         if (outcome.skipped.isNotEmpty) ...[
-          Text('Not added', style: theme.textTheme.titleSmall),
+          Text('notAdded'.tr(), style: theme.textTheme.titleSmall),
           const SizedBox(height: 4),
           for (final line in outcome.skipped) Text(line, style: muted),
         ],
@@ -396,14 +390,14 @@ class _McpServerDialog extends HookConsumerWidget {
       } on FormatException catch (failure) {
         error.value = failure.message;
       } catch (failure) {
-        error.value = 'Could not store the token: $failure';
+        error.value = 'couldNotStoreToken'.tr(namedArgs: {'error': '$failure'});
       } finally {
         busy.value = false;
       }
     }
 
     return AlertDialog(
-      title: Text(editing ? 'Edit server' : 'Connect an MCP server'),
+      title: Text(editing ? 'editServer'.tr() : 'connectMcpServer'.tr()),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -412,17 +406,17 @@ class _McpServerDialog extends HookConsumerWidget {
             TextField(
               controller: name,
               autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Name',
-                hintText: 'Home server',
+              decoration: InputDecoration(
+                labelText: 'name'.tr(),
+                hintText: 'homeServerHint'.tr(),
               ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: url,
               keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: 'Endpoint',
+              decoration: InputDecoration(
+                labelText: 'endpoint'.tr(),
                 hintText: 'http://127.0.0.1:4317/mcp',
               ),
             ),
@@ -431,10 +425,10 @@ class _McpServerDialog extends HookConsumerWidget {
               controller: token,
               obscureText: true,
               decoration: InputDecoration(
-                labelText: 'Access token',
+                labelText: 'accessToken'.tr(),
                 hintText: editing
-                    ? 'Leave blank to keep the stored token'
-                    : 'Optional',
+                    ? 'leaveBlankToKeepToken'.tr()
+                    : 'optional'.tr(),
               ),
             ),
             if (error.value != null) ...[
@@ -452,11 +446,11 @@ class _McpServerDialog extends HookConsumerWidget {
       actions: [
         TextButton(
           onPressed: busy.value ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text('cancel'.tr()),
         ),
         FilledButton(
           onPressed: busy.value ? null : submit,
-          child: Text(editing ? 'Save' : 'Connect'),
+          child: Text(editing ? 'save'.tr() : 'connect'.tr()),
         ),
       ],
     );

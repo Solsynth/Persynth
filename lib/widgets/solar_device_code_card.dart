@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -37,7 +38,7 @@ class SolarDeviceCodeCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Finish signing in with this code',
+            'deviceCodeTitle'.tr(),
             style: theme.textTheme.labelLarge?.copyWith(
               color: scheme.onSurfaceVariant,
             ),
@@ -68,14 +69,14 @@ class SolarDeviceCodeCard extends StatelessWidget {
               const Gap(8),
               Expanded(
                 child: Text(
-                  'Waiting for approval…',
+                  'deviceCodeWaiting'.tr(),
                   style: theme.textTheme.bodySmall,
                 ),
               ),
               TextButton.icon(
                 onPressed: _openVerificationPage,
                 icon: const Icon(Symbols.open_in_new_rounded, size: 18),
-                label: const Text('Open page'),
+                label: Text('openPage'.tr()),
               ),
             ],
           ),

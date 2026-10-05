@@ -1,4 +1,5 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -6,7 +7,6 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:persynth/auth/solar_auth_controller.dart';
 import 'package:persynth/auth/solar_sign_in_panel.dart';
 import 'package:persynth/router.dart';
-import 'package:persynth/widgets/pet_avatar.dart';
 
 /// The app's front door: nothing of the app's own is drawn until an account is
 /// signed in, and the conversation is only reachable from here.
@@ -85,17 +85,30 @@ class _SignInPanel extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Align(child: PetAvatar(size: 96, face: '0.0')),
+        // The app icon's own artwork, so the front door wears the same mark
+        // the user sees in the Dock or on their home screen. The source art is
+        // a full-bleed square (unlike SolWatt's pre-masked icon), so it takes
+        // the same squircle the platforms do — 22.37% of the 96px tile.
+        Align(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: Image.asset(
+              'assets/icons/icon.png',
+              width: 96,
+              height: 96,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
         const Gap(20),
         Text(
-          'Persynth',
+          'appNamePersynth'.tr(),
           textAlign: TextAlign.center,
           style: theme.textTheme.headlineMedium?.copyWith(letterSpacing: -0.5),
         ),
         const Gap(8),
         Text(
-          'Your companion talks through Solar Network. Sign in and it comes '
-          'online with your account.',
+          'gateDescription'.tr(),
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyLarge?.copyWith(
             color: scheme.onSurfaceVariant,

@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:persynth/screens/conversation_context_menus.dart';
 import 'package:super_context_menu/super_context_menu.dart';
 
+import '../localization_harness.dart';
+
 /// A context menu is rendered by the platform — natively on macOS and Linux —
 /// so a widget test cannot click its items. These read the menu the list would
 /// open and press an item directly instead. That is the one place where the
@@ -45,7 +47,10 @@ void _press(Menu menu, String title) {
 }
 
 void main() {
-  test('a row menu files, unfiles and deletes', () {
+  setUpAll(initializeLocalization);
+
+  testWidgets('a row menu files, unfiles and deletes', (tester) async {
+    await loadLocalizedCopy(tester);
     final row = _rowMenu(grouped: false);
     expect(_titles(row.menu), ['Move to group…', 'Delete']);
 
@@ -57,7 +62,8 @@ void main() {
     ]);
   });
 
-  test('only a filed row offers to leave its group', () {
+  testWidgets('only a filed row offers to leave its group', (tester) async {
+    await loadLocalizedCopy(tester);
     final row = _rowMenu(grouped: true);
     expect(_titles(row.menu), [
       'Move to group…',
@@ -69,7 +75,8 @@ void main() {
     expect(row.picks, [ConversationRowAction.removeFromGroup]);
   });
 
-  test('a group menu renames, files away and deletes', () {
+  testWidgets('a group menu renames, files away and deletes', (tester) async {
+    await loadLocalizedCopy(tester);
     final group = _groupMenu(archived: false);
     expect(_titles(group.menu), ['Rename', 'Archive', 'Delete']);
 
@@ -81,7 +88,8 @@ void main() {
     ]);
   });
 
-  test('an archived group offers to come back instead', () {
+  testWidgets('an archived group offers to come back instead', (tester) async {
+    await loadLocalizedCopy(tester);
     final group = _groupMenu(archived: true);
     expect(_titles(group.menu), ['Rename', 'Unarchive', 'Delete']);
 
@@ -93,7 +101,10 @@ void main() {
     ]);
   });
 
-  test('deleting is marked destructive in both menus', () {
+  testWidgets('deleting is marked destructive in both menus', (
+    tester,
+  ) async {
+    await loadLocalizedCopy(tester);
     expect(
       _actions(_rowMenu(grouped: false).menu).last.attributes.destructive,
       isTrue,

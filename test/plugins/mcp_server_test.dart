@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -143,6 +144,42 @@ Future<void> _load(ProviderContainer container, String skillName) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await EasyLocalization.ensureInitialized();
+  });
+
+  /// Wraps the section in the localization the app ships, so the
+  /// English strings the tests tap and assert on resolve.
+  Widget host(Widget child) => EasyLocalization(
+        supportedLocales: const [Locale('en', 'US')],
+        path: 'assets/i18n',
+        fallbackLocale: const Locale('en', 'US'),
+        useFallbackTranslations: true,
+        child: Builder(
+          builder: (context) => MaterialApp(
+            locale: context.locale,
+            supportedLocales: context.supportedLocales,
+            localizationsDelegates: context.localizationDelegates,
+            home: Scaffold(body: child),
+          ),
+        ),
+      );
+
+  /// Pumps [host] with the delegate's real asset load given time to
+  /// land: the strings the test taps are read from disk, not faked.
+  Future<void> pumpHost(
+    WidgetTester tester,
+    ProviderContainer container,
+    Widget child,
+  ) async {
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(container: container, child: host(child)),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+  }
 
   test('a connected server becomes a plugin whose tools load by name', () async {
     final gateway = _FakeGateway(
@@ -337,14 +374,7 @@ void main() {
   ) async {
     final gateway = _FakeGateway(tools: [_tool('read_file')]);
     final container = await _launch(gateway: gateway);
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const MaterialApp(
-          home: Scaffold(body: McpServersSection()),
-        ),
-      ),
-    );
+    await pumpHost(tester, container, const McpServersSection());
     await tester.pumpAndSettle();
     expect(find.text('No MCP servers connected'), findsOneWidget);
 
@@ -420,12 +450,7 @@ void main() {
   ) async {
     final gateway = _FakeGateway(tools: [_tool('read_file')]);
     final container = await _launch(gateway: gateway);
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const MaterialApp(home: Scaffold(body: McpServersSection())),
-      ),
-    );
+    await pumpHost(tester, container, const McpServersSection());
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Paste JSON config'));
@@ -451,12 +476,7 @@ void main() {
     tester,
   ) async {
     final container = await _launch(gateway: _FakeGateway());
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const MaterialApp(home: Scaffold(body: McpServersSection())),
-      ),
-    );
+    await pumpHost(tester, container, const McpServersSection());
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Paste JSON config'));
@@ -473,14 +493,7 @@ void main() {
     tester,
   ) async {
     final container = await _launch(gateway: _FakeGateway());
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const MaterialApp(
-          home: Scaffold(body: McpServersSection()),
-        ),
-      ),
-    );
+    await pumpHost(tester, container, const McpServersSection());
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Add server'));

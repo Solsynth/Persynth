@@ -82,6 +82,7 @@ dependencies:
   http_parser: ^4.1.2
   mcp_client: ^2.2.1
   super_context_menu: ^0.9.1
+  easy_localization: ^3.0.8
 
 dev_dependencies:
   auto_route_generator: ^10.6.0
@@ -102,6 +103,15 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/icons/icon.png
+    - assets/i18n/en-US.json
+    - assets/i18n/zh-CN.json
+    # Easy Localization looks for the bare language code of the active locale on
+    # every load, as a last layer under the locale's own file. Nothing shares a
+    # language here, so these stay empty and the lookup still finds a file.
+    - assets/i18n/en.json
+    - assets/i18n/zh.json
 
   # Two families, the same pair every Solian fleet app ships: Nunito is the
   # app's voice, IBM Plex Mono the terminal one (the pet's ASCII face, code,

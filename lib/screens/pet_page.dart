@@ -1,6 +1,6 @@
-import 'dart:async';
-
+import 'package:easy_localization/easy_localization.dart';
 import 'package:auto_route/auto_route.dart';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
@@ -159,7 +159,7 @@ class _PetPageState extends State<PetPage> {
           if (mounted) {
             setState(() {
               _isListening = false;
-              _behavior.setStatus('Voice input failed: ${error.errorMsg}');
+              _behavior.setStatus('voiceInputFailed'.tr());
             });
           }
         },
@@ -176,7 +176,7 @@ class _PetPageState extends State<PetPage> {
 
   Future<void> _toggleListening() async {
     if (!_speechAvailable) {
-      setState(() => _behavior.setStatus('Voice input is unavailable here.'));
+      setState(() => _behavior.setStatus('voiceUnavailable'.tr()));
       return;
     }
     if (_isListening) {
@@ -187,7 +187,7 @@ class _PetPageState extends State<PetPage> {
 
     setState(() {
       _isListening = true;
-      _behavior.setStatus('Listening... ', face: 'o.o');
+      _behavior.setStatus('listening'.tr(), face: 'o.o');
     });
     await _speech.listen(
       onResult: (result) {
@@ -222,7 +222,7 @@ class _PetPageState extends State<PetPage> {
     } on SolarAuthException {
       if (mounted) {
         setState(
-          () => _behavior.setStatus('Sign in to talk to Mochi.', face: 'o.o'),
+          () => _behavior.setStatus('signInToTalk'.tr(), face: 'o.o'),
         );
       }
       return;
@@ -230,7 +230,7 @@ class _PetPageState extends State<PetPage> {
     if (accessToken == null) {
       if (mounted) {
         setState(
-          () => _behavior.setStatus('Sign in to talk to Mochi.', face: 'o.o'),
+          () => _behavior.setStatus('signInToTalk'.tr(), face: 'o.o'),
         );
       }
       return;
@@ -389,7 +389,7 @@ $transcript''';
                   alignment: WrapAlignment.center,
                   children: [
                     IconButton(
-                      tooltip: 'Feed Mochi',
+                      tooltip: 'feedMochi'.tr(),
                       onPressed: () => _interact(PetInteraction.feed),
                       icon: const Icon(Icons.restaurant_rounded, size: 19),
                       style: IconButton.styleFrom(
@@ -400,7 +400,7 @@ $transcript''';
                       ),
                     ),
                     IconButton(
-                      tooltip: 'Play with Mochi',
+                      tooltip: 'playWithMochi'.tr(),
                       onPressed: () => _interact(PetInteraction.play),
                       icon: const Icon(Icons.sports_esports_rounded, size: 19),
                       style: IconButton.styleFrom(
@@ -411,7 +411,7 @@ $transcript''';
                       ),
                     ),
                     IconButton(
-                      tooltip: 'Rest with Mochi',
+                      tooltip: 'restWithMochi'.tr(),
                       onPressed: () => _interact(PetInteraction.rest),
                       icon: const Icon(Icons.nightlight_rounded, size: 19),
                       style: IconButton.styleFrom(
@@ -439,8 +439,8 @@ $transcript''';
                           maxLines: 3,
                           textInputAction: TextInputAction.send,
                           onSubmitted: (_) => _sendMessage(),
-                          decoration: const InputDecoration(
-                            hintText: 'Talk to Mochi…',
+                          decoration: InputDecoration(
+                            hintText: 'talkToMochi'.tr(),
                             border: InputBorder.none,
                             focusedBorder: InputBorder.none,
                             filled: false,
@@ -451,8 +451,8 @@ $transcript''';
                       if (_speechAvailable)
                         IconButton(
                           tooltip: _isListening
-                              ? 'Stop listening'
-                              : 'Use voice',
+                              ? 'stopListening'.tr()
+                              : 'useVoice'.tr(),
                           onPressed: _toggleListening,
                           color: _isListening
                               ? cs.primary
@@ -463,7 +463,7 @@ $transcript''';
                           ),
                         ),
                       IconButton(
-                        tooltip: 'Send message',
+                        tooltip: 'sendMessage'.tr(),
                         onPressed: _sendMessage,
                         style: IconButton.styleFrom(
                           backgroundColor: cs.primary,
@@ -481,7 +481,7 @@ $transcript''';
                 const SizedBox(height: 6),
                 TextButton.icon(
                   onPressed: () => setState(
-                    () => _behavior.setStatus('See you soon.', face: '-.-'),
+                    () => _behavior.setStatus('seeYouSoon'.tr(), face: '-.-'),
                   ),
                   style: TextButton.styleFrom(
                     foregroundColor: cs.onSurfaceVariant,
@@ -492,7 +492,7 @@ $transcript''';
                     ),
                   ),
                   icon: const Icon(Icons.visibility_off_outlined, size: 15),
-                  label: const Text('Hide for now'),
+                  label: Text('hideForNow'.tr()),
                 ),
               ],
             ),

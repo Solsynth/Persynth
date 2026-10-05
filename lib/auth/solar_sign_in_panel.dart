@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -100,7 +101,7 @@ class _SolarSignInPanelState extends ConsumerState<SolarSignInPanel> {
                 )
               : const Icon(Symbols.login_rounded),
           label: Text(
-            _signingIn ? 'Signing in…' : 'Continue with Solar Network',
+            _signingIn ? 'signingIn'.tr() : 'continueWithSolarNetwork'.tr(),
           ),
         ),
       ],

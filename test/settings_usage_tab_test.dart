@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,8 @@ import 'package:persynth/screens/ai_console_tabs.dart';
 import 'package:persynth/screens/settings_page.dart';
 import 'package:persynth/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'localization_harness.dart';
 
 /// Serves one canned body per `METHOD /path` and records every request, so a
 /// test can check both what the audit read and what it asked for when the
@@ -152,6 +155,8 @@ class _LedgerAdapter implements HttpClientAdapter {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  setUpAll(initializeLocalization);
+
   testWidgets('the usage tab reads the ledger and the breakdown narrows it', (
     tester,
   ) async {
@@ -174,9 +179,14 @@ void main() {
           sharedPreferencesProvider.overrideWithValue(preferences),
           personalityApiClientProvider.overrideWithValue(dio),
         ],
-        child: MaterialApp(
-          theme: buildPersynthTheme(Brightness.light),
-          home: const SettingsPage(),
+        child: localizedApp(
+          (context) => MaterialApp(
+            theme: buildPersynthTheme(Brightness.light),
+            locale: context.locale,
+            supportedLocales: context.supportedLocales,
+            localizationsDelegates: context.localizationDelegates,
+            home: const SettingsPage(),
+          ),
         ),
       ),
     );
@@ -242,9 +252,14 @@ void main() {
           sharedPreferencesProvider.overrideWithValue(preferences),
           personalityApiClientProvider.overrideWithValue(dio),
         ],
-        child: MaterialApp(
-          theme: buildPersynthTheme(Brightness.light),
-          home: const SettingsPage(),
+        child: localizedApp(
+          (context) => MaterialApp(
+            theme: buildPersynthTheme(Brightness.light),
+            locale: context.locale,
+            supportedLocales: context.supportedLocales,
+            localizationsDelegates: context.localizationDelegates,
+            home: const SettingsPage(),
+          ),
         ),
       ),
     );
@@ -289,9 +304,14 @@ void main() {
           sharedPreferencesProvider.overrideWithValue(preferences),
           personalityApiClientProvider.overrideWithValue(dio),
         ],
-        child: MaterialApp(
-          theme: buildPersynthTheme(Brightness.light),
-          home: const Scaffold(body: AiConsoleUsageTab()),
+        child: localizedApp(
+          (context) => MaterialApp(
+            theme: buildPersynthTheme(Brightness.light),
+            locale: context.locale,
+            supportedLocales: context.supportedLocales,
+            localizationsDelegates: context.localizationDelegates,
+            home: const Scaffold(body: AiConsoleUsageTab()),
+          ),
         ),
       ),
     );

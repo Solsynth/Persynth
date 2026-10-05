@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:easy_localization/easy_localization.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -178,7 +179,7 @@ class ConversationPage extends HookConsumerWidget {
         isScrollControlled: true,
         useSafeArea: true,
         builder: (sheetContext) => SheetScaffold(
-          titleText: 'Conversations',
+          titleText: 'conversations'.tr(),
           onClose: () => Navigator.of(sheetContext).pop(),
           child: _ConversationList(
             activeId: chat.conversationId,
@@ -190,7 +191,6 @@ class ConversationPage extends HookConsumerWidget {
         ),
       );
     }
-
     final mainContent = Column(
       children: [
         if (!unauthorized && chat.error != null)
@@ -267,7 +267,7 @@ class ConversationPage extends HookConsumerWidget {
                               value: agent.id,
                               child: Text(
                                 agent.name.trim().isEmpty
-                                    ? 'Unnamed agent'
+                                    ? 'unnamedAgent'.tr()
                                     : agent.name.trim(),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -281,8 +281,6 @@ class ConversationPage extends HookConsumerWidget {
                     )
                   : Text(
                       agentName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -292,7 +290,7 @@ class ConversationPage extends HookConsumerWidget {
         ),
         actions: [
           IconButton(
-            tooltip: 'Conversations',
+            tooltip: 'conversations'.tr(),
             onPressed: () {
               if (wideScreen) {
                 showConversations.value = !showConversations.value;
@@ -308,12 +306,12 @@ class ConversationPage extends HookConsumerWidget {
             ),
           ),
           IconButton(
-            tooltip: 'New chat',
+            tooltip: 'newChat'.tr(),
             onPressed: chat.busy ? null : controller.newConversation,
             icon: const Icon(Symbols.edit_square_rounded),
           ),
           IconButton(
-            tooltip: 'Settings',
+            tooltip: 'settings'.tr(),
             onPressed: () => context.router.push(const SettingsRoute()),
             icon: const Icon(Symbols.tune_rounded),
           ),
@@ -355,13 +353,13 @@ class ConversationPage extends HookConsumerWidget {
 }
 
 String _agentLabel(List<SnPersonalityAgent> agents, String? agentId) {
-  if (agentId == null) return 'Conversation';
+  if (agentId == null) return 'conversation'.tr();
   for (final agent in agents) {
     if (agent.id != agentId) continue;
     final name = agent.name.trim();
-    return name.isEmpty ? 'Unnamed agent' : name;
+    return name.isEmpty ? 'unnamedAgent'.tr() : name;
   }
-  return 'Conversation';
+  return 'conversation'.tr();
 }
 
 /// The live status of the companion: idle (green) or answering (pulsing).
@@ -477,7 +475,7 @@ class _ErrorBanner extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: 'Close',
+                tooltip: 'close'.tr(),
                 iconSize: 16,
                 onPressed: onDismiss,
                 icon: Icon(
@@ -536,27 +534,24 @@ class _UnauthorizedState extends StatelessWidget {
               ),
               const Gap(12),
               Text(
-                'Unauthorized',
+                'unauthorized'.tr(),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.titleMedium,
               ),
               const Gap(6),
               Text(
                 signedOut
-                    ? 'Your Solar Network session ended. Sign in to keep '
-                          'talking to $agentName.'
-                    : 'Solar Network refused the last request. Sign in again '
-                          'to keep talking to $agentName.',
+                    ? 'sessionEndedSignInToTalk'.tr(namedArgs: {'name': agentName})
+                    : 'solarNetworkRefusedSignInAgain'.tr(namedArgs: {'name': agentName}),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),
               ),
-              const Gap(20),
               const SolarSignInPanel(),
               if (onRetry != null) ...[
                 const Gap(8),
-                TextButton(onPressed: onRetry, child: const Text('Try again')),
+                TextButton(onPressed: onRetry, child: Text('tryAgain'.tr())),
               ],
             ],
           ),
@@ -588,8 +583,8 @@ class _InsightThread extends StatelessWidget {
     if (bubbles.isEmpty) {
       return _EmptyState(
         icon: Symbols.auto_awesome_rounded,
-        title: 'Insight',
-        description: 'Send a message to start a conversation with $agentName.',
+        title: 'insight'.tr(),
+        description: 'sendMessageToStart'.tr(namedArgs: {'name': agentName}),
       );
     }
 
@@ -880,13 +875,13 @@ String _contextSummary(SnConversationUsage usage) {
   if (used != null && window != null && window > 0) {
     parts.add('${_formatTokens(used)} / ${_formatTokens(window)}');
   } else if (used != null) {
-    parts.add('context ${_formatTokens(used)}');
+    parts.add('context'.tr(namedArgs: {'count': _formatTokens(used)}));
   }
   if (usage.totalTokens > 0) {
-    parts.add('${_formatTokens(usage.totalTokens)} tok');
+    parts.add('totalTokens'.tr(namedArgs: {'count': _formatTokens(usage.totalTokens)}));
   }
   if (usage.runs > 0) {
-    parts.add('${usage.runs} ${usage.runs == 1 ? 'run' : 'runs'}');
+    parts.add('runsCount'.plural(usage.runs));
   }
   return parts.join(' · ');
 }
@@ -918,19 +913,22 @@ String _contextTooltip(SnConversationUsage usage) {
   if (used != null && window != null && window > 0) {
     final percent = _formatPercent(used / window);
     parts.add(
-      'Context ${_formatTokens(used)} of ${_formatTokens(window)} tokens '
-      '($percent)',
+      'contextTooltipFull'.tr(namedArgs: {
+        'used': _formatTokens(used),
+        'window': _formatTokens(window),
+        'percent': percent,
+      }),
     );
   } else if (used != null) {
-    parts.add('Context ${_formatTokens(used)} tokens');
+    parts.add('contextTooltipUsed'.tr(namedArgs: {'used': _formatTokens(used)}));
   }
   if (usage.totalTokens > 0) {
-    parts.add('${_formatTokens(usage.totalTokens)} tokens spent total');
+    parts.add('tokensSpentTotal'.tr(namedArgs: {'count': _formatTokens(usage.totalTokens)}));
   }
   if (usage.runs > 0) {
-    parts.add('${usage.runs} ${usage.runs == 1 ? 'run' : 'runs'}');
+    parts.add('runsCount'.plural(usage.runs));
   }
-  return parts.isEmpty ? 'No usage recorded yet' : parts.join('\n');
+  return parts.isEmpty ? 'noUsageRecordedYet'.tr() : parts.join('\n');
 }
 
 /// The turn in flight: the assistant's slot in the log, holding the typing
@@ -992,7 +990,7 @@ class _TurnIndicatorState extends State<_TurnIndicator>
       child: Align(
         alignment: Alignment.centerLeft,
         child: Semantics(
-          label: 'Waiting for the reply',
+          label: 'waitingForReply'.tr(),
           child: Material(
             color: scheme.surfaceContainer,
             shape: RoundedRectangleBorder(
@@ -1082,7 +1080,7 @@ class _TraceRow extends StatelessWidget {
                     ),
                     const Gap(4),
                     Text(
-                      bubble.streaming ? 'thinking' : 'thought',
+                      bubble.streaming ? 'thinking'.tr() : 'thought'.tr(),
                       style: theme.textTheme.labelSmall?.copyWith(
                         fontWeight: FontWeight.w600,
                         color: scheme.onSurfaceVariant,
@@ -1197,7 +1195,7 @@ class _ToolTraceRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (args != null && args.isNotEmpty) ...[
-                        Text('arguments', style: labelStyle),
+                        Text('arguments'.tr(), style: labelStyle),
                         const Gap(2),
                         SelectableText(
                           _formatToolArgs(args),
@@ -1206,7 +1204,7 @@ class _ToolTraceRow extends StatelessWidget {
                       ],
                       if (resultLabel.isNotEmpty) ...[
                         const Gap(8),
-                        Text('result', style: labelStyle),
+                        Text('result'.tr(), style: labelStyle),
                         const Gap(2),
                         SelectableText(resultLabel, style: detailStyle),
                       ],
@@ -1267,11 +1265,11 @@ class _TraceDetail extends StatelessWidget {
 String _toolResultLabel(String result) {
   switch (result) {
     case kPersonalityToolResultInterrupted:
-      return 'interrupted';
+      return 'interrupted'.tr();
     case kPersonalityToolResultEarlierTurn:
-      return 'earlier turn';
+      return 'earlierTurn'.tr();
     case kPersonalityToolResultUnknownTool:
-      return 'unknown tool';
+      return 'unknownTool'.tr();
     default:
       return result;
   }
@@ -1396,7 +1394,7 @@ class _Composer extends ConsumerWidget {
                       Padding(
                         padding: const EdgeInsets.only(left: 4),
                         child: IconButton(
-                          tooltip: 'Attach',
+                          tooltip: 'attach'.tr(),
                           onPressed: busy || onAttach == null ? null : onAttach,
                           icon: const Icon(Symbols.attach_file_rounded),
                         ),
@@ -1416,7 +1414,7 @@ class _Composer extends ConsumerWidget {
                           onTapOutside: (_) =>
                               FocusManager.instance.primaryFocus?.unfocus(),
                           decoration: InputDecoration(
-                            hintText: 'Message the companion…',
+                            hintText: 'messageCompanion'.tr(),
                             border: InputBorder.none,
                             focusedBorder: InputBorder.none,
                             isDense: true,
@@ -1451,12 +1449,12 @@ class _Composer extends ConsumerWidget {
                                   ));
                           return IconButton.filled(
                             tooltip: busy
-                                ? 'Stop'
+                                ? 'stop'.tr()
                                 : uploading > 0
-                                ? 'Waiting for ${uploading == 1 ? 'an attachment' : '$uploading attachments'}…'
+                                ? 'waitingForAttachments'.plural(uploading)
                                 : failed
-                                ? 'An attachment failed to upload'
-                                : 'Send',
+                                ? 'attachmentFailedToUpload'.tr()
+                                : 'send'.tr(),
                             onPressed: busy
                                 ? onStop
                                 : (canSend ? onSend : null),
@@ -1554,9 +1552,8 @@ class _ReasoningControl extends ConsumerWidget {
 
     return Tooltip(
       message: active == null
-          ? 'Reasoning effort: ${setting.label}'
-          : 'Reasoning effort: ${setting.label}\n'
-                'Tap again for the model default',
+          ? 'reasoningEffort'.tr(namedArgs: {'level': setting.label})
+          : 'reasoningEffortTapDefault'.tr(namedArgs: {'level': setting.label}),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: scheme.surface,
@@ -1827,7 +1824,7 @@ class _PendingAttachment extends StatelessWidget {
             top: 0,
             right: 0,
             child: IconButton(
-              tooltip: 'Delete',
+              tooltip: 'delete'.tr(),
               iconSize: 12,
               visualDensity: VisualDensity.compact,
               style: IconButton.styleFrom(
@@ -1876,10 +1873,12 @@ class _ImageAttachmentTile extends StatelessWidget {
     final failed = attachment.hasFailed;
     return Tooltip(
       message: failed
-          ? '${attachment.name} did not upload: '
-                '${attachment.error ?? 'unknown error'}\nTap to try again'
+          ? 'attachmentFailed'.tr(namedArgs: {
+              'name': attachment.name,
+              'error': attachment.error ?? 'unknownError'.tr(),
+            })
           : attachment.isUploading
-          ? 'Uploading ${attachment.name}'
+          ? 'uploadingAttachment'.tr(namedArgs: {'name': attachment.name})
           : attachment.name,
       child: Material(
         color: scheme.surfaceContainerHighest,
@@ -1986,7 +1985,7 @@ class _TextAttachmentCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Tooltip(
-      message: onTap == null ? attachment.name : 'Edit ${attachment.name}',
+      message: onTap == null ? attachment.name : 'editAttachment'.tr(namedArgs: {'name': attachment.name}),
       child: Material(
         color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
@@ -2070,7 +2069,7 @@ class _TextAttachmentChip extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  attachment.name.isEmpty ? 'Text attachment' : attachment.name,
+                  attachment.name.isEmpty ? 'textAttachment'.tr() : attachment.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelMedium?.copyWith(
@@ -2124,11 +2123,11 @@ class _TextAttachmentDialog extends HookWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text('cancel'.tr()),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(controller.text),
-          child: const Text('Save'),
+          child: Text('save'.tr()),
         ),
       ],
     );
@@ -2224,11 +2223,11 @@ class _AttachmentSheet extends HookConsumerWidget {
 
     return SheetScaffold(
       heightFactor: 0.7,
-      titleText: 'Attach',
+      titleText: 'attach'.tr(),
       onClose: onClose,
       actions: [
         IconButton(
-          tooltip: 'Link a file by id',
+          tooltip: 'linkFileById'.tr(),
           onPressed: () => _linkById(context, ref),
           icon: const Icon(Symbols.tag_rounded),
         ),
@@ -2238,10 +2237,8 @@ class _AttachmentSheet extends HookConsumerWidget {
         children: [
           ListTile(
             leading: const Icon(Symbols.photo_library_rounded),
-            title: const Text('Photo from this device'),
-            subtitle: const Text(
-              'Upload it to the drive and send it with the message',
-            ),
+            title: Text('photoFromDevice'.tr()),
+            subtitle: Text('uploadToDriveAndSend'.tr()),
             onTap: () =>
                 Navigator.of(context).pop(const _AttachSelection.device()),
           ),
@@ -2251,7 +2248,7 @@ class _AttachmentSheet extends HookConsumerWidget {
               onChanged: (value) => query.value = value,
               decoration: InputDecoration(
                 isDense: true,
-                hintText: 'Search your drive',
+                hintText: 'searchDrive'.tr(),
                 prefixIcon: const Icon(Symbols.search_rounded, size: 18),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -2272,11 +2269,9 @@ class _AttachmentSheet extends HookConsumerWidget {
                 ? _EmptyState(
                     icon: Symbols.image_search_rounded,
                     title: asked.value.isEmpty
-                        ? 'No images in your drive'
-                        : 'Nothing matches “${asked.value}”',
-                    description:
-                        'A message can carry an image already in '
-                        'your drive, whatever it was uploaded for.',
+                        ? 'noImagesInDrive'.tr()
+                        : 'nothingMatches'.tr(namedArgs: {'query': asked.value}),
+                    description: 'messageCanCarryImage'.tr(),
                   )
                 : GridView.builder(
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
@@ -2302,8 +2297,7 @@ class _AttachmentSheet extends HookConsumerWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Text(
-              'Linked files are sent by id: nothing is uploaded again, and the '
-              'drive keeps the copy the message reads.',
+              'linkedFilesSentById'.tr(),
               style: theme.textTheme.labelSmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -2340,7 +2334,7 @@ class _CloudFileTile extends StatelessWidget {
     final theme = Theme.of(context);
     final size = file.byteSize;
     return Tooltip(
-      message: 'Link ${file.displayName}',
+      message: 'linkCloudFile'.tr(namedArgs: {'name': file.displayName}),
       child: Material(
         color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
@@ -2399,7 +2393,7 @@ class _LinkByIdDialog extends HookConsumerWidget {
     Future<void> link() async {
       final id = controller.text.trim();
       if (id.isEmpty) {
-        error.value = 'Paste the file id first.';
+        error.value = 'pasteFileIdFirst'.tr();
         return;
       }
       busy.value = true;
@@ -2420,7 +2414,7 @@ class _LinkByIdDialog extends HookConsumerWidget {
     }
 
     return AlertDialog(
-      title: const Text('Link a file by id'),
+      title: Text('linkFileByIdTitle'.tr()),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: TextField(
@@ -2428,8 +2422,8 @@ class _LinkByIdDialog extends HookConsumerWidget {
           autofocus: true,
           onSubmitted: (_) => link(),
           decoration: InputDecoration(
-            labelText: 'File id',
-            helperText: 'The id from the file’s page in the drive',
+            labelText: 'fileId'.tr(),
+            helperText: 'fileIdHelper'.tr(),
             errorText: error.value,
             errorMaxLines: 3,
             border: const OutlineInputBorder(),
@@ -2439,7 +2433,7 @@ class _LinkByIdDialog extends HookConsumerWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text('cancel'.tr()),
         ),
         FilledButton(
           onPressed: busy.value ? null : link,
@@ -2448,7 +2442,7 @@ class _LinkByIdDialog extends HookConsumerWidget {
                   dimension: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Link'),
+              : Text('link'.tr()),
         ),
       ],
     );
@@ -2472,14 +2466,14 @@ class _SheetFailure extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Could not read your drive: $message',
+              'couldNotReadDrive'.tr(namedArgs: {'message': message}),
               textAlign: TextAlign.center,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.error,
               ),
             ),
             const Gap(8),
-            TextButton(onPressed: onRetry, child: const Text('Retry')),
+            TextButton(onPressed: onRetry, child: Text('retry'.tr())),
           ],
         ),
       ),
@@ -2529,8 +2523,9 @@ class _ConversationList extends HookConsumerWidget {
         conversationsAsync.value ?? const <SnPersonalityConversation>[];
     final loading = conversationsAsync.isLoading;
     final error = conversationsAsync.hasError
-        ? 'Failed to load conversations: '
-              '${personalityErrorMessage(conversationsAsync.error!)}'
+        ? 'failedToLoadConversations'.tr(namedArgs: {
+            'message': personalityErrorMessage(conversationsAsync.error!),
+          })
         : null;
     final groups =
         ref.watch(personalityConversationGroupsProvider).value ??
@@ -2541,7 +2536,7 @@ class _ConversationList extends HookConsumerWidget {
           in ref.watch(personalityAgentsProvider).value ??
               const <SnPersonalityAgent>[])
         agent.id: agent.name.trim().isEmpty
-            ? 'Unnamed agent'
+            ? 'unnamedAgent'.tr()
             : agent.name.trim(),
     };
 
@@ -2622,7 +2617,7 @@ class _ConversationList extends HookConsumerWidget {
         await api.setConversationGroup(ids, groupId);
         if (!context.mounted) return;
         refresh();
-        showSnackBar(groupId == null ? 'Removed from group' : 'Moved to group');
+        showSnackBar(groupId == null ? 'removedFromGroup'.tr() : 'movedToGroup'.tr());
       } catch (e) {
         showSnackBar(personalityErrorMessage(e));
       }
@@ -2639,12 +2634,10 @@ class _ConversationList extends HookConsumerWidget {
       final confirmed = await _confirmDialog(
         context,
         title: many
-            ? 'Delete ${ids.length} conversations?'
-            : 'Delete conversation?',
-        message:
-            'The threads and their messages are removed. What the agent '
-            'learned in them stays in memory.',
-        confirmLabel: 'Delete',
+            ? 'deleteConversationsConfirmation'.tr(namedArgs: {'count': '${ids.length}'})
+            : 'deleteConversationConfirmation'.tr(),
+        message: 'deleteConversationsDescription'.tr(),
+        confirmLabel: 'delete'.tr(),
       );
       if (confirmed != true || !context.mounted) return;
       final api = ref.read(personalityApiProvider);
@@ -2661,7 +2654,9 @@ class _ConversationList extends HookConsumerWidget {
         if (!context.mounted) return;
         refresh();
         showSnackBar(
-          many ? '${ids.length} conversations deleted' : 'Conversation deleted',
+          many
+              ? 'conversationsDeleted'.plural(ids.length)
+              : 'conversationDeleted'.tr(),
         );
       } catch (e) {
         showSnackBar(personalityErrorMessage(e));
@@ -2702,48 +2697,46 @@ class _ConversationList extends HookConsumerWidget {
       final api = ref.read(personalityApiProvider);
       runGroupMutation(
         () => api.updateConversationGroup(group.id, archived: archived),
-        archived ? 'Archived — its memories stay pinned' : 'Group restored',
+        archived ? 'archivedMemoriesStayPinned'.tr() : 'groupRestored'.tr(),
       );
     }
 
     Future<void> renameGroup(SnConversationGroup group) async {
       final name = await _promptGroupName(
         context,
-        title: 'Rename group',
-        initial: group.name,
+        title: 'renameGroup'.tr(),
       );
       if (name == null) return;
       final api = ref.read(personalityApiProvider);
       await runGroupMutation(
         () => api.updateConversationGroup(group.id, name: name),
-        'Group renamed',
+        'groupRenamed'.tr(),
       );
     }
 
     Future<void> deleteGroup(SnConversationGroup group) async {
       final confirmed = await _confirmDialog(
         context,
-        title: 'Delete ${group.name}?',
+        title: 'deleteGroupConfirmation'.tr(namedArgs: {'name': group.name}),
         message:
-            'Its conversations stay; they become ungrouped. Memories the '
-            'group pinned stop being pinned.',
-        confirmLabel: 'Delete',
+            'deleteGroupDescription'.tr(),
+        confirmLabel: 'delete'.tr(),
       );
       if (confirmed != true) return;
       final api = ref.read(personalityApiProvider);
       await runGroupMutation(
         () => api.deleteConversationGroup(group.id),
-        'Group deleted',
+        'groupDeleted'.tr(),
       );
     }
 
     Future<void> createGroup() async {
-      final name = await _promptGroupName(context, title: 'New group');
+      final name = await _promptGroupName(context, title: 'newGroup'.tr());
       if (name == null) return;
       final api = ref.read(personalityApiProvider);
       await runGroupMutation(
         () => api.createConversationGroup(name: name),
-        'Group created',
+        'groupCreated'.tr(),
       );
     }
 
@@ -2780,7 +2773,7 @@ class _ConversationList extends HookConsumerWidget {
               TextButton(
                 onPressed: () =>
                     ref.invalidate(personalityConversationsProvider),
-                child: const Text('Retry'),
+                child: Text('retry'.tr()),
               ),
             ],
           ),
@@ -2830,8 +2823,7 @@ class _ConversationList extends HookConsumerWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      title.isEmpty ? 'Untitled' : title,
-                      maxLines: 1,
+                      title.isEmpty ? 'untitled'.tr() : title,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
@@ -2840,10 +2832,10 @@ class _ConversationList extends HookConsumerWidget {
                     ),
                   ),
                   const Gap(8),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 108),
-                    child: Text(
-                      agentNames[conversation.agentId] ?? 'Conversation',
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 108),
+                      child: Text(
+                        agentNames[conversation.agentId] ?? 'conversation'.tr(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.labelSmall?.copyWith(color: muted),
@@ -2912,9 +2904,7 @@ class _ConversationList extends HookConsumerWidget {
             subtitle: Text(
               description.isNotEmpty
                   ? description
-                  : group.conversationCount == 1
-                  ? '1 conversation'
-                  : '${group.conversationCount} conversations',
+                  : 'conversationCount'.plural(group.conversationCount),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.labelSmall?.copyWith(
@@ -2943,16 +2933,14 @@ class _ConversationList extends HookConsumerWidget {
             color: scheme.onSurfaceVariant,
           ),
           title: Text(
-            'Archived',
+            'archived'.tr(),
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w600,
               color: scheme.onSurfaceVariant,
             ),
           ),
           subtitle: Text(
-            archivedGroups.length == 1
-                ? '1 group'
-                : '${archivedGroups.length} groups',
+            'archivedGroupCount'.plural(archivedGroups.length),
             style: theme.textTheme.labelSmall?.copyWith(
               color: scheme.onSurfaceVariant,
             ),
@@ -2960,12 +2948,11 @@ class _ConversationList extends HookConsumerWidget {
           onTap: () => toggleSection(_archivedSectionKey),
         );
       }
-
       Widget newGroupTile() => ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
         leading: Icon(Symbols.create_new_folder_rounded, color: scheme.primary),
         title: Text(
-          'New group',
+          'newGroup'.tr(),
           style: theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.w600,
             color: scheme.primary,
@@ -2984,7 +2971,7 @@ class _ConversationList extends HookConsumerWidget {
             Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
-                'No conversations yet',
+                'noConversationsYet'.tr(),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: scheme.onSurfaceVariant,
@@ -3003,7 +2990,7 @@ class _ConversationList extends HookConsumerWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: Text(
-                'Ungrouped',
+                'ungrouped'.tr(),
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: scheme.onSurfaceVariant.withValues(alpha: 0.9),
                   fontWeight: FontWeight.w600,
@@ -3038,22 +3025,22 @@ class _ConversationList extends HookConsumerWidget {
               child: Row(
                 children: [
                   IconButton(
-                    tooltip: 'Exit selection',
+                    tooltip: 'exitSelection'.tr(),
                     onPressed: () => selected.value = const <String>{},
                     icon: const Icon(Symbols.close),
                   ),
                   Text(
-                    '${selected.value.length} selected',
+                    'selectedCount'.tr(namedArgs: {'count': '${selected.value.length}'}),
                     style: theme.textTheme.labelLarge,
                   ),
                   const Spacer(),
                   IconButton(
-                    tooltip: 'Move to group',
+                    tooltip: 'moveToGroupAction'.tr(),
                     onPressed: () => moveToGroup(selected.value.toList()),
                     icon: const Icon(Symbols.playlist_add),
                   ),
                   IconButton(
-                    tooltip: 'Delete',
+                    tooltip: 'delete'.tr(),
                     onPressed: () =>
                         deleteConversations(selected.value.toList()),
                     icon: const Icon(Symbols.delete_outline),
@@ -3077,7 +3064,7 @@ Future<_GroupChoice?> _pickConversationGroup(
   return showDialog<_GroupChoice>(
     context: context,
     builder: (context) => SimpleDialog(
-      title: const Text('Move to group'),
+      title: Text('moveToGroup'.tr()),
       children: [
         for (final group in groups)
           SimpleDialogOption(
@@ -3086,7 +3073,7 @@ Future<_GroupChoice?> _pickConversationGroup(
           ),
         SimpleDialogOption(
           onPressed: () => Navigator.of(context).pop(const _GroupChoice(null)),
-          child: const Text('Ungrouped'),
+          child: Text('ungrouped'.tr()),
         ),
       ],
     ),
@@ -3114,31 +3101,27 @@ class _GroupNameDialog extends HookWidget {
   @override
   Widget build(BuildContext context) {
     final controller = useTextEditingController(text: initial);
-    final canSave = useState(initial.trim().isNotEmpty);
-
-    void save() {
-      final name = controller.text.trim();
-      if (name.isEmpty) return;
-      Navigator.of(context).pop(name);
-    }
 
     return AlertDialog(
       title: Text(title),
       content: TextField(
-        controller: controller,
         autofocus: true,
-        decoration: const InputDecoration(labelText: 'Name'),
-        onChanged: (value) => canSave.value = value.trim().isNotEmpty,
-        onSubmitted: (_) => save(),
+        controller: controller,
+        onSubmitted: (value) =>
+            Navigator.of(context).pop(value.trim()),
+        decoration: const InputDecoration(
+          border: OutlineInputBorder(),
+        ),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text('cancel'.tr()),
         ),
         FilledButton(
-          onPressed: canSave.value ? save : null,
-          child: const Text('Save'),
+          onPressed: () =>
+              Navigator.of(context).pop(controller.text.trim()),
+          child: Text('save'.tr()),
         ),
       ],
     );
@@ -3160,7 +3143,7 @@ Future<bool?> _confirmDialog(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text('cancel'.tr()),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
@@ -3246,18 +3229,16 @@ String _formatBytes(int bytes) {
   if (bytes < 1000000) return _scaled(bytes / 1000, 'kB');
   return _scaled(bytes / 1000000, 'MB');
 }
-
-/// `812` stays `812`, `12,345` becomes `12.3k`. The same shape the context
 /// meter uses, for the same reason: a glance, not a ledger.
 String _formatCharacters(int value) {
-  if (value <= 0) return 'Empty';
-  if (value < 1000) return '$value characters';
+  if (value <= 0) return 'empty'.tr();
+  if (value < 1000) return 'charactersCount'.tr(namedArgs: {'count': '$value'});
   final thousands = value / 1000;
   final text = thousands.toStringAsFixed(thousands < 100 ? 1 : 0);
   final trimmed = text.endsWith('.0')
       ? text.substring(0, text.length - 2)
       : text;
-  return '${trimmed}k characters';
+  return 'charactersCountK'.tr(namedArgs: {'count': trimmed});
 }
 
 /// A tiny relative-time label for conversation timestamps.
@@ -3265,11 +3246,11 @@ String _formatRelative(DateTime time) {
   final local = time.toLocal();
   final now = DateTime.now();
   final diff = now.difference(local);
-  if (diff.inSeconds < 60) return 'just now';
-  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inSeconds < 60) return 'justNow'.tr();
+  if (diff.inMinutes < 60) return 'minutesAgo'.tr(namedArgs: {'count': '${diff.inMinutes}'});
   if (diff.inHours < 24 && now.day == local.day) {
-    return '${diff.inHours}h ago';
+    return 'hoursAgo'.tr(namedArgs: {'count': '${diff.inHours}'});
   }
-  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  if (diff.inDays < 7) return 'daysAgo'.tr(namedArgs: {'count': '${diff.inDays}'});
   return '${local.year}-${_two(local.month)}-${_two(local.day)}';
 }

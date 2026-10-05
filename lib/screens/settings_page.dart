@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -20,6 +21,10 @@ import 'package:persynth/screens/ai_console_tabs.dart';
 /// reading column so a wide window shows the same measure everywhere.
 const double _kSettingsContentWidth = 760;
 
+/// SharedPreferences key holding the language the user picked, as `ll-CC`.
+/// Absent means the app follows the machine's language.
+const _kLanguageOverrideStoreKey = 'persynth_language';
+
 /// The pushed settings page: the account and server in General, with the AI
 /// console (agents, models, billing, credentials) folded in as its own tabs.
 ///
@@ -41,10 +46,10 @@ class SettingsPage extends HookConsumerWidget {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Symbols.arrow_back),
-            tooltip: 'Back',
+            tooltip: 'back'.tr(),
             onPressed: () => context.router.maybePop(),
           ),
-          title: const Text('Settings'),
+          title: Text('settings'.tr()),
           // Aligned rather than centered on the vertical axis so the strip
           // sits exactly where a full-width TabBar would, indicator included.
           bottom: PreferredSize(
@@ -55,7 +60,7 @@ class SettingsPage extends HookConsumerWidget {
                 constraints: const BoxConstraints(
                   maxWidth: _kSettingsContentWidth,
                 ),
-                child: const TabBar(
+                child: TabBar(
                   // Not `fill`: equal-width tabs would either clip a label on
                   // a phone or hand each of the four a quarter of a desktop
                   // window. The strip scrolls once the labels stop fitting.
@@ -63,11 +68,11 @@ class SettingsPage extends HookConsumerWidget {
                   tabAlignment: TabAlignment.start,
                   padding: EdgeInsets.symmetric(horizontal: 16),
                   tabs: [
-                    _SettingsTab(Symbols.tune_rounded, 'General'),
-                    _SettingsTab(Symbols.extension, 'Catalog'),
-                    _SettingsTab(Symbols.receipt_long, 'Billing'),
-                    _SettingsTab(Symbols.query_stats, 'Usage'),
-                    _SettingsTab(Symbols.key, 'Credentials'),
+                    _SettingsTab(Symbols.tune_rounded, 'general'.tr()),
+                    _SettingsTab(Symbols.extension, 'catalog'.tr()),
+                    _SettingsTab(Symbols.receipt_long, 'billing'.tr()),
+                    _SettingsTab(Symbols.query_stats, 'usage'.tr()),
+                    _SettingsTab(Symbols.key, 'credentials'.tr()),
                   ],
                 ),
               ),
@@ -149,7 +154,7 @@ class _GeneralSettingsTab extends HookConsumerWidget {
         if (context.mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('Settings saved')));
+          ).showSnackBar(SnackBar(content: Text('settingsSaved'.tr())));
         }
       } finally {
         savingUrl.value = false;
@@ -159,7 +164,7 @@ class _GeneralSettingsTab extends HookConsumerWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _SectionHeader('Account'),
+        _SectionHeader('account'.tr()),
         Card(
           margin: EdgeInsets.zero,
           child: Padding(
@@ -170,7 +175,7 @@ class _GeneralSettingsTab extends HookConsumerWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: authState.user == null
-                      ? Text('Not signed in', style: theme.textTheme.bodyMedium)
+                      ? Text('notSignedIn'.tr(), style: theme.textTheme.bodyMedium)
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -195,7 +200,7 @@ class _GeneralSettingsTab extends HookConsumerWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 else if (authState.user != null)
-                  TextButton(onPressed: signOut, child: const Text('Sign out')),
+                  TextButton(onPressed: signOut, child: Text('signOut'.tr())),
               ],
             ),
           ),
@@ -205,7 +210,7 @@ class _GeneralSettingsTab extends HookConsumerWidget {
           const SolarSignInPanel(),
         ],
         const SizedBox(height: 20),
-        _SectionHeader('Server'),
+        _SectionHeader('server'.tr()),
         Card(
           margin: EdgeInsets.zero,
           child: Padding(
@@ -214,12 +219,12 @@ class _GeneralSettingsTab extends HookConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Personality server URL',
+                  'personalityServerUrl'.tr(),
                   style: theme.textTheme.titleSmall,
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Where the AI companion reaches its Personality backend.',
+                  'personalityServerDescription'.tr(),
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
@@ -236,7 +241,7 @@ class _GeneralSettingsTab extends HookConsumerWidget {
                     const SizedBox(width: 8),
                     FilledButton(
                       onPressed: savingUrl.value ? null : saveServerUrl,
-                      child: const Text('Save'),
+                      child: Text('save'.tr()),
                     ),
                   ],
                 ),
@@ -245,14 +250,17 @@ class _GeneralSettingsTab extends HookConsumerWidget {
           ),
         ),
         const SizedBox(height: 20),
-        _SectionHeader('Plugins'),
+        _SectionHeader('language'.tr()),
+        const _LanguageSection(),
+        const SizedBox(height: 20),
+        _SectionHeader('plugins'.tr()),
         const _PluginsSection(),
         const SizedBox(height: 20),
         // The servers the companions' server-backed plugins point at sit below
         // the switches rather than above them: the switches are what the user
         // works with daily, and a list that only grows when a server is
         // connected must not push them down the page.
-        _SectionHeader('Connections'),
+        _SectionHeader('connections'.tr()),
         const McpServersSection(),
       ],
     );
@@ -333,11 +341,11 @@ class _PluginsSection extends ConsumerWidget {
     final notifier = ref.read(pluginEnablementProvider.notifier);
 
     if (plugins.isEmpty) {
-      return const Card(
+      return Card(
         margin: EdgeInsets.zero,
         child: ListTile(
-          title: Text('No plugins'),
-          subtitle: Text('This build has no companion capabilities to grant.'),
+          title: Text('noPlugins'.tr()),
+          subtitle: Text('noPluginsDescription'.tr()),
         ),
       );
     }
@@ -353,7 +361,7 @@ class _PluginsSection extends ConsumerWidget {
               onChanged: (value) => notifier.setEnabled(plugin.id, value),
               title: Text(plugin.label),
               subtitle: Text(
-                '${plugin.description}${_replaces(plugin)}',
+                _joinWithReplaces(plugin),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -378,7 +386,102 @@ class _PluginsSection extends ConsumerWidget {
 String _replaces(SnPlugin plugin) {
   final names = plugin.overrides.keys.toList()..sort();
   if (names.isEmpty) return '';
-  return ' Replaces the server\'s ${names.join(', ')}.';
+  return 'replacesServerTools'.tr(namedArgs: {'names': names.join(', ')});
+}
+
+/// The description, then what the plugin replaces. The baseline sentence led
+/// with a space so it could be appended straight onto the description; that
+/// space is added here instead, which keeps it out of the translation string
+/// where a translator would be right to trim it.
+String _joinWithReplaces(SnPlugin plugin) {
+  final replaces = _replaces(plugin);
+  return replaces.isEmpty
+      ? plugin.description
+      : '${plugin.description} $replaces';
+}
+
+/// The language the app draws itself in, with a way back to the system's.
+///
+/// The app otherwise follows the machine's language, which is right for a
+/// companion that lives on one person's desktop but leaves a language not
+/// installed on it unreachable. An explicit choice overrides it, and the
+/// plugin persists it, so the choice survives a relaunch.
+class _LanguageSection extends HookConsumerWidget {
+  const _LanguageSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final preferences = ref.watch(sharedPreferencesProvider);
+    // The plugin keeps the resolved locale, not whether the user asked for it:
+    // handing the language back to the system re-saves the machine's own
+    // choice rather than clearing the key. The intent is recorded here so the
+    // picker does not snap back to a language nobody picked.
+    final chosen = useState(preferences.getString(_kLanguageOverrideStoreKey));
+    final override = chosen.value;
+    // Taken before the first await: the plugin is what publishes the locale,
+    // so the controller cannot be read back off a context that may be gone.
+    final localization = EasyLocalization.of(context)!;
+
+    Future<void> apply(String? tag) async {
+      chosen.value = tag;
+      if (tag == null) {
+        await preferences.remove(_kLanguageOverrideStoreKey);
+        await localization.resetLocale();
+      } else {
+        await preferences.setString(_kLanguageOverrideStoreKey, tag);
+        await localization.setLocale(_localeFromTag(tag));
+      }
+    }
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: ListTile(
+        leading: const Icon(Symbols.translate_rounded),
+        title: Text('displayLanguage'.tr()),
+        subtitle: Text(
+          'displayLanguageDescription'.tr(),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        trailing: DropdownButtonHideUnderline(
+          child: DropdownButton<String?>(
+            value: override,
+            items: [
+              for (final locale in context.supportedLocales)
+                DropdownMenuItem<String?>(
+                  value: _tagFromLocale(locale),
+                  child: Text(_languageDisplayName(locale)),
+                ),
+              DropdownMenuItem<String?>(
+                value: null,
+                child: Text('displayLanguageSystem'.tr()),
+              ),
+            ],
+            onChanged: apply,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Each language in its own name, so the choice reads the same way whichever
+  /// language is currently on screen.
+  static String _languageDisplayName(Locale locale) =>
+      switch ('${locale.languageCode}-${locale.countryCode}') {
+        'en-US' => 'English (US)',
+        'zh-CN' => '简体中文',
+        _ => locale.toString(),
+      };
+
+  static String _tagFromLocale(Locale locale) =>
+      '${locale.languageCode}-${locale.countryCode}';
+
+  static Locale _localeFromTag(String tag) {
+    final [language, country] = tag.split('-');
+    return Locale(language, country);
+  }
 }
 
 class _SectionHeader extends StatelessWidget {
