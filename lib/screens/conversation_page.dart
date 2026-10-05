@@ -1130,8 +1130,11 @@ class _ToolTraceRow extends StatelessWidget {
       color: scheme.onSurfaceVariant,
       fontFamily: PersynthFonts.mono,
     );
+    // `outline` is the hairline tone here — a control outline, which on the
+    // light canvas is all but invisible as text. The labels are secondary
+    // text, so they take the secondary text tone.
     final labelStyle = theme.textTheme.labelSmall?.copyWith(
-      color: scheme.outline,
+      color: scheme.onSurfaceVariant,
       letterSpacing: 0.5,
     );
     final args = bubble.toolArgs;
@@ -1232,7 +1235,7 @@ class _TraceChevron extends StatelessWidget {
       child: Icon(
         Symbols.chevron_right_rounded,
         size: 16,
-        color: Theme.of(context).colorScheme.outline,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
     );
   }

@@ -13,6 +13,16 @@ final _paragraphRegex = RegExp(
   dotAll: true,
 );
 
+/// The gap between two paragraphs of one body.
+///
+/// [SolarMarkdownContent] spaces the blocks inside a single render by
+/// `MarkdownStyleSheet.blockSpacing` — 8.0 from
+/// `MarkdownStyleSheet.fromTheme`. A blank line is a paragraph here, so the
+/// body is rendered a paragraph at a time and the gap has to be paid across
+/// those renders too; otherwise the model's own paragraphing reads as one
+/// wall of text.
+const double _kParagraphSpacing = 8;
+
 String _stickerUrl(String placeholder) =>
     '${SolarAuthService.apiBase}/sphere/stickers/lookup/'
     '${Uri.encodeComponent(placeholder)}/open';
@@ -62,6 +72,7 @@ class MessageMarkdown extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
+      spacing: _kParagraphSpacing,
       children: children,
     );
   }
@@ -103,7 +114,10 @@ class _StickerImage extends StatelessWidget {
               color: cs.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(Icons.emoji_emotions_outlined, color: cs.outline),
+            child: Icon(
+              Icons.emoji_emotions_outlined,
+              color: cs.onSurfaceVariant,
+            ),
           ),
           loadingBuilder: (context, child, progress) {
             if (progress == null) return child;

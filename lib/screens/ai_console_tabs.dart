@@ -395,7 +395,7 @@ class _KeyValue extends StatelessWidget {
           child: Text(
             label,
             style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.outline,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ),
@@ -417,7 +417,7 @@ class _EmptyNote extends StatelessWidget {
         child: Text(
           'Nothing here yet.',
           style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.outline,
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
       ),
@@ -502,7 +502,7 @@ class _AgentCard extends ConsumerWidget {
                   agent.enabled ? Symbols.check_circle : Symbols.cancel,
                   color: agent.enabled
                       ? theme.colorScheme.primary
-                      : theme.colorScheme.outline,
+                      : theme.colorScheme.onSurfaceVariant,
                 ),
                 const Gap(8),
                 Expanded(
@@ -573,7 +573,7 @@ class _AccountOAuthBlock extends HookConsumerWidget {
                   connected ? Symbols.cloud_done : Symbols.cloud_off,
                   color: connected
                       ? theme.colorScheme.primary
-                      : theme.colorScheme.outline,
+                      : theme.colorScheme.onSurfaceVariant,
                 ),
                 const Gap(8),
                 Expanded(
@@ -603,7 +603,7 @@ class _AccountOAuthBlock extends HookConsumerWidget {
               Icon(
                 Symbols.cloud_off,
                 size: 18,
-                color: theme.colorScheme.outline,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
               const Gap(8),
               Expanded(

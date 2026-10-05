@@ -596,6 +596,53 @@ void main() {
     expect(find.text('result'), findsOneWidget);
   });
 
+  testWidgets('keeps the tool detail labels legible on the light canvas', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(
+      reply: const [
+        PersonalityToolCallStarted(
+          id: 'c1',
+          name: 'search',
+          arguments: {'q': 'x'},
+        ),
+        PersonalityToolCallCompleted(
+          id: 'c1',
+          name: 'search',
+          arguments: {'q': 'x'},
+          result: 'ok',
+        ),
+        PersonalityRunCompleted('Done'),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    await tester.enterText(find.byType(TextField), 'look it up');
+    await tester.pump();
+    await tester.tap(find.byIcon(Symbols.send_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('search'));
+    await tester.pumpAndSettle();
+
+    // The row is drawn straight on the page canvas, and its labels are quiet —
+    // but quiet is not invisible: the hairline tone the theme reserves for
+    // outlines all but disappears against paper this light.
+    final canvas = buildPersynthTheme(Brightness.light).scaffoldBackgroundColor;
+    for (final label in ['arguments', 'result']) {
+      final color = tester.widget<Text>(find.text(label)).style?.color;
+      expect(color, isNotNull, reason: '$label states its own colour');
+      expect(
+        _contrastRatio(color!, canvas),
+        greaterThanOrEqualTo(3),
+        reason: '$label has to be readable on the canvas',
+      );
+    }
+    final chevron = tester
+        .widget<Icon>(find.byIcon(Symbols.chevron_right_rounded))
+        .color;
+    expect(_contrastRatio(chevron!, canvas), greaterThanOrEqualTo(3));
+  });
+
   testWidgets('opens the thread list in a sheet on narrow screens', (
     tester,
   ) async {
@@ -1618,12 +1665,21 @@ void main() {
     );
     expect(find.text('First thread'), findsNothing);
   });
-
 }
 
 /// Matches a plain [Text] by its data, ignoring selectable trace detail.
 Finder _plainText(String data) =>
     find.byWidgetPredicate((widget) => widget is Text && widget.data == data);
+
+/// WCAG contrast between two opaque colours, so a test can ask whether text
+/// reads off a surface instead of only that it was given a colour.
+double _contrastRatio(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  final lighter = la > lb ? la : lb;
+  final darker = la > lb ? lb : la;
+  return (lighter + 0.05) / (darker + 0.05);
+}
 
 /// A server refusal of the request the app was authenticated for.
 DioException _forbidden() {
