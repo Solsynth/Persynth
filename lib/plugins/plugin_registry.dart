@@ -41,6 +41,7 @@ import 'package:persynth/plugins/ritual_plugin.dart';
 import 'package:persynth/plugins/social_plugin.dart';
 import 'package:persynth/plugins/wallet_plugin.dart';
 import 'package:persynth/plugins/web_tools_plugin.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// The client tool the model calls to load an on-demand plugin's tools.
 ///
@@ -56,7 +57,8 @@ const String loadSkillToolName = 'load_skill';
 /// Order is load-bearing for the tool list: it is what the model reads, and
 /// the tests pin it. Add a plugin at the end unless there is a reason not to.
 const List<SnPlugin> kBuiltInPlugins = [
-  WebToolsPlugin(),
+  WebSearchPlugin(),
+  WebFetchPlugin(),
   SocialPlugin(),
   ChatPlugin(),
   NotificationsPlugin(),
@@ -108,8 +110,7 @@ class PluginEnablementNotifier extends Notifier<Set<String>> {
     final preferences = ref.watch(sharedPreferencesProvider);
     return {
       for (final plugin in ref.watch(pluginRegistryProvider))
-        if (preferences.getBool(plugin.storeKey) ?? plugin.enabledByDefault)
-          plugin.id,
+        if (_isEnabled(preferences, plugin)) plugin.id,
     };
   }
 
@@ -145,6 +146,23 @@ class PluginEnablementNotifier extends Notifier<Set<String>> {
       ref.read(activePluginsProvider.notifier).unload(id);
     }
   }
+}
+
+/// Whether one plugin is on: its own stored switch, the value stored under a
+/// key it inherited from an earlier build, or its default when neither has
+/// ever been written.
+///
+/// The inherited keys are consulted before the default and only until the
+/// user touches the switch, which is what keeps a choice made against the
+/// broader plugin it was split out of.
+bool _isEnabled(SharedPreferences preferences, SnPlugin plugin) {
+  final stored = preferences.getBool(plugin.storeKey);
+  if (stored != null) return stored;
+  for (final key in plugin.inheritedStoreKeys) {
+    final inherited = preferences.getBool(key);
+    if (inherited != null) return inherited;
+  }
+  return plugin.enabledByDefault;
 }
 
 final pluginEnablementProvider =
@@ -325,9 +343,7 @@ SnLocalTool _loadSkillTool(Ref ref, SnPluginContext context) {
       return jsonEncode({
         'ok': true,
         'skill': requested,
-        'tools': [
-          for (final tool in plugin.buildTools(context)) tool.name,
-        ],
+        'tools': [for (final tool in plugin.buildTools(context)) tool.name],
         'message': 'Skill loaded. Its tools are callable now.',
       });
     },

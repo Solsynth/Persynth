@@ -91,26 +91,29 @@ Future<String> _load(ProviderContainer container, String skillName) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('a Solar set the user switches on rides on the run in registry order', () async {
-    final container = await _launch();
-    final notifier = container.read(pluginEnablementProvider.notifier);
-    await notifier.setEnabled('notifications', true);
-    await notifier.setEnabled('ritual', true);
+  test(
+    'a Solar set the user switches on rides on the run in registry order',
+    () async {
+      final container = await _launch();
+      final notifier = container.read(pluginEnablementProvider.notifier);
+      await notifier.setEnabled('notifications', true);
+      await notifier.setEnabled('ritual', true);
 
-    // Eager sets contribute their definitions immediately, in the order
-    // kBuiltInPlugins declares, and nothing is left for the model to load.
-    expect(_names(container), [
-      'web_search',
-      'web_fetch',
-      'read_notifications',
-      'unread_notifications',
-      'mark_all_notifications_read',
-      'daily_fortune',
-      'today_check_in',
-      'check_in',
-    ]);
-    expect(container.read(pluginSkillsProvider), isEmpty);
-  });
+      // Eager sets contribute their definitions immediately, in the order
+      // kBuiltInPlugins declares, and nothing is left for the model to load.
+      expect(_names(container), [
+        'web_search',
+        'web_fetch',
+        'read_notifications',
+        'unread_notifications',
+        'mark_all_notifications_read',
+        'daily_fortune',
+        'today_check_in',
+        'check_in',
+      ]);
+      expect(container.read(pluginSkillsProvider), isEmpty);
+    },
+  );
 
   test('a loaded plugin replaces the server copies of what it does', () async {
     final container = await _launch();
@@ -154,10 +157,7 @@ void main() {
     final container = await _launch();
     final context = container.read(pluginContextProvider);
     for (final plugin in kBuiltInPlugins) {
-      final built = plugin
-          .buildTools(context)
-          .map((tool) => tool.name)
-          .toSet();
+      final built = plugin.buildTools(context).map((tool) => tool.name).toSet();
       for (final entry in plugin.overrides.entries) {
         expect(
           entry.key,
@@ -226,17 +226,21 @@ void main() {
 
     // ...and none of them is on, or offered, before that.
     expect(container.read(enabledPluginsProvider).map((plugin) => plugin.id), [
-      'web',
+      'web_search',
+      'web_fetch',
     ]);
     expect(_names(container), ['web_search', 'web_fetch']);
   });
 
-  test('offers the web tools by default and holds the social set back', () async {
-    final container = await _launch();
+  test(
+    'offers the web tools by default and holds the social set back',
+    () async {
+      final container = await _launch();
 
-    expect(_names(container), ['web_search', 'web_fetch']);
-    expect(container.read(pluginSkillsProvider), isEmpty);
-  });
+      expect(_names(container), ['web_search', 'web_fetch']);
+      expect(container.read(pluginSkillsProvider), isEmpty);
+    },
+  );
 
   test('an on-demand plugin costs one definition until it is loaded', () async {
     final container = await _launch();
@@ -270,29 +274,36 @@ void main() {
     expect(container.read(pluginSkillsProvider), isEmpty);
   });
 
-  test('a loaded plugin contributes its prompt text, an unloaded one does not', () async {
-    final container = await _launch();
+  test(
+    'a loaded plugin contributes its prompt text, an unloaded one does not',
+    () async {
+      final container = await _launch();
 
-    expect(container.read(pluginSystemPromptProvider).length, 1);
-    expect(
-      container.read(pluginSystemPromptProvider).single,
-      contains('local_web_search'),
-    );
+      expect(container.read(pluginSystemPromptProvider).length, 2);
+      expect(
+        container.read(pluginSystemPromptProvider).first,
+        contains('local_web_search'),
+      );
+      expect(
+        container.read(pluginSystemPromptProvider).last,
+        contains('local_web_fetch'),
+      );
 
-    await container
-        .read(pluginEnablementProvider.notifier)
-        .setEnabled('social', true);
-    expect(
-      container.read(pluginSystemPromptProvider).length,
-      1,
-      reason: 'an unloaded plugin has said nothing yet',
-    );
+      await container
+          .read(pluginEnablementProvider.notifier)
+          .setEnabled('social', true);
+      expect(
+        container.read(pluginSystemPromptProvider).length,
+        2,
+        reason: 'an unloaded plugin has said nothing yet',
+      );
 
-    await _load(container, 'social');
-    final fragments = container.read(pluginSystemPromptProvider);
-    expect(fragments.length, 3);
-    expect(fragments[1], contains('local_read_timeline'));
-  });
+      await _load(container, 'social');
+      final fragments = container.read(pluginSystemPromptProvider);
+      expect(fragments.length, 4);
+      expect(fragments[2], contains('local_read_timeline'));
+    },
+  );
 
   test('an unknown skill is answered with what can be loaded', () async {
     final container = await _launch();
@@ -324,7 +335,8 @@ void main() {
   test('offers nothing at all when every switch is off', () async {
     final container = await _launch();
     final enablement = container.read(pluginEnablementProvider.notifier);
-    await enablement.setEnabled('web', false);
+    await enablement.setEnabled('web_search', false);
+    await enablement.setEnabled('web_fetch', false);
     await enablement.setEnabled('social', false);
 
     expect(_names(container), isEmpty);
@@ -343,38 +355,95 @@ void main() {
       isTrue,
       reason: 'the switch must keep the key it has always used',
     );
-    // The web plugin is on by default, so nothing has had to be stored for it.
-    expect(preferences.getBool(const WebToolsPlugin().storeKey), isNull);
+    // The web switches are on by default, so nothing has had to be stored
+    // for either of them.
+    expect(preferences.getBool(const WebSearchPlugin().storeKey), isNull);
+    expect(preferences.getBool(const WebFetchPlugin().storeKey), isNull);
 
     // The next launch reads the same switches back.
     final relaunched = _containerWith(preferences, null);
     expect(relaunched.read(pluginEnablementProvider), contains('social'));
-    expect(relaunched.read(pluginEnablementProvider), contains('web'));
+    expect(relaunched.read(pluginEnablementProvider), contains('web_search'));
+    expect(relaunched.read(pluginEnablementProvider), contains('web_fetch'));
   });
+
+  test('a switch split in two keeps the choice the one switch made', () async {
+    // The value every existing user has was written against the single web
+    // switch. Turning it off was a refusal of local web access, and neither
+    // half of the split may grant that back.
+    final container = await _launch({kLocalWebToolsStoreKey: false});
+    expect(container.read(pluginEnablementProvider), isEmpty);
+    expect(_names(container), isEmpty);
+
+    // The first touch of one switch stores the split for that half only.
+    await container
+        .read(pluginEnablementProvider.notifier)
+        .setEnabled('web_search', true);
+    expect(_names(container), ['web_search']);
+
+    final preferences = container.read(sharedPreferencesProvider);
+    expect(preferences.getBool(const WebSearchPlugin().storeKey), isTrue);
+    expect(preferences.getBool(const WebFetchPlugin().storeKey), isNull);
+
+    // Fetch is still off on the next launch: inherited, not re-granted.
+    final relaunched = _containerWith(preferences, null);
+    expect(relaunched.read(pluginEnablementProvider), {'web_search'});
+  });
+
+  test(
+    'turning local search off hands web_search back to the server',
+    () async {
+      final container = await _launch();
+      expect(container.read(pluginOverridesProvider), [
+        'read_webpage',
+        'web_search',
+      ]);
+
+      await container
+          .read(pluginEnablementProvider.notifier)
+          .setEnabled('web_search', false);
+
+      // The server's own search is the more powerful one, so the switch is the
+      // way to have it: the override goes with the local tool, and the fetch
+      // switch keeps claiming its own server tool on its own.
+      expect(container.read(pluginOverridesProvider), ['read_webpage']);
+      expect(_names(container), ['web_fetch']);
+    },
+  );
 
   test('ignores a switch left behind by an older build', () async {
     // The stored set only ever names plugins this build has, so a stale id
     // cannot grant anything.
-    final container = await _launch({
-      pluginStoreKey('removed_plugin'): true,
-    });
+    final container = await _launch({pluginStoreKey('removed_plugin'): true});
 
-    expect(container.read(pluginEnablementProvider), isNot(contains('removed_plugin')));
+    expect(
+      container.read(pluginEnablementProvider),
+      isNot(contains('removed_plugin')),
+    );
     expect(_names(container), ['web_search', 'web_fetch']);
   });
 
   test('a plugin added to the registry is offered and loadable', () async {
-    final container = await _launch(const {}, const [WebToolsPlugin(), _EchoPlugin()]);
+    final container = await _launch(const {}, const [
+      WebSearchPlugin(),
+      WebFetchPlugin(),
+      _EchoPlugin(),
+    ]);
 
     // Its own switch key, its own label, and the model loads it by its own
     // name — no edit anywhere outside the plugin.
     expect(const _EchoPlugin().storeKey, pluginStoreKey('echo'));
-    await container.read(pluginEnablementProvider.notifier).setEnabled('echo', true);
+    await container
+        .read(pluginEnablementProvider.notifier)
+        .setEnabled('echo', true);
     expect(_names(container), ['web_search', 'web_fetch', loadSkillToolName]);
 
     await _load(container, 'echo');
     expect(_names(container), ['web_search', 'web_fetch', 'echo']);
-    expect(container.read(pluginSystemPromptProvider).last, 'An echo tool is loaded.');
+    expect(
+      container.read(pluginSystemPromptProvider).last,
+      'An echo tool is loaded.',
+    );
 
     final echo = container
         .read(pluginToolsProvider)

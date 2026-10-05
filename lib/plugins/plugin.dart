@@ -72,9 +72,8 @@ String namespacedToolName(String name) => '$kLocalToolNamespace$name';
 
 /// The name a tool was registered under, from the name the model called, or
 /// null when [namespaced] names a server tool rather than a client one.
-String? unnamespacedToolName(String namespaced) => namespaced.startsWith(
-  kLocalToolNamespace,
-)
+String? unnamespacedToolName(String namespaced) =>
+    namespaced.startsWith(kLocalToolNamespace)
     ? namespaced.substring(kLocalToolNamespace.length)
     : null;
 
@@ -129,6 +128,15 @@ abstract class SnPlugin {
   /// Derived from [id] by default. The plugins that predate this interface
   /// override it so the switch the user already flipped keeps its value.
   String get storeKey => pluginStoreKey(id);
+
+  /// The `SharedPreferences` keys an earlier build stored this switch under,
+  /// tried in order when [storeKey] itself has nothing.
+  ///
+  /// A plugin split out of a broader one reads the key the broader switch
+  /// used, so a user who already made the choice keeps it — turning the old
+  /// switch off must not hand the narrower capability back. The keys are only
+  /// ever read: the first write goes to [storeKey].
+  List<String> get inheritedStoreKeys => const [];
 
   /// The name the model activates this plugin under.
   ///

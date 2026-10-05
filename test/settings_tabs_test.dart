@@ -28,9 +28,7 @@ class _SignedInAuth extends SolarAuthNotifier {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('every settings tab renders without overflowing', (
-    tester,
-  ) async {
+  testWidgets('every settings tab renders without overflowing', (tester) async {
     SharedPreferences.setMockInitialValues({});
     // The console tabs read the secure session; answer with no session so the
     // request path settles into its error state instead of hanging.
@@ -43,9 +41,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(preferences),
-        ],
+        overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
         child: MaterialApp(
           theme: buildPersynthTheme(Brightness.light),
           home: const SettingsPage(),
@@ -71,9 +67,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(preferences),
-        ],
+        overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
         child: MaterialApp(
           theme: buildPersynthTheme(Brightness.light),
           home: const SettingsPage(),
@@ -88,8 +82,16 @@ void main() {
     List<String> offered() =>
         container.read(pluginToolsProvider).map((tool) => tool.name).toList();
 
-    // The web plugin is on out of the box; the social set is held back.
+    // The web switches are on out of the box; the social set is held back.
     expect(offered(), ['web_search', 'web_fetch']);
+
+    // Search and fetch are one row each, and both start on.
+    for (final label in ['Web search', 'Web fetch']) {
+      final row = find.widgetWithText(SwitchListTile, label);
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(row).value, isTrue, reason: label);
+    }
 
     final social = find.widgetWithText(SwitchListTile, 'Moments & feed');
     await tester.ensureVisible(social);
@@ -105,15 +107,17 @@ void main() {
     // to load them, and loading is what puts them on the run.
     expect(offered(), ['web_search', 'web_fetch', loadSkillToolName]);
 
-    final web = find.widgetWithText(SwitchListTile, 'Web search & fetch');
+    final web = find.widgetWithText(SwitchListTile, 'Web search');
     await tester.ensureVisible(web);
     await tester.pumpAndSettle();
     await tester.tap(web);
     await tester.pumpAndSettle();
 
-    // Only what is switched on is ever offered to the model.
-    expect(offered(), [loadSkillToolName]);
-    expect(preferences.getBool(const WebToolsPlugin().storeKey), isFalse);
+    // Only what is switched on is ever offered to the model: fetch has its own
+    // switch and stays on when search is withdrawn.
+    expect(offered(), ['web_fetch', loadSkillToolName]);
+    expect(preferences.getBool(const WebSearchPlugin().storeKey), isFalse);
+    expect(preferences.getBool(const WebFetchPlugin().storeKey), isNull);
   });
 
   testWidgets('every Solar set has its own switch, and granting one wires it', (
@@ -124,9 +128,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(preferences),
-        ],
+        overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
         child: MaterialApp(
           theme: buildPersynthTheme(Brightness.light),
           home: const SettingsPage(),
@@ -169,10 +171,7 @@ void main() {
         container.read(pluginToolsProvider).map((tool) => tool.name).toList();
     expect(offered(), ['web_search', 'web_fetch']);
 
-    final notifications = find.widgetWithText(
-      SwitchListTile,
-      'Notifications',
-    );
+    final notifications = find.widgetWithText(SwitchListTile, 'Notifications');
     await tester.ensureVisible(notifications);
     await tester.pumpAndSettle();
     await tester.tap(notifications);

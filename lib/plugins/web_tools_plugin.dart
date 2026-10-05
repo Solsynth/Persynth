@@ -1,6 +1,12 @@
-/// The on-device web tool set, as a plugin.
+/// The on-device web tools, as two plugins.
 ///
-/// These tools only make requests the server would have made anyway, merely
+/// Search and fetch are separate switches because the server is a different
+/// quality of stand-in for each: its search is the more powerful one, so a
+/// user may want to leave search to it, while its address is the one search
+/// engines and sites challenge with a bot check, so fetching from the user's
+/// own connection is the only fetch that reliably works.
+///
+/// Both tools only make requests the server would have made anyway, merely
 /// from the user's own connection — which is why they are on by default and
 /// eager: two small definitions the companion reaches for constantly.
 library;
@@ -9,52 +15,106 @@ import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/local_web_tools.dart';
 import 'package:persynth/plugins/plugin.dart';
 
-/// The key this switch is persisted under.
+/// The key the single web switch was stored under before search and fetch
+/// became switches of their own.
 ///
-/// It predates the plugin registry, when the switch was one field of a
-/// two-field settings object; keeping the name keeps the choice of every user
-/// who already made it.
+/// Both plugins inherit it rather than starting from their own default, so
+/// the choice every user who already made it stands — including the one that
+/// matters most, a user who had turned the pair off and must not find a
+/// network capability granted back to them.
 const String kLocalWebToolsStoreKey = 'persynth_local_tools_web';
 
-class WebToolsPlugin extends SnPlugin {
-  const WebToolsPlugin();
+/// Search the web from the user's own connection.
+///
+/// The switch is a choice between two searches rather than a grant of any:
+/// while it is on the server's own `web_search` is dropped from the tool
+/// list, and turning it off hands the job back.
+class WebSearchPlugin extends SnPlugin {
+  const WebSearchPlugin();
 
   @override
-  String get id => 'web';
+  String get id => 'web_search';
 
   @override
-  String get storeKey => kLocalWebToolsStoreKey;
-
-  @override
-  String get label => 'Web search & fetch';
+  String get label => 'Web search';
 
   @override
   String get description =>
-      'Runs web_search and web_fetch from this machine\'s own connection '
-      'instead of the server\'s.';
+      'Runs web_search from this machine\'s own connection instead of the '
+      'server\'s, so search engines see the user\'s address. Turn it off to '
+      'use the server\'s own search instead.';
 
   @override
   String get summary =>
-      'Search the web and fetch pages from the user\'s own connection';
+      'Search the web from the user\'s own connection, without the bot checks '
+      'a server\'s address attracts';
 
   @override
   bool get enabledByDefault => true;
 
   @override
-  Map<String, String> get overrides => const {
-    'web_search': 'web_search',
-    'read_webpage': 'web_fetch',
-  };
+  List<String> get inheritedStoreKeys => const [kLocalWebToolsStoreKey];
 
   @override
-  List<SnLocalTool> buildTools(SnPluginContext context) =>
-      buildLocalWebTools(context.http);
+  Map<String, String> get overrides => const {'web_search': 'web_search'};
+
+  @override
+  List<SnLocalTool> buildTools(SnPluginContext context) => [
+    buildLocalWebSearchTool(context.http),
+  ];
 
   @override
   List<String> systemPrompt(SnPluginContext context) => const [
-    'Web tools that run on the user\'s own device are loaded: '
-    'local_web_search and local_web_fetch leave from the user\'s IP address, '
-    'which search engines do not challenge with bot checks. Prefer them to the '
-    'server-side web_search and web_fetch when both are available.',
+    'Web search that runs on the user\'s own device is loaded: '
+        'local_web_search leaves from the user\'s IP address, which search '
+        'engines do not challenge with bot checks.',
+  ];
+}
+
+/// Fetch pages from the user's own connection.
+///
+/// Separate from search because its reason is not preference: a site that
+/// challenges the server's address with a captcha is fetched from the user's
+/// own, so this is the fetch that works rather than the one the user picked.
+class WebFetchPlugin extends SnPlugin {
+  const WebFetchPlugin();
+
+  @override
+  String get id => 'web_fetch';
+
+  @override
+  String get label => 'Web fetch';
+
+  @override
+  String get description =>
+      'Fetches pages from this machine\'s own connection instead of the '
+      'server\'s, so a site that challenges the server\'s address with a '
+      'captcha is read from the user\'s own.';
+
+  @override
+  String get summary =>
+      'Fetch pages from the user\'s own connection, where a captcha aimed at '
+      'the server\'s address cannot stop them';
+
+  @override
+  bool get enabledByDefault => true;
+
+  @override
+  List<String> get inheritedStoreKeys => const [kLocalWebToolsStoreKey];
+
+  @override
+  Map<String, String> get overrides => const {'read_webpage': 'web_fetch'};
+
+  @override
+  List<SnLocalTool> buildTools(SnPluginContext context) => [
+    buildLocalWebFetchTool(context.http),
+  ];
+
+  @override
+  List<String> systemPrompt(SnPluginContext context) => const [
+    'Web fetch that runs on the user\'s own device is loaded: '
+        'local_web_fetch leaves from the user\'s IP address, so a page that '
+        'challenges the server\'s address is read from the user\'s own '
+        'connection instead.',
   ];
 }

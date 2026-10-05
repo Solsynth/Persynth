@@ -167,7 +167,12 @@ void main() {
     await controller.send('hello');
 
     expect(api.receivedContext, isNotNull);
-    expect(api.receivedContext!.single, contains('local_web_search'));
+    // One fragment each: search and fetch are separate switches, and both are
+    // on out of the box.
+    expect(api.receivedContext, hasLength(2));
+    final context = api.receivedContext!.join('\n');
+    expect(context, contains('local_web_search'));
+    expect(context, contains('local_web_fetch'));
   });
 
   test('executes a client tool on this device and resumes the run', () async {

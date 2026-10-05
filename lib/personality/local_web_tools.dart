@@ -9,82 +9,89 @@ import 'package:persynth/personality/local_tool.dart';
 // Local web tools (the `SnLocalTool` contract lives in local_tool.dart)
 // ---------------------------------------------------------------------------
 
-/// The client-executed web tools, in the order the model sees them.
+/// The client-executed web search tool.
 ///
-/// The names are the app's own; the server puts them under its client
-/// namespace before the model sees them, so the model calls `local_web_search`.
+/// The name is the app's own; the server puts it under its client namespace
+/// before the model sees it, so the model calls `local_web_search`.
 ///
-/// [http] must be a bare client: these requests go to third-party engines and
+/// [http] must be a bare client: the request goes to third-party engines and
 /// must not carry the app's `Authorization` header.
-List<SnLocalTool> buildLocalWebTools(Dio http) => [
-  SnLocalTool(
-    name: 'web_search',
-    description:
-        "Search the web from the user's own connection. Tries credential-free "
-        'engines (Bing, DuckDuckGo, Mojeek) in order and returns the first one '
-        'that answers with relevant hits, as a numbered title/URL/snippet '
-        'list.\n\n'
-        "Prefer this over the server-side web_search: it leaves from the user's "
-        'IP, which search engines do not challenge with bot checks.\n\n'
-        'Understands the operators the engines support (site:, quoted phrases, '
-        'exclusions, OR).',
-    parameters: const <String, dynamic>{
-      'type': 'object',
-      'properties': <String, dynamic>{
-        'query': <String, dynamic>{'type': 'string', 'description': 'Search query.'},
-        'recency': <String, dynamic>{
-          'type': 'string',
-          'enum': <String>['day', 'week', 'month', 'year'],
-          'description': 'Relative time filter: day, week, month, or year.',
-        },
-        'limit': <String, dynamic>{
-          'type': 'integer',
-          'minimum': 1,
-          'maximum': 20,
-          'description': 'Maximum results (1-20, default 10).',
-        },
-        'num_search_results': <String, dynamic>{
-          'type': 'integer',
-          'description': 'Alias for limit.',
-        },
+SnLocalTool buildLocalWebSearchTool(Dio http) => SnLocalTool(
+  name: 'web_search',
+  description:
+      "Search the web from the user's own connection. Tries credential-free "
+      'engines (Bing, DuckDuckGo, Mojeek) in order and returns the first one '
+      'that answers with relevant hits, as a numbered title/URL/snippet '
+      'list.\n\n'
+      "Prefer this over the server-side web_search: it leaves from the user's "
+      'IP, which search engines do not challenge with bot checks.\n\n'
+      'Understands the operators the engines support (site:, quoted phrases, '
+      'exclusions, OR).',
+  parameters: const <String, dynamic>{
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'query': <String, dynamic>{
+        'type': 'string',
+        'description': 'Search query.',
       },
-      'required': <String>['query'],
-    },
-    execute: (arguments) => _webSearch(http, arguments),
-  ),
-  SnLocalTool(
-    name: 'web_fetch',
-    description:
-        "Fetch one URL from the user's own connection and return its readable "
-        'content: HTML becomes markdown with headings, lists and links kept, '
-        'JSON is pretty-printed, plain text is returned as-is. Reports the HTTP '
-        'status and the final URL after redirects.',
-    parameters: const <String, dynamic>{
-      'type': 'object',
-      'properties': <String, dynamic>{
-        'url': <String, dynamic>{
-          'type': 'string',
-          'description': 'Absolute http(s) URL to fetch.',
-        },
-        'format': <String, dynamic>{
-          'type': 'string',
-          'enum': <String>['markdown', 'text', 'html'],
-          'description':
-              'markdown (default) for readable text, text for raw body '
-              'characters, html for the raw source.',
-        },
-        'max_chars': <String, dynamic>{
-          'type': 'integer',
-          'minimum': 500,
-          'maximum': 200000,
-          'description': 'Output character cap (500-200000, default 20000).',
-        },
+      'recency': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['day', 'week', 'month', 'year'],
+        'description': 'Relative time filter: day, week, month, or year.',
       },
-      'required': <String>['url'],
+      'limit': <String, dynamic>{
+        'type': 'integer',
+        'minimum': 1,
+        'maximum': 20,
+        'description': 'Maximum results (1-20, default 10).',
+      },
+      'num_search_results': <String, dynamic>{
+        'type': 'integer',
+        'description': 'Alias for limit.',
+      },
     },
-    execute: (arguments) => _webFetch(http, arguments),
-  ),
-];
+    'required': <String>['query'],
+  },
+  execute: (arguments) => _webSearch(http, arguments),
+);
+
+/// The client-executed web fetch tool, named `web_fetch` like the server's
+/// counterpart it can stand in for.
+///
+/// [http] must be a bare client, as above: a page fetched here carries no
+/// account token.
+SnLocalTool buildLocalWebFetchTool(Dio http) => SnLocalTool(
+  name: 'web_fetch',
+  description:
+      "Fetch one URL from the user's own connection and return its readable "
+      'content: HTML becomes markdown with headings, lists and links kept, '
+      'JSON is pretty-printed, plain text is returned as-is. Reports the HTTP '
+      'status and the final URL after redirects.',
+  parameters: const <String, dynamic>{
+    'type': 'object',
+    'properties': <String, dynamic>{
+      'url': <String, dynamic>{
+        'type': 'string',
+        'description': 'Absolute http(s) URL to fetch.',
+      },
+      'format': <String, dynamic>{
+        'type': 'string',
+        'enum': <String>['markdown', 'text', 'html'],
+        'description':
+            'markdown (default) for readable text, text for raw body '
+            'characters, html for the raw source.',
+      },
+      'max_chars': <String, dynamic>{
+        'type': 'integer',
+        'minimum': 500,
+        'maximum': 200000,
+        'description': 'Output character cap (500-200000, default 20000).',
+      },
+    },
+    'required': <String>['url'],
+  },
+  execute: (arguments) => _webFetch(http, arguments),
+);
 
 // ---------------------------------------------------------------------------
 // Shared HTTP plumbing
@@ -342,7 +349,8 @@ String _decodeEntities(String? value) {
       })
       .replaceAllMapped(
         _namedEntityRe,
-        (match) => _namedEntities[match.group(1)!.toLowerCase()] ?? match.group(0)!,
+        (match) =>
+            _namedEntities[match.group(1)!.toLowerCase()] ?? match.group(0)!,
       )
       .replaceAll('&nbsp;', ' ');
 }
@@ -351,9 +359,9 @@ String _decodeEntities(String? value) {
 String _stripTags(String? html) {
   final text = html ?? '';
   if (text.isEmpty) return '';
-  return _decodeEntities(text.replaceAll(_brTagRe, ' ').replaceAll(_tagRe, ' '))
-      .replaceAll(_whitespaceRe, ' ')
-      .trim();
+  return _decodeEntities(
+    text.replaceAll(_brTagRe, ' ').replaceAll(_tagRe, ' '),
+  ).replaceAll(_whitespaceRe, ' ').trim();
 }
 
 /// Reads an attribute out of a raw tag body, tolerating unquoted values.
@@ -440,10 +448,8 @@ class _SearchRequest {
   final Duration timeout;
 }
 
-typedef _EngineRun = Future<List<_SearchResult>> Function(
-  Dio http,
-  _SearchRequest request,
-);
+typedef _EngineRun =
+    Future<List<_SearchResult>> Function(Dio http, _SearchRequest request);
 
 /// One entry of the engine chain.
 class _SearchEngine {
@@ -528,7 +534,11 @@ List<_SearchResult> _parseDuckDuckGo(String html) {
         ? snippet
         : _firstMatch(anchor.rest, _ddgLiteSnippetRe);
     results.add(
-      _SearchResult(title: title, url: url, snippet: _clip(_stripTags(text), _snippetChars)),
+      _SearchResult(
+        title: title,
+        url: url,
+        snippet: _clip(_stripTags(text), _snippetChars),
+      ),
     );
   }
   return results;
@@ -542,7 +552,10 @@ final _bingAnchorRe = RegExp(
   r'<h2[^>]*>\s*<a\s([^>]*)>([\s\S]*?)</a>',
   caseSensitive: false,
 );
-final _bingParagraphRe = RegExp(r'<p[^>]*>([\s\S]*?)</p>', caseSensitive: false);
+final _bingParagraphRe = RegExp(
+  r'<p[^>]*>([\s\S]*?)</p>',
+  caseSensitive: false,
+);
 final _bingMarkupRe = RegExp(r'class="b_algo"');
 final _bingChallengeRe = RegExp(
   r'captcha|unusual traffic|verify you are human',
@@ -554,12 +567,19 @@ List<_SearchResult> _parseBingHtml(String html) {
   for (final block in _bingBlockRe.allMatches(html)) {
     final anchor = _bingAnchorRe.firstMatch(block.group(0)!);
     if (anchor == null) continue;
-    final url = _absoluteUrl(_attrOf(anchor.group(1)!, 'href'), 'https://www.bing.com');
+    final url = _absoluteUrl(
+      _attrOf(anchor.group(1)!, 'href'),
+      'https://www.bing.com',
+    );
     final title = _stripTags(anchor.group(2));
     if (url == null || title.isEmpty) continue;
     final snippet = _firstMatch(block.group(0)!, _bingParagraphRe);
     results.add(
-      _SearchResult(title: title, url: url, snippet: _clip(_stripTags(snippet), _snippetChars)),
+      _SearchResult(
+        title: title,
+        url: url,
+        snippet: _clip(_stripTags(snippet), _snippetChars),
+      ),
     );
   }
   return results;
@@ -568,7 +588,10 @@ List<_SearchResult> _parseBingHtml(String html) {
 final _rssItemRe = RegExp(r'<item>[\s\S]*?</item>', caseSensitive: false);
 final _rssLinkRe = RegExp(r'<link>([\s\S]*?)</link>', caseSensitive: false);
 final _rssTitleRe = RegExp(r'<title>([\s\S]*?)</title>', caseSensitive: false);
-final _rssDescriptionRe = RegExp(r'<description>([\s\S]*?)</description>', caseSensitive: false);
+final _rssDescriptionRe = RegExp(
+  r'<description>([\s\S]*?)</description>',
+  caseSensitive: false,
+);
 final _rssRootRe = RegExp(r'<rss', caseSensitive: false);
 
 List<_SearchResult> _parseBingRss(String xml) {
@@ -580,7 +603,11 @@ List<_SearchResult> _parseBingRss(String xml) {
     final snippet = _stripTags(_firstMatch(block, _rssDescriptionRe));
     if (url.isEmpty || !_isHttpUrl(url) || title.isEmpty) continue;
     results.add(
-      _SearchResult(title: title, url: url, snippet: _clip(snippet, _snippetChars)),
+      _SearchResult(
+        title: title,
+        url: url,
+        snippet: _clip(snippet, _snippetChars),
+      ),
     );
   }
   return results;
@@ -594,12 +621,19 @@ final _mojeekSnippetRe = RegExp(
 List<_SearchResult> _parseMojeek(String html) {
   final results = <_SearchResult>[];
   for (final anchor in _scanResults(html, r'\bob\b')) {
-    final url = _absoluteUrl(_attrOf(anchor.attrs, 'href'), 'https://www.mojeek.com');
+    final url = _absoluteUrl(
+      _attrOf(anchor.attrs, 'href'),
+      'https://www.mojeek.com',
+    );
     final title = _stripTags(anchor.inner);
     if (url == null || title.isEmpty) continue;
     final snippet = _firstMatch(anchor.rest, _mojeekSnippetRe);
     results.add(
-      _SearchResult(title: title, url: url, snippet: _clip(_stripTags(snippet), _snippetChars)),
+      _SearchResult(
+        title: title,
+        url: url,
+        snippet: _clip(_stripTags(snippet), _snippetChars),
+      ),
     );
   }
   return results;
@@ -614,7 +648,10 @@ bool _isHttpUrl(String url) {
   }
 }
 
-Future<List<_SearchResult>> _runBingHtml(Dio http, _SearchRequest request) async {
+Future<List<_SearchResult>> _runBingHtml(
+  Dio http,
+  _SearchRequest request,
+) async {
   final url =
       'https://www.bing.com/search?q=${Uri.encodeComponent(request.query)}'
       '&count=${request.limit}&setlang=en';
@@ -630,18 +667,26 @@ Future<List<_SearchResult>> _runBingHtml(Dio http, _SearchRequest request) async
   final parsed = _parseBingHtml(response.text).take(request.limit).toList();
   if (parsed.isEmpty && !_bingMarkupRe.hasMatch(response.text)) {
     throw _LocalHttpFailure(
-      _bingChallengeRe.hasMatch(response.text) ? 'bot challenge' : 'no results markup',
+      _bingChallengeRe.hasMatch(response.text)
+          ? 'bot challenge'
+          : 'no results markup',
     );
   }
   return parsed;
 }
 
-Future<List<_SearchResult>> _runDuckDuckGo(Dio http, _SearchRequest request) async {
+Future<List<_SearchResult>> _runDuckDuckGo(
+  Dio http,
+  _SearchRequest request,
+) async {
   final response = await _request(
     http,
     'https://html.duckduckgo.com/html/',
     method: 'POST',
-    body: _formBody({'q': request.query, 'kl': 'us-en'}, _recencyCodes[request.recency]),
+    body: _formBody({
+      'q': request.query,
+      'kl': 'us-en',
+    }, _recencyCodes[request.recency]),
     timeout: request.timeout,
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -651,13 +696,17 @@ Future<List<_SearchResult>> _runDuckDuckGo(Dio http, _SearchRequest request) asy
   if (response.status >= 400) {
     throw _LocalHttpFailure(_httpStatusLine(response));
   }
-  if (_looksChallenged(response.text) && !_ddgResultRe.hasMatch(response.text)) {
+  if (_looksChallenged(response.text) &&
+      !_ddgResultRe.hasMatch(response.text)) {
     throw _LocalHttpFailure('bot challenge');
   }
   return _parseDuckDuckGo(response.text).take(request.limit).toList();
 }
 
-Future<List<_SearchResult>> _runDuckDuckGoLite(Dio http, _SearchRequest request) async {
+Future<List<_SearchResult>> _runDuckDuckGoLite(
+  Dio http,
+  _SearchRequest request,
+) async {
   final response = await _request(
     http,
     'https://lite.duckduckgo.com/lite/',
@@ -679,7 +728,10 @@ Future<List<_SearchResult>> _runDuckDuckGoLite(Dio http, _SearchRequest request)
   return parsed;
 }
 
-Future<List<_SearchResult>> _runBingRss(Dio http, _SearchRequest request) async {
+Future<List<_SearchResult>> _runBingRss(
+  Dio http,
+  _SearchRequest request,
+) async {
   final url =
       'https://www.bing.com/search?q=${Uri.encodeComponent(request.query)}'
       '&format=rss&count=${request.limit}';
@@ -700,7 +752,8 @@ Future<List<_SearchResult>> _runBingRss(Dio http, _SearchRequest request) async 
 }
 
 Future<List<_SearchResult>> _runMojeek(Dio http, _SearchRequest request) async {
-  final since = request.recency != null && _recencyValues.contains(request.recency)
+  final since =
+      request.recency != null && _recencyValues.contains(request.recency)
       ? request.recency
       : null;
   final url =
@@ -722,16 +775,14 @@ Future<List<_SearchResult>> _runMojeek(Dio http, _SearchRequest request) async {
   return parsed;
 }
 
-String _httpStatusLine(_LocalHttpResponse response) => response.statusText.isEmpty
+String _httpStatusLine(_LocalHttpResponse response) =>
+    response.statusText.isEmpty
     ? 'HTTP ${response.status}'
     : 'HTTP ${response.status} ${response.statusText}';
 
 /// `application/x-www-form-urlencoded` body for the DuckDuckGo POSTs.
 String _formBody(Map<String, String> fields, String? recencyCode) {
-  final form = <String, String>{
-    ...fields,
-    'df': ?recencyCode,
-  };
+  final form = <String, String>{...fields, 'df': ?recencyCode};
   return form.entries
       .map(
         (entry) =>
@@ -778,7 +829,8 @@ List<String> _significantTerms(String query) {
     final lowered = term.toLowerCase();
     if (lowered.length >= 3) terms.add(lowered);
   }
-  final sorted = terms.toList()..sort((left, right) => right.length.compareTo(left.length));
+  final sorted = terms.toList()
+    ..sort((left, right) => right.length.compareTo(left.length));
   return sorted.take(4).toList();
 }
 
@@ -788,7 +840,8 @@ List<_SearchResult> _filterRelevant(List<_SearchResult> results, String query) {
   return [
     for (final result in results)
       if (terms.any(
-        (term) => '${result.title} ${result.snippet}'.toLowerCase().contains(term),
+        (term) =>
+            '${result.title} ${result.snippet}'.toLowerCase().contains(term),
       ))
         result,
   ];
@@ -864,9 +917,18 @@ String _formatResults(String provider, List<_SearchResult> results) {
 // ---------------------------------------------------------------------------
 
 final _anchorRe = RegExp(r'<a\s([^>]*)>([\s\S]*?)</a>', caseSensitive: false);
-final _boldRe = RegExp(r'<(strong|b)\b[^>]*>([\s\S]*?)</\1>', caseSensitive: false);
-final _italicRe = RegExp(r'<(em|i)\b[^>]*>([\s\S]*?)</\1>', caseSensitive: false);
-final _inlineCodeRe = RegExp(r'<code\b[^>]*>([\s\S]*?)</code>', caseSensitive: false);
+final _boldRe = RegExp(
+  r'<(strong|b)\b[^>]*>([\s\S]*?)</\1>',
+  caseSensitive: false,
+);
+final _italicRe = RegExp(
+  r'<(em|i)\b[^>]*>([\s\S]*?)</\1>',
+  caseSensitive: false,
+);
+final _inlineCodeRe = RegExp(
+  r'<code\b[^>]*>([\s\S]*?)</code>',
+  caseSensitive: false,
+);
 
 String _inlineMarkdown(String html, String base) {
   if (html.isEmpty) return '';
@@ -879,12 +941,18 @@ String _inlineMarkdown(String html, String base) {
       })
       .replaceAllMapped(_boldRe, (match) => '**${_stripTags(match.group(2))}**')
       .replaceAllMapped(_italicRe, (match) => '*${_stripTags(match.group(2))}*')
-      .replaceAllMapped(_inlineCodeRe, (match) => '`${_stripTags(match.group(1))}`')
+      .replaceAllMapped(
+        _inlineCodeRe,
+        (match) => '`${_stripTags(match.group(1))}`',
+      )
       .replaceAll(_tagRe, ' ');
   return _decodeEntities(replaced).replaceAll(_whitespaceRe, ' ').trim();
 }
 
-final _titleRe = RegExp(r'<title[^>]*>([\s\S]*?)</title>', caseSensitive: false);
+final _titleRe = RegExp(
+  r'<title[^>]*>([\s\S]*?)</title>',
+  caseSensitive: false,
+);
 final _metaDescriptionRe = RegExp(
   r'''<meta[^>]+name\s*=\s*["']description["'][^>]*content\s*=\s*["']([^"']*)["']''',
   caseSensitive: false,
@@ -899,7 +967,10 @@ final _droppedElementRe = RegExp(
   caseSensitive: false,
 );
 final _preRe = RegExp(r'<pre[^>]*>([\s\S]*?)</pre>', caseSensitive: false);
-final _headingRe = RegExp(r'<h([1-6])[^>]*>([\s\S]*?)</h\1>', caseSensitive: false);
+final _headingRe = RegExp(
+  r'<h([1-6])[^>]*>([\s\S]*?)</h\1>',
+  caseSensitive: false,
+);
 final _listItemRe = RegExp(r'<li[^>]*>([\s\S]*?)</li>', caseSensitive: false);
 final _blockquoteRe = RegExp(
   r'<blockquote[^>]*>([\s\S]*?)</blockquote>',
@@ -919,7 +990,8 @@ final _inlineTagRe = RegExp(r'<(a|strong|b|em|i|code)\b', caseSensitive: false);
 ) {
   final title = _stripTags(_titleRe.firstMatch(html)?.group(1));
   final description = _decodeEntities(
-    (_metaDescriptionRe.firstMatch(html) ?? _metaOgDescriptionRe.firstMatch(html))
+    (_metaDescriptionRe.firstMatch(html) ??
+            _metaOgDescriptionRe.firstMatch(html))
         ?.group(1),
   ).trim();
 
@@ -927,9 +999,9 @@ final _inlineTagRe = RegExp(r'<(a|strong|b|em|i|code)\b', caseSensitive: false);
       .replaceAll(_commentRe, ' ')
       .replaceAll(_droppedElementRe, ' ')
       .replaceAllMapped(_preRe, (match) {
-        final text = _decodeEntities(match.group(1)!.replaceAll(_tagRe, ''))
-            .replaceAll(_blankLinesRe, '\n\n')
-            .trim();
+        final text = _decodeEntities(
+          match.group(1)!.replaceAll(_tagRe, ''),
+        ).replaceAll(_blankLinesRe, '\n\n').trim();
         return '\n\n```\n$text\n```\n\n';
       })
       .replaceAllMapped(
@@ -974,7 +1046,9 @@ final _inlineTagRe = RegExp(r'<(a|strong|b|em|i|code)\b', caseSensitive: false);
 /// Reads an integer argument clamped into `[min, max]`, falling back to
 /// [fallback] when absent or unusable.
 int _boundedInt(Object? value, int fallback, int min, int max) {
-  final requested = value is num && value.isFinite ? value.truncate() : fallback;
+  final requested = value is num && value.isFinite
+      ? value.truncate()
+      : fallback;
   if (requested < min) return min;
   if (requested > max) return max;
   return requested;
@@ -990,10 +1064,17 @@ Future<String> _webSearch(Dio http, Map<String, dynamic> arguments) async {
       ? _boundedInt(requested, _defaultResults, 1, _maxResults)
       : _defaultResults;
   final rawRecency = arguments['recency'];
-  final recencyText = rawRecency is String ? rawRecency.trim().toLowerCase() : '';
+  final recencyText = rawRecency is String
+      ? rawRecency.trim().toLowerCase()
+      : '';
   final recency = _recencyValues.contains(recencyText) ? recencyText : null;
 
-  final outcome = await _localSearch(http, query, limit: limit, recency: recency);
+  final outcome = await _localSearch(
+    http,
+    query,
+    limit: limit,
+    recency: recency,
+  );
   if (outcome.results.isNotEmpty) {
     return _formatResults(outcome.provider!, outcome.results);
   }
@@ -1048,7 +1129,11 @@ Future<String> _webFetch(Dio http, Map<String, dynamic> arguments) async {
     return 'Error: could not fetch ${parsed.toString()} \u2014 $message.$hint';
   }
 
-  final contentType = response.contentType.split(';').first.trim().toLowerCase();
+  final contentType = response.contentType
+      .split(';')
+      .first
+      .trim()
+      .toLowerCase();
   final isHtml =
       contentType.contains('html') ||
       contentType.contains('xml') ||
@@ -1067,7 +1152,9 @@ Future<String> _webFetch(Dio http, Map<String, dynamic> arguments) async {
     body = response.text;
   } else if (isJson) {
     try {
-      body = const JsonEncoder.withIndent('  ').convert(jsonDecode(response.text));
+      body = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(jsonDecode(response.text));
     } on FormatException {
       body = response.text;
       note = ' (unparsed JSON)';
@@ -1085,7 +1172,10 @@ Future<String> _webFetch(Dio http, Map<String, dynamic> arguments) async {
       if (converted.title.isNotEmpty && !alreadyTitled) '# ${converted.title}',
       if (converted.description.isNotEmpty) converted.description,
     ].join('\n\n');
-    body = [if (header.isNotEmpty) header, if (converted.markdown.isNotEmpty) converted.markdown].join('\n\n');
+    body = [
+      if (header.isNotEmpty) header,
+      if (converted.markdown.isNotEmpty) converted.markdown,
+    ].join('\n\n');
   } else if (isHtml || isText) {
     body = isHtml ? _stripTags(response.text) : response.text;
   } else {

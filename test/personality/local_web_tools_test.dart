@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:persynth/personality/local_tool.dart';
 import 'package:persynth/personality/local_web_tools.dart';
 
 /// One canned HTTP response.
@@ -70,9 +69,6 @@ class _ThrowingAdapter implements HttpClientAdapter {
   ) async => throw error;
 }
 
-SnLocalTool _tool(List<SnLocalTool> tools, String name) =>
-    tools.firstWhere((tool) => tool.name == name);
-
 const _bingChallengeHtml =
     '<html><body>We detected unusual traffic from your network. '
     'Please verify you are human.<form id="challenge-form"></form></body></html>';
@@ -105,7 +101,7 @@ void main() {
         ),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final search = _tool(buildLocalWebTools(dio), 'web_search');
+      final search = buildLocalWebSearchTool(dio);
 
       final text = await search.execute({'query': 'solian pets', 'limit': 3});
 
@@ -149,7 +145,7 @@ void main() {
         return const _StubResponse('', status: 404, statusMessage: 'Not Found');
       });
       final dio = Dio()..httpClientAdapter = adapter;
-      final search = _tool(buildLocalWebTools(dio), 'web_search');
+      final search = buildLocalWebSearchTool(dio);
 
       final text = await search.execute({
         'query': 'solian pets',
@@ -175,7 +171,8 @@ void main() {
     test('rejects results that mention none of the query terms', () async {
       final adapter = _StubAdapter((options) {
         final uri = options.uri;
-        if (uri.host == 'www.bing.com' && uri.queryParameters.containsKey('format')) {
+        if (uri.host == 'www.bing.com' &&
+            uri.queryParameters.containsKey('format')) {
           return const _StubResponse(
             '<rss version="2.0"><channel><item><title>Weather today</title>'
             '<link>https://example.com/weather</link>'
@@ -202,7 +199,7 @@ void main() {
         );
       });
       final dio = Dio()..httpClientAdapter = adapter;
-      final search = _tool(buildLocalWebTools(dio), 'web_search');
+      final search = buildLocalWebSearchTool(dio);
 
       final text = await search.execute({
         'query': 'zzzqxxq nosuchterm',
@@ -233,7 +230,7 @@ void main() {
         ),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final search = _tool(buildLocalWebTools(dio), 'web_search');
+      final search = buildLocalWebSearchTool(dio);
 
       final text = await search.execute({'query': 'solian'});
 
@@ -244,11 +241,15 @@ void main() {
     });
 
     test('requires a query', () async {
-      final dio = Dio()..httpClientAdapter = _StubAdapter((_) => const _StubResponse(''));
-      final search = _tool(buildLocalWebTools(dio), 'web_search');
+      final dio = Dio()
+        ..httpClientAdapter = _StubAdapter((_) => const _StubResponse(''));
+      final search = buildLocalWebSearchTool(dio);
 
       expect(await search.execute({}), 'Error: `query` is required.');
-      expect(await search.execute({'query': '   '}), 'Error: `query` is required.');
+      expect(
+        await search.execute({'query': '   '}),
+        'Error: `query` is required.',
+      );
     });
   });
 
@@ -264,7 +265,7 @@ void main() {
           '<pre>code line</pre></body></html>';
       final adapter = _StubAdapter((_) => const _StubResponse(html));
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
+      final fetch = buildLocalWebFetchTool(dio);
 
       final text = await fetch.execute({
         'url': 'https://example.com/docs/page.html',
@@ -278,8 +279,10 @@ void main() {
       expect(text, contains('All about Solian pets\n\n# Solian Pets\n\n'));
       expect(
         text,
-        contains('Read the [guide](https://example.com/guide) and '
-            '**enjoy** `pets`.'),
+        contains(
+          'Read the [guide](https://example.com/guide) and '
+          '**enjoy** `pets`.',
+        ),
       );
       expect(text, contains('\n- One\n- Two\n'));
       expect(text, contains('```\ncode line\n```'));
@@ -294,7 +297,7 @@ void main() {
         ),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
+      final fetch = buildLocalWebFetchTool(dio);
 
       final text = await fetch.execute({'url': 'https://api.example.com/data'});
 
@@ -310,7 +313,7 @@ void main() {
         (_) => const _StubResponse('<html><body>hi</body></html>'),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
+      final fetch = buildLocalWebFetchTool(dio);
 
       final text = await fetch.execute({
         'url': 'https://example.com/',
@@ -325,7 +328,7 @@ void main() {
         (_) => const _StubResponse('PNGBYTES', contentType: 'image/png'),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
+      final fetch = buildLocalWebFetchTool(dio);
 
       final text = await fetch.execute({'url': 'https://example.com/i.png'});
 
@@ -336,7 +339,7 @@ void main() {
     test('refuses non-http(s) and relative URLs', () async {
       final adapter = _StubAdapter((_) => const _StubResponse(''));
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
+      final fetch = buildLocalWebFetchTool(dio);
 
       const error = 'Error: `url` must be an absolute http(s) URL.';
       expect(await fetch.execute({'url': 'file:///etc/passwd'}), error);
@@ -351,7 +354,7 @@ void main() {
         (_) => _StubResponse('<p>${'a' * 2000}</p>'),
       );
       final dio = Dio()..httpClientAdapter = adapter;
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
+      final fetch = buildLocalWebFetchTool(dio);
 
       final text = await fetch.execute({
         'url': 'https://example.com/long',
@@ -362,50 +365,60 @@ void main() {
       expect(text.split('\n\n').last, 'a' * 500);
     });
 
-    test('reports a TLS failure as a readable error instead of throwing', () async {
-      final dio = Dio()
-        ..httpClientAdapter = _ThrowingAdapter(
-          const HandshakeException('CERTIFICATE_VERIFY_FAILED: self signed certificate'),
+    test(
+      'reports a TLS failure as a readable error instead of throwing',
+      () async {
+        final dio = Dio()
+          ..httpClientAdapter = _ThrowingAdapter(
+            const HandshakeException(
+              'CERTIFICATE_VERIFY_FAILED: self signed certificate',
+            ),
+          );
+        final fetch = buildLocalWebFetchTool(dio);
+
+        final text = await fetch.execute({
+          'url': 'https://certs.example.com/page',
+        });
+
+        expect(
+          text,
+          startsWith(
+            'Error: could not fetch https://certs.example.com/page — ',
+          ),
         );
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
-
-      final text = await fetch.execute({'url': 'https://certs.example.com/page'});
-
-      expect(
-        text,
-        startsWith('Error: could not fetch https://certs.example.com/page — '),
-      );
-      expect(
-        text,
-        contains(
-          "The site's TLS certificate is not trusted by this machine.",
-        ),
-      );
-    });
+        expect(
+          text,
+          contains(
+            "The site's TLS certificate is not trusted by this machine.",
+          ),
+        );
+      },
+    );
 
     test('reports an unreachable host as a readable error', () async {
       final dio = Dio()
         ..httpClientAdapter = _ThrowingAdapter(
           const SocketException('Connection refused'),
         );
-      final fetch = _tool(buildLocalWebTools(dio), 'web_fetch');
+      final fetch = buildLocalWebFetchTool(dio);
 
       final text = await fetch.execute({'url': 'https://down.example.com/'});
 
-      expect(text, startsWith('Error: could not fetch https://down.example.com/ — '));
+      expect(
+        text,
+        startsWith('Error: could not fetch https://down.example.com/ — '),
+      );
       expect(text, contains('Connection refused'));
       expect(text, isNot(contains('TLS certificate')));
     });
   });
 
   test('tools serialize to OpenAI function entries', () {
-    final tools = buildLocalWebTools(Dio());
+    final search = buildLocalWebSearchTool(Dio());
+    final fetch = buildLocalWebFetchTool(Dio());
 
-    expect(tools.map((tool) => tool.name).toList(), [
-      'web_search',
-      'web_fetch',
-    ]);
-    for (final tool in tools) {
+    expect([search.name, fetch.name], ['web_search', 'web_fetch']);
+    for (final tool in [search, fetch]) {
       final entry = tool.toOpenAiTool();
       expect(entry['type'], 'function');
       final function = entry['function'] as Map<String, dynamic>;
@@ -414,7 +427,7 @@ void main() {
       expect(function['parameters'], same(tool.parameters));
     }
     final searchParams =
-        tools.first.toOpenAiTool()['function']['parameters'] as Map<String, dynamic>;
+        search.toOpenAiTool()['function']['parameters'] as Map<String, dynamic>;
     expect(searchParams['required'], ['query']);
   });
 }
