@@ -36,15 +36,13 @@ class SnPersonalityRunUsage {
       );
 }
 
+/// What the account has consumed in one interval, per currency. A null
+/// [SnPersonalityRunUsage.max] is "no limit configured", not "unknown".
 class SnPersonalityBillingUsage {
-  final SnPersonalityRunUsage? hourlyRuns;
-  final SnPersonalityRunUsage? dailyRuns;
   final Map<String, SnPersonalityRunUsage> hourlyUsage;
   final Map<String, SnPersonalityRunUsage> dailyUsage;
 
   const SnPersonalityBillingUsage({
-    this.hourlyRuns,
-    this.dailyRuns,
     this.hourlyUsage = const {},
     this.dailyUsage = const {},
   });
@@ -61,12 +59,6 @@ class SnPersonalityBillingUsage {
     }
 
     return SnPersonalityBillingUsage(
-      hourlyRuns: json['hourly_runs'] == null
-          ? null
-          : SnPersonalityRunUsage.fromJson(json['hourly_runs']),
-      dailyRuns: json['daily_runs'] == null
-          ? null
-          : SnPersonalityRunUsage.fromJson(json['daily_runs']),
       hourlyUsage: parseMap(json['hourly_usage']),
       dailyUsage: parseMap(json['daily_usage']),
     );
@@ -74,15 +66,11 @@ class SnPersonalityBillingUsage {
 }
 
 class SnPersonalityBilling {
-  final int? hourlyRunLimit;
-  final int? dailyRunLimit;
   final String? spendingQuota;
   final bool blacklisted;
   final SnPersonalityBillingUsage usage;
 
   const SnPersonalityBilling({
-    this.hourlyRunLimit,
-    this.dailyRunLimit,
     this.spendingQuota,
     this.blacklisted = false,
     required this.usage,
@@ -90,12 +78,6 @@ class SnPersonalityBilling {
 
   factory SnPersonalityBilling.fromJson(Map<String, dynamic> json) =>
       SnPersonalityBilling(
-        hourlyRunLimit: json['hourly_run_limit'] is int
-            ? json['hourly_run_limit']
-            : null,
-        dailyRunLimit: json['daily_run_limit'] is int
-            ? json['daily_run_limit']
-            : null,
         spendingQuota: json['spending_quota']?.toString(),
         blacklisted: json['blacklisted'] is bool ? json['blacklisted'] : false,
         usage: SnPersonalityBillingUsage.fromJson(
@@ -881,20 +863,17 @@ String _localizeCurrency(String currency) {
   return _currencyLabels[currency.toLowerCase()] ?? currency;
 }
 
-String _usageText(BuildContext context, SnPersonalityRunUsage? u) {
-  if (u == null) return 'Unknown';
-  return u.max == null ? u.used : '${u.used} / ${u.max}';
-}
-
 class AiConsoleBillingTab extends HookConsumerWidget {
   const AiConsoleBillingTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
     final billing = ref.watch(personalityBillingProvider);
     final quotaController = useTextEditingController();
     final quotaInitialized = useState(false);
+    // Rebuilds on every keystroke, so the Save button follows what is typed
+    // without a second listener.
+    final quotaText = useValueListenable(quotaController).text.trim();
 
     return billing.when(
       data: (b) {
@@ -902,123 +881,23 @@ class AiConsoleBillingTab extends HookConsumerWidget {
           quotaController.text = b.spendingQuota ?? '0';
           quotaInitialized.value = true;
         }
+        final savedQuota = (b.spendingQuota ?? '0').trim();
         return SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
             spacing: 16,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (b.blacklisted)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Symbols.block, color: theme.colorScheme.error),
-                      const Gap(8),
-                      Expanded(
-                        child: Text(
-                          'Billing suspended (blacklisted)',
-                          style: TextStyle(
-                            color: theme.colorScheme.onErrorContainer,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              Card(
-                margin: EdgeInsets.zero,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    spacing: 8,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Run limits', style: theme.textTheme.titleSmall),
-                      _KeyValue(
-                        'Hourly',
-                        b.hourlyRunLimit?.toString() ?? 'Unknown',
-                      ),
-                      _KeyValue(
-                        'Daily',
-                        b.dailyRunLimit?.toString() ?? 'Unknown',
-                      ),
-                    ],
-                  ),
-                ),
+              _BillingStandingCard(
+                blacklisted: b.blacklisted,
+                onSettle: () => _settle(context, ref),
               ),
-              Card(
-                margin: EdgeInsets.zero,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    spacing: 8,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Spending quota', style: theme.textTheme.titleSmall),
-                      Text(
-                        'Set to 0 to disable immediate settlement.',
-                        style: theme.textTheme.labelSmall,
-                      ),
-                      const Gap(8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: quotaController,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(hintText: '0'),
-                            ),
-                          ),
-                          const Gap(8),
-                          FilledButton(
-                            onPressed: () =>
-                                _saveQuota(context, ref, quotaController.text),
-                            child: Text('Save'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+              _SpendingQuotaCard(
+                controller: quotaController,
+                canSave: quotaText.isNotEmpty && quotaText != savedQuota,
+                onSave: () => _saveQuota(context, ref, quotaText),
               ),
-              Card(
-                margin: EdgeInsets.zero,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    spacing: 8,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Usage', style: theme.textTheme.titleSmall),
-                      _KeyValue(
-                        'Hourly',
-                        _usageText(context, b.usage.hourlyRuns),
-                      ),
-                      _KeyValue(
-                        'Daily',
-                        _usageText(context, b.usage.dailyRuns),
-                      ),
-                      ..._usageMapWidgets(
-                        context,
-                        b.usage.hourlyUsage,
-                        'Hourly',
-                      ),
-                      ..._usageMapWidgets(context, b.usage.dailyUsage, 'Daily'),
-                    ],
-                  ),
-                ),
-              ),
-              if (b.blacklisted)
-                FilledButton.icon(
-                  onPressed: () => _settle(context, ref),
-                  icon: const Icon(Symbols.paid),
-                  label: Text('Settle unpaid usage'),
-                ),
+              _MeteredUsageCard(usage: b.usage),
             ],
           ),
         );
@@ -1029,18 +908,6 @@ class AiConsoleBillingTab extends HookConsumerWidget {
       ),
       loading: () => const _ResponseLoading(),
     );
-  }
-
-  List<Widget> _usageMapWidgets(
-    BuildContext context,
-    Map<String, SnPersonalityRunUsage> map,
-    String label,
-  ) {
-    if (map.isEmpty) return const [];
-    return [
-      for (final e in map.entries)
-        _KeyValue('$label · ${e.key}', _usageText(context, e.value)),
-    ];
   }
 
   Future<void> _saveQuota(
@@ -1076,6 +943,248 @@ class AiConsoleBillingTab extends HookConsumerWidget {
     } finally {
       if (context.mounted) _hideLoadingModal(context);
     }
+  }
+}
+
+/// Whether the account can run at all, and the way back when it cannot: one
+/// card, because a suspended account's first question is what to do about it.
+class _BillingStandingCard extends StatelessWidget {
+  const _BillingStandingCard({
+    required this.blacklisted,
+    required this.onSettle,
+  });
+
+  final bool blacklisted;
+  final VoidCallback onSettle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final accent = blacklisted ? scheme.error : scheme.primary;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          spacing: 12,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  blacklisted ? Symbols.block : Symbols.check_circle,
+                  color: accent,
+                ),
+                const Gap(10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    spacing: 2,
+                    children: [
+                      Text(
+                        blacklisted ? 'Billing suspended' : 'Active',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: blacklisted ? scheme.error : null,
+                        ),
+                      ),
+                      Text(
+                        blacklisted
+                            ? 'New runs are stopped until the account settles.'
+                            : 'Runs are metered and billed as usual.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (blacklisted)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: onSettle,
+                  icon: const Icon(Symbols.paid),
+                  label: const Text('Settle unpaid usage'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The unpaid amount that trips an immediate wallet charge. The server reads
+/// it in the account's billing currency and settles only the default one, so
+/// the field carries no currency suffix; `0` leaves settlement to the daily
+/// run.
+class _SpendingQuotaCard extends StatelessWidget {
+  const _SpendingQuotaCard({
+    required this.controller,
+    required this.canSave,
+    required this.onSave,
+  });
+
+  final TextEditingController controller;
+  final bool canSave;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          spacing: 12,
+          children: [
+            Text('Spending quota', style: theme.textTheme.titleSmall),
+            Text(
+              'Charge the wallet once unpaid usage reaches this amount. '
+              '0 settles only in the daily run.',
+              style: theme.textTheme.bodySmall,
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) {
+                      if (canSave) onSave();
+                    },
+                    decoration: const InputDecoration(hintText: '0'),
+                  ),
+                ),
+                const Gap(8),
+                FilledButton(
+                  onPressed: canSave ? onSave : null,
+                  child: const Text('Save quota'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// What the account spent this hour and today, per currency, against the
+/// configured interval limit when there is one.
+class _MeteredUsageCard extends StatelessWidget {
+  const _MeteredUsageCard({required this.usage});
+
+  final SnPersonalityBillingUsage usage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final empty = usage.hourlyUsage.isEmpty && usage.dailyUsage.isEmpty;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          spacing: 12,
+          children: [
+            Text('Metered usage', style: theme.textTheme.titleSmall),
+            if (empty)
+              Text(
+                'Nothing metered this hour or today.',
+                style: theme.textTheme.bodySmall,
+              )
+            else ...[
+              _UsageInterval(label: 'This hour', usage: usage.hourlyUsage),
+              _UsageInterval(label: 'Today', usage: usage.dailyUsage),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One interval's rows: a currency, what it has consumed, and a bar for how
+/// far along a limit it is. An interval with no metered currency says so
+/// rather than vanishing, so the hour and the day stay comparable.
+class _UsageInterval extends StatelessWidget {
+  const _UsageInterval({required this.label, required this.usage});
+
+  final String label;
+  final Map<String, SnPersonalityRunUsage> usage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final rows = usage.entries.toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 10,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        if (rows.isEmpty)
+          Text('Nothing metered.', style: theme.textTheme.bodySmall)
+        else
+          for (final row in rows)
+            _UsageRow(label: _localizeCurrency(row.key), usage: row.value),
+      ],
+    );
+  }
+}
+
+class _UsageRow extends StatelessWidget {
+  const _UsageRow({required this.label, required this.usage});
+
+  final String label;
+  final SnPersonalityRunUsage usage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final max = usage.max == null ? null : double.tryParse(usage.max!.trim());
+    final used = double.tryParse(usage.used.trim()) ?? 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 6,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
+            Text(
+              max == null
+                  ? '${_formatAmount(usage.used)} used'
+                  : '${_formatAmount(usage.used)} / ${_formatAmount(usage.max!)}',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        if (max != null && max > 0)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: (used / max).clamp(0.0, 1.0),
+              minHeight: 5,
+              backgroundColor: theme.colorScheme.surfaceContainerHigh,
+            ),
+          ),
+      ],
+    );
   }
 }
 
