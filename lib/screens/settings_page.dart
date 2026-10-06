@@ -16,6 +16,7 @@ import 'package:persynth/plugins/mcp_servers_section.dart';
 import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_registry.dart';
 import 'package:persynth/screens/ai_console_tabs.dart';
+import 'package:persynth/shared/app_update.dart';
 
 /// The width the settings content is held to, matching the conversation's
 /// reading column so a wide window shows the same measure everywhere.
@@ -256,6 +257,9 @@ class _GeneralSettingsTab extends HookConsumerWidget {
         _SectionHeader('plugins'.tr()),
         const _PluginsSection(),
         const SizedBox(height: 20),
+        _SectionHeader('updates'.tr()),
+        const _UpdatesSection(),
+        const SizedBox(height: 20),
         // The servers the companions' server-backed plugins point at sit below
         // the switches rather than above them: the switches are what the user
         // works with daily, and a list that only grows when a server is
@@ -481,6 +485,67 @@ class _LanguageSection extends HookConsumerWidget {
   static Locale _localeFromTag(String tag) {
     final [language, country] = tag.split('-');
     return Locale(language, country);
+  }
+}
+
+/// The app's own release: the build that is installed, and where to ask for a
+/// newer one.
+///
+/// The check is Solsynth Express's, the same distribution the release workflow
+/// publishes to. Asking on launch is a request the user did not make, so it is
+/// a preference; the row under it asks whenever the user wants, whatever the
+/// preference says.
+class _UpdatesSection extends ConsumerWidget {
+  const _UpdatesSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final checksOnLaunch = ref.watch(updateChecksEnabledProvider);
+    final installed = ref.watch(packageInfoProvider).value;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Column(
+        children: [
+          SwitchListTile(
+            value: checksOnLaunch,
+            onChanged: (value) => ref
+                .read(updateChecksEnabledProvider.notifier)
+                .setEnabled(value),
+            title: Text('updateChecksOnLaunch'.tr()),
+            subtitle: Text(
+              'updateChecksOnLaunchDescription'.tr(),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Symbols.cloud_download),
+            title: Text('checkForUpdates'.tr()),
+            // Named from what the platform reports, so the version beside the
+            // row is the one the check compared against the release.
+            subtitle: installed == null
+                ? null
+                : Text(
+                    'installedVersion'.tr(
+                      namedArgs: {
+                        'version': '${installed.version}+${installed.buildNumber}',
+                      },
+                    ),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+            trailing: const Icon(Symbols.chevron_right),
+            onTap: () =>
+                ref.read(updateServiceProvider).checkForUpdates(context),
+          ),
+        ],
+      ),
+    );
   }
 }
 

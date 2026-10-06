@@ -41,7 +41,9 @@ jobs:
             sleep 10
           done
       - run: dart run build_runner build --delete-conflicting-outputs
-      - run: flutter build windows --release
+      # The same product the upload job publishes to is the one the built app
+      # checks for updates against; see docs/RELEASING.md.
+      - run: flutter build windows --release --dart-define=DISTRIBUTION_API_BASE_URL="${{ vars.DISTRIBUTION_API_BASE_URL }}" --dart-define=DISTRIBUTION_PRODUCT_ID="${{ vars.DISTRIBUTION_PRODUCT_ID }}"
       - name: Extract Version
         id: extract_version
         run: |
@@ -101,7 +103,7 @@ jobs:
       - run: dart run build_runner build --delete-conflicting-outputs
       # Left off here like in the sibling repositories, which do not rely on
       # the icon tree shaker for Linux desktop builds.
-      - run: flutter build linux --release --no-tree-shake-icons
+      - run: flutter build linux --release --no-tree-shake-icons --dart-define=DISTRIBUTION_API_BASE_URL="${{ vars.DISTRIBUTION_API_BASE_URL }}" --dart-define=DISTRIBUTION_PRODUCT_ID="${{ vars.DISTRIBUTION_PRODUCT_ID }}"
       - name: Archive production artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -174,7 +176,7 @@ jobs:
             sleep 10
           done
       - run: dart run build_runner build --delete-conflicting-outputs
-      - run: flutter build apk --release --split-per-abi
+      - run: flutter build apk --release --split-per-abi --dart-define=DISTRIBUTION_API_BASE_URL="${{ vars.DISTRIBUTION_API_BASE_URL }}" --dart-define=DISTRIBUTION_PRODUCT_ID="${{ vars.DISTRIBUTION_PRODUCT_ID }}"
       - name: Archive Android artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -182,7 +184,9 @@ jobs:
           path: build/app/outputs/flutter-apk/app-*-release.apk
 
   # Configure repository variables DISTRIBUTION_API_BASE_URL and
-  # DISTRIBUTION_PRODUCT_ID, plus secret DISTRIBUTION_UPLOAD_KEY.
+  # DISTRIBUTION_PRODUCT_ID, plus secret DISTRIBUTION_UPLOAD_KEY. The build
+  # jobs above bake the same two variables into the binaries, so a published
+  # release carries the address of the distribution it came from.
   upload-to-distribution:
     needs: [build-windows, build-linux, build-android]
     if: always()

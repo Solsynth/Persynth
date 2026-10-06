@@ -41,10 +41,33 @@ version, so it fails before uploading while the repository has no tags.
 macOS and iOS build from a local Xcode/Flutter run; their icons come from the
 `ios/AppIcon.icon` bundle, which CI does not need.
 
+## In-app updates
+
+The app asks Solsynth Express whether a newer release exists — on launch, unless
+the user has switched that off in settings, and whenever the user asks in the
+same section. `lib/shared/app_update.dart` holds the only code that reaches for
+the client, and the sheet comes from `solsynth_express`.
+
+A build made without the two variables above checks nothing: the product id is
+empty, so the client is unconfigured and asks no product at all, rather than
+falling back to the product the package defaults to. To exercise the check from
+a local build, hand it the product explicitly:
+
+```bash
+flutter run \
+  --dart-define=DISTRIBUTION_API_BASE_URL=https://api.solian.app/dist \
+  --dart-define=DISTRIBUTION_PRODUCT_ID=<Persynth's product id>
+```
+
+Android installs a downloaded APK itself, which needs the
+`REQUEST_INSTALL_PACKAGES` permission and the `FileProvider` in
+`android/app/src/main/AndroidManifest.xml`; both are in the manifest, and the
+provider's authority is the one the update plugin defaults to.
+
 ## Dependencies
 
 The Socommon packages (`island_ui_foundation`, `island_plugin_foundation`,
-`solar_network_foundation`) are git dependencies of
+`solar_network_foundation`, `solsynth_express`) are git dependencies of
 `https://src.solsynth.dev/SoSYS/Socommon.git`, each pinned to one `ref`. Keep the
 pins on the same revision: pub identifies a git dependency by url + path + ref,
 and the packages depend on each other by path inside that checkout, so a
@@ -67,6 +90,12 @@ Settings → Secrets and variables → Actions.
 | --- | --- |
 | `DISTRIBUTION_API_BASE_URL` | Solsynth Express API base, including the `/api` prefix |
 | `DISTRIBUTION_PRODUCT_ID` | Persynth's product id in Solsynth Express |
+
+Both are read twice: the upload job publishes the artifacts with them, and each
+build job passes them to `flutter build` as
+`--dart-define=DISTRIBUTION_API_BASE_URL` / `--dart-define=DISTRIBUTION_PRODUCT_ID`.
+That is what lets the built app check the same product it was published to; see
+[In-app updates](#in-app-updates).
 
 ### Secrets
 

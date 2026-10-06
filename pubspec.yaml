@@ -55,10 +55,10 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/island_ui_foundation
-      # All three Socommon packages carry the same ref: pub identifies a git
+      # Every Socommon package carries the same ref: pub identifies a git
       # dependency by url + path + ref, and the packages depend on each other by
       # path inside that checkout, so a floating HEAD resolves one package from
-      # two sources and version solving fails. Bump all three together.
+      # two sources and version solving fails. Bump them together.
       ref: 921abce3e2a58d3168f4c486b7c50e48311331cc
   # The JS plugin runtime: a user's script plugin lives in its own sandbox and
   # contributes its tools to the companion through the API in lib/plugins.
@@ -72,6 +72,14 @@ dependencies:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_foundation
       ref: 921abce3e2a58d3168f4c486b7c50e48311331cc
+  # The release side of Solsynth Express: the client that asks whether a newer
+  # build exists, and the sheet that offers it. lib/shared/app_update.dart is
+  # the only place the app reaches for it.
+  solsynth_express:
+    git:
+      url: https://src.solsynth.dev/SoSYS/Socommon.git
+      path: packages/solsynth_express
+      ref: 921abce3e2a58d3168f4c486b7c50e48311331cc
   hooks_riverpod: ^3.4.3
   window_manager:
     git:
@@ -81,6 +89,9 @@ dependencies:
   file_picker: ^13.1.0
   http_parser: ^4.1.2
   mcp_client: ^2.2.1
+  # Read by the settings row that names the installed build beside the check
+  # for a newer one; the update service reads its own copy of the same values.
+  package_info_plus: ^10.2.1
   super_context_menu: ^0.9.1
   easy_localization: ^3.0.8
 
@@ -209,3 +220,8 @@ dependency_overrides:
   # super_native_extensions reads from device_info_plus is the platform info of
   # the device it runs on, so the newer major is safe to force.
   device_info_plus: ^13.0.0
+  # solsynth_express at the pinned Socommon ref caps package_info_plus below
+  # 10, which pins win32 below 6 the same way; file_picker needs win32 6. What
+  # the update service and the settings row read — fromPlatform, version,
+  # buildNumber — is unchanged across the two majors.
+  package_info_plus: ^10.2.1

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the update provider is allowed to hand out: the APK the download
+     manager writes under the app's external files directory. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-path
+        name="external_files"
+        path="." />
+</paths>

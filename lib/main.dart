@@ -15,6 +15,7 @@ import 'package:persynth/plugins/plugin.dart';
 import 'package:persynth/plugins/plugin_host.dart';
 import 'package:persynth/plugins/script_tools_api.dart';
 import 'package:persynth/router.dart';
+import 'package:persynth/shared/app_update.dart';
 import 'package:persynth/shared/desktop_window_service.dart';
 import 'package:persynth/theme/app_theme.dart';
 
@@ -164,20 +165,25 @@ class MyApp extends StatelessWidget {
           fontFamily: PersynthFonts.sans,
         );
 
-        return mui.Theme(
-          data: chromeTheme,
-          child: DesktopWindowFrame(
-            isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
-            title: Text(
-              isPetWindow ? 'appNameMochi'.tr() : 'appNamePersynth'.tr(),
-              style: TextStyle(
-                fontFamily: PersynthFonts.sans,
-                fontSize: 11,
-                letterSpacing: 1.1,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+        // The launch update check rides with the main window's frame. The pet
+        // window is a second engine of the same app, and one check per launch
+        // is what the preference in settings promises.
+        return UpdateCheckOnLaunch(
+          child: mui.Theme(
+            data: chromeTheme,
+            child: DesktopWindowFrame(
+              isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
+              title: Text(
+                isPetWindow ? 'appNameMochi'.tr() : 'appNamePersynth'.tr(),
+                style: TextStyle(
+                  fontFamily: PersynthFonts.sans,
+                  fontSize: 11,
+                  letterSpacing: 1.1,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
+              child: content,
             ),
-            child: content,
           ),
         );
       },
