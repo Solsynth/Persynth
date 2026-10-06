@@ -19,12 +19,13 @@ version, so it fails before uploading while the repository has no tags.
 2. Commit, then push a tag:
 
    ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
+   git tag 1.0.0+4
+   git push origin 1.0.0+4
    ```
 
-   The tag name is the version recorded in the distribution; the `pubspec.yaml`
-   version is what the built binaries report.
+   The tag name is the version recorded in the distribution, and the update
+   check compares an installed build against it, so it has to be the same
+   string `pubspec.yaml` reports — `<semver>+<build number>`, no `v` prefix.
 3. Wait for the four jobs (`build-windows`, `build-linux`, `build-android`,
    `upload-to-distribution`). Artifacts also stay downloadable from the run.
 4. Review the draft release in the Solsynth Express console and publish it.
