@@ -39,8 +39,51 @@ version, so it fails before uploading while the repository has no tags.
 | Linux | `Persynth-x86_64.AppImage` (from `buildtools/build-appimage.sh`) |
 | Android | `app-arm64-v8a-release.apk`, `app-armeabi-v7a-release.apk`, `app-x86_64-release.apk` |
 
-macOS and iOS build from a local Xcode/Flutter run; their icons come from the
-`ios/AppIcon.icon` bundle, which CI does not need.
+macOS and iOS are archived by Xcode Cloud, not by `build.yml`; their icons come
+from the `ios/AppIcon.icon` bundle, which CI does not need.
+
+## Xcode Cloud
+
+Each platform has a workflow that archives its workspace — `ios/Runner.xcworkspace`,
+`macos/Runner.xcworkspace` — with the archive action on the default environment.
+The `Runner` schemes are shared in both projects, which is what Xcode Cloud picks
+up. Signing, the App Store Connect product records and the bundle identifiers are
+configured there and in Xcode, not in this repository.
+
+The post-clone hooks below run first and prepare the checkout:
+
+| Script | Prepares |
+| --- | --- |
+| `ios/ci_scripts/ci_post_clone.sh` | stable Flutter, Rust, CocoaPods, iOS pods |
+| `macos/ci_scripts/ci_post_clone.sh` | stable Flutter, Rust, CocoaPods, macOS pods |
+
+Both follow the same order: clone stable Flutter into `$HOME/flutter`,
+`flutter pub get` (with the retry `analyze.yml` and `build.yml` use for the
+Socommon git dependencies), install Rust, install CocoaPods,
+`pod install --repo-update`, and finally `flutter build <platform> --config-only`.
+That last step writes the `xcconfig` files and `Flutter.podspec` the archive's
+build phase reads, so Xcode compiles the app once instead of twice.
+
+Both hooks forward `DISTRIBUTION_API_BASE_URL` and `DISTRIBUTION_PRODUCT_ID` from
+the workflow's environment variables, matching the `--dart-define`s `build.yml`
+passes. **Set both in each workflow's Environment section**: `kDistributionProductId`
+has no default, so an archive without them ships with update checks silently
+disabled (see [In-app updates](#in-app-updates)).
+
+Rust is required. `super_context_menu` depends on `super_native_extensions`, whose
+crate cargokit compiles from the plugin's CocoaPods script phase while Xcode
+builds the target — the pod carries the Rust source, not the library. cargokit
+prefers prebuilt binaries from the crate's GitHub releases and falls back to a
+source build; that fallback finds `rustup` in `$HOME/.cargo/bin` before `PATH` and
+installs the target it needs itself, so the hooks install Rust and add
+`aarch64-apple-ios`, `aarch64-apple-ios-sim`, `x86_64-apple-ios` (iOS) or both
+`apple-darwin` targets (macOS) up front, keeping the archive from reaching for
+rustup.rs or GitHub mid-build. The crate ships no `rust-toolchain.toml`, which is
+why the targets go on rustup's default `stable` toolchain.
+
+Both hooks track the stable channel, like the other workflows, and are meant for
+a disposable Xcode Cloud machine: they clone a Flutter SDK into `$HOME/flutter`
+and install CocoaPods, so a developer's checkout keeps using its own toolchain.
 
 ## In-app updates
 
