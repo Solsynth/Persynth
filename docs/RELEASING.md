@@ -165,10 +165,27 @@ falls back to the debug keys so development builds keep working.
 
 ## Android toolchain
 
-`android/settings.gradle.kts` pins AGP `9.0.1` and
-`android/gradle/wrapper/gradle-wrapper.properties` pins Gradle `9.1.0`;
-`android/app/build.gradle.kts` compiles against SDK `37`, which Gradle
-downloads on demand. The plugin set has no `jcenter()` or
-`getDefaultProguardFile('proguard-android.txt')` call left, so it configures on
-the Gradle 9 line - unlike the sibling repositories, which still pin AGP
-`8.12.1` / Gradle `8.14` for plugins that do.
+`android/settings.gradle.kts` pins AGP `8.12.1` and
+`android/gradle/wrapper/gradle-wrapper.properties` pins Gradle `8.14`, the pair
+the sibling repositories use; `android/app/build.gradle.kts` compiles against
+SDK `37`, which Gradle downloads on demand.
+
+The Gradle 9 line stays off the table until the Rust plugins leave cargokit
+behind: `irondash_engine_context` and `super_native_extensions` each apply their
+own copy of cargokit's `gradle/plugin.gradle`, which calls `Project.exec` -
+removed in Gradle 9 - so `:irondash_engine_context:cargokitCargoBuild…` fails on
+builds that use it (`Could not find method exec()`,
+superlistapp/super_native_extensions#565, still open on the 0.9.1/0.5.5
+releases). Gradle `8.14` also has to run on a JDK no newer than 24 (the CI job
+sets up Temurin 17); a local `flutter build apk` against a newer JDK fails
+before Gradle starts and needs `flutter config --jdk-dir=<jdk 17-24>`.
+
+## Windows build
+
+`build-windows` moves `PUB_CACHE` to `D:\pub-cache`. `Get-Item` without `-Force`
+throws `ObjectNotFound` on hidden path segments, and cargokit's
+`cargokit/cmake/resolve_symlinks.ps1` walks the plugin path segment by segment
+to resolve the symlinks `flutter pub get` leaves in
+`windows/flutter/ephemeral/.plugin_symlinks`, so the default cache under
+`C:\Users\<user>\AppData` breaks it (irondash/cargokit#119, unmerged as of
+super_native_extensions `0.9.1`).

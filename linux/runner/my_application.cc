@@ -5,6 +5,7 @@
 #include <gdk/gdkx.h>
 #endif
 
+#include "flutter/generated_plugin_registrant.h"
 #include "desktop_multi_window/desktop_multi_window_plugin.h"
 
 struct _MyApplication {

@@ -21,6 +21,12 @@ jobs:
   build-windows:
     if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows'
     runs-on: windows-latest
+    # The default pub cache lives under C:\Users\runneradmin\AppData, and
+    # Get-Item without -Force throws ObjectNotFound on those hidden segments
+    # while cargokit walks the plugin symlinks (irondash/cargokit#119). Keep the
+    # cache on a path without hidden segments.
+    env:
+      PUB_CACHE: D:\pub-cache
     steps:
       - name: Clone repository
         uses: actions/checkout@v4

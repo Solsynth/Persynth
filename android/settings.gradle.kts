@@ -19,7 +19,11 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    id("com.android.application") version "9.0.1" apply false
+    // Gradle 9 removed Project.exec, which the Gradle script cargokit ships
+    // (irondash_engine_context and super_native_extensions both embed a copy)
+    // still calls. Android builds therefore stay on the Gradle 8 toolchain the
+    // sibling applications use, until those plugins move off cargokit.
+    id("com.android.application") version "8.12.1" apply false
     id("org.jetbrains.kotlin.android") version "2.3.20" apply false
 }
 
