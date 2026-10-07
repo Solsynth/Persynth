@@ -44,10 +44,11 @@ from the `ios/AppIcon.icon` bundle, which CI does not need.
 
 ## Xcode Cloud
 
-Each platform has a workflow that archives its workspace — `ios/Persynth.xcworkspace`,
-`macos/Persynth.xcworkspace` — with the archive action on the default environment.
+Each platform has a workflow that archives its workspace — `ios/Runner.xcworkspace`,
+`macos/Runner.xcworkspace` — with the archive action on the default environment.
 The `Runner` schemes are shared in both projects, which is what Xcode Cloud picks
-up. Signing, the App Store Connect product records and the bundle identifiers are
+up. The workspace and scheme keep Flutter's `Runner` name because Xcode Cloud
+stores the container path server-side. Signing, the App Store Connect product records and the bundle identifiers are
 configured there and in Xcode, not in this repository.
 
 The post-clone hooks below run first and prepare the checkout:
