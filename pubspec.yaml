@@ -34,6 +34,13 @@ dependencies:
   desktop_multi_window: ^0.3.1
   dio: ^5.11.1
   flutter_hooks: ^0.21.3+1
+  # The reply renderer: lib/widgets/message_markdown.dart draws the assistant's
+  # markdown itself so the app's own faces and tones set it (the shared
+  # SolarMarkdownContent picks `monospace` off the platform and sizes it a
+  # seventh below the body). `markdown` is imported for the `pre` element the
+  # code block reads its language off.
+  flutter_markdown_plus: ^1.0.12
+  markdown: ^7.3.1
   # Imported by lib/main.dart to retire the web splash; see the
   # flutter_native_splash section at the bottom of this file.
   flutter_native_splash: ^2.4.8

@@ -1457,6 +1457,35 @@ void main() {
     expect(find.text('Second thread'), findsOneWidget);
   });
 
+  testWidgets('keeps the new-group tile above a full page of threads', (
+    tester,
+  ) async {
+    final api = _FakePersonalityApi(
+      conversations: [
+        for (var i = 0; i < 40; i++)
+          SnPersonalityConversation(
+            id: 'c$i',
+            agentId: 'a1',
+            title: 'Thread $i',
+            lastMessageAt: DateTime(2026, 1, 2),
+          ),
+      ],
+    );
+    await _pumpConversationPage(tester, api);
+
+    // The create action leads the list, so a full page of threads never has to
+    // be scrolled past to reach it — the tap lands on it where it stands.
+    final newGroup = find.text('New group');
+    expect(newGroup, findsOneWidget);
+    expect(
+      tester.getTopLeft(newGroup).dy,
+      lessThan(tester.getTopLeft(find.text('Thread 0')).dy),
+    );
+    await tester.tap(newGroup);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+  });
+
   testWidgets('creates a group tile and moves a conversation into it', (
     tester,
   ) async {

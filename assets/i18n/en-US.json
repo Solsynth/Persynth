@@ -117,6 +117,7 @@
   "hideForNow": "Hide for now",
   "homeServerHint": "Home server",
   "hoursAgo": "{count}h ago",
+  "imageUnavailable": "Image didn't load",
   "import": "Import",
   "insight": "Insight",
   "installUpdate": "Install update",

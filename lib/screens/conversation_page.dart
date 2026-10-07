@@ -803,6 +803,11 @@ class _UserBubble extends ConsumerWidget {
 }
 
 /// Assistant reply, on the chat room's remote-message surface.
+///
+/// The bubble is a reading measure, not a container: at 600 the prose inside it
+/// runs to about seventy characters a line, which is as wide as a reply can be
+/// read without losing the line you were on. Code and tables have the sideways
+/// scroll the markdown gives them, so nothing here needs to be wider.
 class _AssistantBubble extends StatelessWidget {
   const _AssistantBubble({required this.bubble});
 
@@ -816,14 +821,16 @@ class _AssistantBubble extends StatelessWidget {
       child: Align(
         alignment: Alignment.centerLeft,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
+          constraints: const BoxConstraints(maxWidth: 600),
           child: Material(
             color: scheme.surfaceContainer,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              // A reply is a document: a wider inset than the one a sent message
+              // gets, so its first and last lines have room off the bubble's edge.
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,

@@ -117,6 +117,7 @@
   "hideForNow": "暂时隐藏",
   "homeServerHint": "例如：主服务器",
   "hoursAgo": "{count} 小时前",
+  "imageUnavailable": "图片未能加载",
   "import": "导入",
   "insight": "洞察",
   "installUpdate": "安装更新",
