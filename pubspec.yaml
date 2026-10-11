@@ -65,19 +65,29 @@ dependencies:
       # dependency by url + path + ref, and the packages depend on each other by
       # path inside that checkout, so a floating HEAD resolves one package from
       # two sources and version solving fails. Bump them together.
-      ref: 921abce3e2a58d3168f4c486b7c50e48311331cc
+      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
   # The JS plugin runtime: a user's script plugin lives in its own sandbox and
   # contributes its tools to the companion through the API in lib/plugins.
   island_plugin_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/island_plugin_foundation
-      ref: 921abce3e2a58d3168f4c486b7c50e48311331cc
+      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
   solar_network_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_foundation
-      ref: 921abce3e2a58d3168f4c486b7c50e48311331cc
+      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+  # The step-up elevation area of the foundation package hands the host a
+  # `SolarNetworkClient` to talk Stargate with, and the app builds that one over
+  # the Dio it already authenticates with (lib/auth/auth_wiring.dart) rather
+  # than a client of its own. The SDK is where the type lives, so it is named
+  # here instead of reached for through the foundation package.
+  solar_network_sdk:
+    git:
+      url: https://src.solsynth.dev/SoSYS/Socommon.git
+      path: packages/solar_network_sdk
+      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
   # The release side of Solsynth Express: the client that asks whether a newer
   # build exists, and the sheet that offers it. lib/shared/app_update.dart is
   # the only place the app reaches for it.
@@ -85,7 +95,7 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solsynth_express
-      ref: 921abce3e2a58d3168f4c486b7c50e48311331cc
+      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
   hooks_riverpod: ^3.4.3
   window_manager:
     git:

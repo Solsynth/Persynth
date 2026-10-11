@@ -5,8 +5,10 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_multi_window
   desktop_webview_window
+  file_saver
   flutter_js
   flutter_secure_storage_windows
+  gal
   irondash_engine_context
   screen_retriever_windows
   speech_to_text_windows

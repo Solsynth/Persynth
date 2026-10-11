@@ -9,6 +9,7 @@ import 'package:material_ui/material_ui.dart' as mui;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'package:persynth/auth/auth_wiring.dart';
 import 'package:persynth/personality/personality_network.dart';
 import 'package:persynth/plugins/mcp_servers.dart';
 import 'package:persynth/plugins/plugin.dart';
@@ -20,6 +21,7 @@ import 'package:persynth/shared/desktop_window_service.dart';
 import 'package:persynth/theme/app_theme.dart';
 
 import 'package:easy_localization/easy_localization.dart';
+
 Future<void> main(List<String> args) async {
   // The binding has to exist before anything reaches for a platform channel,
   // and the localization plugin reaches for one on its way in — it reads the
@@ -74,6 +76,9 @@ Future<void> main(List<String> args) async {
     overrides: [
       sharedPreferencesProvider.overrideWithValue(preferences),
       scriptToolsApiProvider.overrideWithValue(scriptTools),
+      // The shared step-up elevation flow, bound to this app's authenticated
+      // client and to the surface a failure is shown on.
+      ...authHostOverrides(),
     ],
   );
   // The catalogues of the user's MCP servers come from a request, so they are
@@ -106,6 +111,13 @@ Future<void> main(List<String> args) async {
   }
 }
 
+/// The overlay every island surface is inserted into: the sheets and the
+/// snackbars `island_ui_foundation` draws reach it through a static it is
+/// configured with, so a snackbar raised outside a widget tree — the shared
+/// elevation flow's own confirmation, this app's error reporter — still lands
+/// on screen. Solian and SolWatt configure the same key the same way.
+final globalOverlay = GlobalKey<OverlayState>();
+
 class MyApp extends StatelessWidget {
   MyApp({
     super.key,
@@ -122,6 +134,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    IslandUIFoundation.configureOverlay(globalOverlay);
+
     return MaterialApp.router(
       title: isPetWindow ? 'appNameMochi'.tr() : 'appNamePersynth'.tr(),
       theme: buildPersynthTheme(Brightness.light),
@@ -137,6 +151,18 @@ class MyApp extends StatelessWidget {
         if (overrideMediaQuery != null) {
           content = MediaQuery(data: overrideMediaQuery, child: content);
         }
+        // The pages live inside this overlay, so an island snackbar inserted
+        // into it covers the page it was raised from. It sits under the window
+        // frame, which is why a confirmation does not paint over the titlebar.
+        // `Overlay` reads `initialEntries` once, so the entry closes over the
+        // pages themselves rather than over the variable the overlay is
+        // assigned to; the navigator's own subtree rebuilds the usual way,
+        // through the widgets it inherits.
+        final pages = content;
+        content = Overlay(
+          key: globalOverlay,
+          initialEntries: [OverlayEntry(builder: (_) => pages)],
+        );
         if (!useDesktopFrame) return content;
 
         // The pet window draws itself as a floating island, so it needs no

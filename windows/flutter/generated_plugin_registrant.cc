@@ -8,8 +8,10 @@
 
 #include <desktop_multi_window/desktop_multi_window_plugin.h>
 #include <desktop_webview_window/desktop_webview_window_plugin.h>
+#include <file_saver/file_saver_plugin.h>
 #include <flutter_js/flutter_js_plugin.h>
 #include <flutter_secure_storage_windows/flutter_secure_storage_windows_plugin.h>
+#include <gal/gal_plugin_c_api.h>
 #include <irondash_engine_context/irondash_engine_context_plugin_c_api.h>
 #include <screen_retriever_windows/screen_retriever_windows_plugin_c_api.h>
 #include <speech_to_text_windows/speech_to_text_windows.h>
@@ -23,10 +25,14 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("DesktopMultiWindowPlugin"));
   DesktopWebviewWindowPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("DesktopWebviewWindowPlugin"));
+  FileSaverPluginRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FileSaverPlugin"));
   FlutterJsPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FlutterJsPlugin"));
   FlutterSecureStorageWindowsPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FlutterSecureStorageWindowsPlugin"));
+  GalPluginCApiRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("GalPluginCApi"));
   IrondashEngineContextPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("IrondashEngineContextPluginCApi"));
   ScreenRetrieverWindowsPluginCApiRegisterWithRegistrar(
