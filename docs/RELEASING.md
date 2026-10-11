@@ -86,6 +86,25 @@ Both hooks track the stable channel, like the other workflows, and are meant for
 a disposable Xcode Cloud machine: they clone a Flutter SDK into `$HOME/flutter`
 and install CocoaPods, so a developer's checkout keeps using its own toolchain.
 
+## Purpose strings
+
+App Store validation scans the archived binary, not the Dart call sites, and
+rejects the upload with `ITMS-90683` when a referenced API has no purpose string
+in the bundle's `Info.plist`. A plugin whose sources are shared between the two
+Apple platforms is compiled into both, even where the app only calls it on one,
+so both plists declare the keys:
+
+| Referenced API | Compiling plugin | Keys in both plists |
+| --- | --- | --- |
+| Photos | `gal`, reached through `solar_network_foundation`'s drive Save to Gallery (album save, iOS-only at runtime) | `NSPhotoLibraryUsageDescription`, `NSPhotoLibraryAddUsageDescription` |
+| Microphone, speech recognition | `speech_to_text`, whose voice input is iOS and Android only | `NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription` |
+
+A Socommon bump can pull a new plugin in underneath the app and reintroduce the
+rejection — `gal` arrived with the `solar_network_foundation` ref this document
+pins. After one, compare `otool -L` on a fresh `flutter build macos` (the Debug
+bundle puts the app's code in `Contents/MacOS/Persynth.debug.dylib`) or iOS build
+against that table.
+
 ## In-app updates
 
 The app asks Solsynth Express whether a newer release exists — on launch, unless

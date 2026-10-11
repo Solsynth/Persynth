@@ -39,6 +39,14 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- The drive's Save to Gallery hands the downloaded file to the bundled
+	     gal plugin with an album name, so it asks for read-write photo access
+	     to find or create that album. The plugin also carries the add-only
+	     path, so both keys are declared. -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Synth Pet adds the images and videos you save from your Solsynth drive to your photo library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Synth Pet keeps the images and videos you save from your Solsynth drive in a Solar Network album, which needs your photo library to find or create that album.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Synth Pet uses the microphone when you ask Mochi by voice.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

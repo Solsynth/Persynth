@@ -35,6 +35,14 @@
 			</array>
 		</dict>
 	</array>
+	<!-- The bundled Solsynth drive plugin (gal) compiles its Photos-backed
+	     gallery code into the macOS binary, which is what App Store validation
+	     reads, so the keys are required here even though the drive's Save to
+	     Gallery only runs that path on iOS (macOS writes to a folder). -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Synth Pet adds the images and videos you save from your Solsynth drive to your photo library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Synth Pet keeps the images and videos you save from your Solsynth drive in a Solar Network album, which needs your photo library to find or create that album.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Synth Pet uses the microphone when you ask Mochi by voice.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
