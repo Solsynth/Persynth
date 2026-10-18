@@ -434,8 +434,8 @@ packages:
     dependency: transitive
     description:
       path: "packages/flutter_app_update"
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
-      resolved-ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
+      resolved-ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
       url: "https://src.solsynth.dev/SoSYS/Socommon.git"
     source: git
     version: "3.2.4"
@@ -778,8 +778,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/island_plugin_foundation"
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
-      resolved-ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
+      resolved-ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
       url: "https://src.solsynth.dev/SoSYS/Socommon.git"
     source: git
     version: "1.0.0"
@@ -787,8 +787,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/island_ui_foundation"
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
-      resolved-ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
+      resolved-ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
       url: "https://src.solsynth.dev/SoSYS/Socommon.git"
     source: git
     version: "1.0.0"
@@ -1337,8 +1337,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/solar_network_foundation"
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
-      resolved-ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
+      resolved-ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
       url: "https://src.solsynth.dev/SoSYS/Socommon.git"
     source: git
     version: "0.1.0"
@@ -1346,8 +1346,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/solar_network_sdk"
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
-      resolved-ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
+      resolved-ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
       url: "https://src.solsynth.dev/SoSYS/Socommon.git"
     source: git
     version: "1.0.0"
@@ -1355,8 +1355,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/solsynth_express"
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
-      resolved-ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
+      resolved-ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
       url: "https://src.solsynth.dev/SoSYS/Socommon.git"
     source: git
     version: "0.1.0"

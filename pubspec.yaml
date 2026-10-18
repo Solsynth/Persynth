@@ -65,19 +65,19 @@ dependencies:
       # dependency by url + path + ref, and the packages depend on each other by
       # path inside that checkout, so a floating HEAD resolves one package from
       # two sources and version solving fails. Bump them together.
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
   # The JS plugin runtime: a user's script plugin lives in its own sandbox and
   # contributes its tools to the companion through the API in lib/plugins.
   island_plugin_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/island_plugin_foundation
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
   solar_network_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_foundation
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
   # The step-up elevation area of the foundation package hands the host a
   # `SolarNetworkClient` to talk Stargate with, and the app builds that one over
   # the Dio it already authenticates with (lib/auth/auth_wiring.dart) rather
@@ -87,7 +87,7 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_sdk
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
   # The release side of Solsynth Express: the client that asks whether a newer
   # build exists, and the sheet that offers it. lib/shared/app_update.dart is
   # the only place the app reaches for it.
@@ -95,7 +95,7 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solsynth_express
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
   hooks_riverpod: ^3.4.3
   window_manager:
     git:
@@ -236,8 +236,3 @@ dependency_overrides:
   # super_native_extensions reads from device_info_plus is the platform info of
   # the device it runs on, so the newer major is safe to force.
   device_info_plus: ^13.0.0
-  # solsynth_express at the pinned Socommon ref caps package_info_plus below
-  # 10, which pins win32 below 6 the same way; file_picker needs win32 6. What
-  # the update service and the settings row read — fromPlatform, version,
-  # buildNumber — is unchanged across the two majors.
-  package_info_plus: ^10.2.1

@@ -19,7 +19,9 @@ UninstallDisplayName=Persynth
 UninstallDisplayIcon={app}\persynth.exe
 
 DefaultDirName={commonpf}\Persynth
-UsePreviousAppDir=no
+; Reuse the directory of an existing installation so an unattended update
+; (/SILENT) replaces the same files the running build came from.
+UsePreviousAppDir=yes
 
 OutputDir=.\Installer
 OutputBaseFilename=windows-x86_64-setup
@@ -46,6 +48,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Run]
 Filename: "{app}\persynth.exe"; Description: "Launch Persynth"; Flags: nowait postinstall skipifsilent
+; The updater runs this installer with /SILENT, and Setup closes the running
+; Persynth through the Restart Manager before replacing its files. Nothing is
+; left on screen afterwards and RestartApplications cannot bring it back
+; (Flutter's Windows runner never calls RegisterApplicationRestart), so relaunch
+; the installed build with the original, non-elevated user token.
+Filename: "{app}\persynth.exe"; Flags: nowait runasoriginaluser skipifnotsilent
 
 ; Stop the app before removing files locked by Flutter/the embedded browser.
 [UninstallRun]
