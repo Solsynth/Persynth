@@ -310,5 +310,16 @@
   "whicheverEngineFirst": "whichever engine answers first",
   "window24h": "24 hours",
   "window30d": "30 days",
-  "window7d": "7 days"
+  "window7d": "7 days",
+  "updateInstalledVersion": "Installed",
+  "updateChannelLabel": "{} channel",
+  "updateDownloadSize": "{} download",
+  "updateDownloadingInstaller": "Downloading installer…",
+  "updateExtractingInstaller": "Extracting installer…",
+  "updateInstallingAppImage": "Installing AppImage…",
+  "updateInstalling": "Installing update",
+  "updateComplete": "Update complete",
+  "updateFailed": "Update failed",
+  "updateFailedHint": "The update could not be installed. Try again, or download the latest release from the release page.",
+  "ok": "OK"
 }
