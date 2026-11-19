@@ -65,19 +65,19 @@ dependencies:
       # dependency by url + path + ref, and the packages depend on each other by
       # path inside that checkout, so a floating HEAD resolves one package from
       # two sources and version solving fails. Bump them together.
-      ref: eb98d3a3f230214fc339471e28e7f573cf2a0c4c
+      ref: 8316e8583bcba2c73965560cb91f92d8c768485c
   # The JS plugin runtime: a user's script plugin lives in its own sandbox and
   # contributes its tools to the companion through the API in lib/plugins.
   island_plugin_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/island_plugin_foundation
-      ref: eb98d3a3f230214fc339471e28e7f573cf2a0c4c
+      ref: 8316e8583bcba2c73965560cb91f92d8c768485c
   solar_network_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_foundation
-      ref: eb98d3a3f230214fc339471e28e7f573cf2a0c4c
+      ref: 8316e8583bcba2c73965560cb91f92d8c768485c
   # The step-up elevation area of the foundation package hands the host a
   # `SolarNetworkClient` to talk Stargate with, and the app builds that one over
   # the Dio it already authenticates with (lib/auth/auth_wiring.dart) rather
@@ -87,7 +87,7 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_sdk
-      ref: eb98d3a3f230214fc339471e28e7f573cf2a0c4c
+      ref: 8316e8583bcba2c73965560cb91f92d8c768485c
   # The release side of Solsynth Express: the client that asks whether a newer
   # build exists, and the sheet that offers it. lib/shared/app_update.dart is
   # the only place the app reaches for it.
@@ -95,7 +95,7 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solsynth_express
-      ref: eb98d3a3f230214fc339471e28e7f573cf2a0c4c
+      ref: 8316e8583bcba2c73965560cb91f92d8c768485c
   hooks_riverpod: ^3.4.3
   window_manager:
     git:
